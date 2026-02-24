@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Settings - Web to Comic</title>
+  <link rel="stylesheet" href="options.css">
+</head>
+<body>
+  <div class="options-container">
+    <header class="options-header">
+      <h1>Web to Comic Settings</h1>
+    </header>
+
+    <nav class="options-nav">
+      <button class="nav-btn active" data-section="general">General</button>
+      <button class="nav-btn" data-section="providers">Providers</button>
+      <button class="nav-btn" data-section="storage">Storage</button>
+      <button class="nav-btn" data-section="about">About</button>
+    </nav>
+
+    <main class="options-main">
+      <!-- General Settings -->
+      <section id="general-section" class="settings-section active">
+        <h2>General Settings</h2>
+        
+        <div class="setting-group">
+          <h3>Generation Defaults</h3>
+          
+          <div class="setting-item">
+            <label for="default-panel-count">Default Panel Count</label>
+            <select id="default-panel-count">
+              <option value="3">3 panels</option>
+              <option value="4">4 panels</option>
+              <option value="5">5 panels</option>
+              <option value="6" selected>6 panels</option>
+              <option value="8">8 panels</option>
+              <option value="10">10 panels</option>
+              <option value="12">12 panels</option>
+            </select>
+            <p class="setting-description">Number of panels in generated comics</p>
+          </div>
+
+          <div class="setting-item">
+            <label for="default-detail">Detail Level</label>
+            <select id="default-detail">
+              <option value="low">Low - Faster, simpler</option>
+              <option value="medium" selected>Medium - Balanced</option>
+              <option value="high">High - More detailed</option>
+            </select>
+          </div>
+
+          <div class="setting-item">
+            <label for="default-style">Default Style</label>
+            <select id="default-style">
+              <option value="default" selected>Default (Classic Comic)</option>
+              <option value="noir">Noir (Dark & Dramatic)</option>
+              <option value="minimalist">Minimalist</option>
+              <option value="manga">Manga (Anime)</option>
+              <option value="superhero">Superhero</option>
+              <option value="watercolor">Watercolor</option>
+              <option value="pixel">Pixel Art</option>
+              <option value="custom">Custom...</option>
+            </select>
+          </div>
+
+          <div id="default-custom-style-container" class="setting-item" style="display: none;">
+            <label for="default-custom-style">Custom Style Description</label>
+            <textarea id="default-custom-style" class="textarea" rows="2" placeholder="Describe your desired style, e.g., 'vintage 1950s comic', 'steampunk illustration'..."></textarea>
+          </div>
+
+          <div class="setting-item">
+            <label for="default-caption">Caption Length</label>
+            <select id="default-caption">
+              <option value="short" selected>Short</option>
+              <option value="medium">Medium</option>
+              <option value="long">Long</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="setting-group">
+          <h3>Behavior</h3>
+          
+          <div class="setting-item checkbox">
+            <label>
+              <input type="checkbox" id="auto-open-panel" checked>
+              <span>Automatically open comic viewer after generation</span>
+            </label>
+          </div>
+
+          <div class="setting-item checkbox">
+            <label>
+              <input type="checkbox" id="character-consistency">
+              <span>Enable character consistency mode</span>
+            </label>
+            <p class="setting-description">Maintains consistent character appearance across panels</p>
+          </div>
+        </div>
+
+        <div class="actions">
+          <button id="save-general-btn" class="btn primary">Save Settings</button>
+        </div>
+      </section>
+
+      <!-- Providers Settings -->
+      <section id="providers-section" class="settings-section">
+        <h2>Provider Configuration</h2>
+        
+        <div class="provider-presets">
+          <h3>Provider Presets</h3>
+          
+          <div class="provider-card active" data-provider="gemini-free">
+            <div class="provider-header">
+              <h4>Google Gemini (Free Tier)</h4>
+              <span class="badge free">Free</span>
+            </div>
+            <p>Text generation and image generation. Free tier available with rate limits.</p>
+            <div class="provider-cost">Cost: Free (with limits)</div>
+            <div class="provider-status" id="gemini-status">
+              <span class="status-indicator"></span>
+              <span>Not configured</span>
+            </div>
+            <div class="provider-config">
+              <label>API Key</label>
+              <input type="password" id="gemini-api-key" placeholder="Enter Gemini API key">
+              <button class="btn small secondary validate-btn" data-provider="gemini">Validate</button>
+            </div>
+          </div>
+
+          <div class="provider-card" data-provider="cloudflare-free">
+            <div class="provider-header">
+              <h4>Cloudflare Workers AI</h4>
+              <span class="badge free">Free</span>
+            </div>
+            <p>Text generation using Workers AI. Free daily neuron allocation.</p>
+            <div class="provider-cost">Cost: Free (15k neurons/day)</div>
+            <div class="provider-status" id="cloudflare-status">
+              <span class="status-indicator"></span>
+              <span>Ready (no key required)</span>
+            </div>
+          </div>
+
+          <div class="provider-card" data-provider="chrome-summarizer">
+            <div class="provider-header">
+              <h4>Chrome Built-in Summarization</h4>
+              <span class="badge free">Local</span>
+            </div>
+            <p>Text-only summarization using Chrome's built-in API. No data leaves your browser.</p>
+            <div class="provider-cost">Cost: Free (local processing)</div>
+            <div class="provider-status">
+              <span class="status-indicator ready"></span>
+              <span>Experimental</span>
+            </div>
+          </div>
+
+          <div class="provider-card" data-provider="openai">
+            <div class="provider-header">
+              <h4>OpenAI (GPT & DALL-E)</h4>
+              <span class="badge paid">Paid</span>
+            </div>
+            <p>Text generation with GPT models and image generation with DALL-E.</p>
+            <div class="provider-cost">Cost: Pay-per-use (see OpenAI pricing)</div>
+            <div class="provider-status" id="openai-status">
+              <span class="status-indicator"></span>
+              <span>Not configured</span>
+            </div>
+            <div class="provider-config">
+              <label>API Key</label>
+              <input type="password" id="openai-api-key" placeholder="sk-...">
+              <button class="btn small secondary validate-btn" data-provider="openai">Validate</button>
+            </div>
+            <div class="model-selection">
+              <div class="model-item">
+                <label>Text Model</label>
+                <select id="openai-text-model" class="model-select">
+                  <option value="gpt-4o">GPT-4o (Recommended)</option>
+                  <option value="gpt-4o-mini">GPT-4o Mini (Fast)</option>
+                  <option value="gpt-4-turbo">GPT-4 Turbo</option>
+                  <option value="gpt-3.5-turbo">GPT-3.5 Turbo (Cheapest)</option>
+                </select>
+              </div>
+              <div class="model-item">
+                <label>Image Model</label>
+                <select id="openai-image-model" class="model-select">
+                  <option value="dall-e-3">DALL-E 3 (Recommended)</option>
+                  <option value="dall-e-2">DALL-E 2</option>
+                </select>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="actions">
+          <button id="save-providers-btn" class="btn primary">Save Providers</button>
+        </div>
+      </section>
+
+      <!-- Storage Settings -->
+      <section id="storage-section" class="settings-section">
+        <h2>Storage & History</h2>
+        
+        <div class="setting-group">
+          <h3>Storage Usage</h3>
+          
+          <div class="storage-info">
+            <div class="storage-item">
+              <span>Comic History</span>
+              <span id="history-size">0 comics</span>
+            </div>
+            <div class="storage-item">
+              <span>Cached Images</span>
+              <span id="cache-size">0 MB</span>
+            </div>
+            <div class="storage-item">
+              <span>Settings</span>
+              <span id="settings-size">~1 KB</span>
+            </div>
+          </div>
+
+          <div class="setting-item">
+            <label for="max-cache-size">Maximum Cache Size (MB)</label>
+            <input type="number" id="max-cache-size" value="100" min="10" max="500">
+          </div>
+
+          <div class="setting-item">
+            <label for="history-retention">History Retention (days)</label>
+            <input type="number" id="history-retention" value="30" min="1" max="365">
+          </div>
+        </div>
+
+        <div class="setting-group">
+          <h3>Data Management</h3>
+          
+          <div class="actions">
+            <button id="clear-history-btn" class="btn danger">Clear History</button>
+            <button id="clear-cache-btn" class="btn danger">Clear Image Cache</button>
+            <button id="export-data-btn" class="btn secondary">Export All Data</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- About Section -->
+      <section id="about-section" class="settings-section">
+        <h2>About Web to Comic</h2>
+        
+        <div class="about-info">
+          <div class="about-logo">
+            <img src="../icons/icon48.png" alt="Web to Comic" width="64" height="64">
+          </div>
+          <h3>Web to Comic</h3>
+          <p class="version">Version 1.0.0</p>
+          <p class="description">
+            Transform any web page into an engaging comic strip summary. 
+            Uses AI to generate panel-by-panel narratives with images.
+          </p>
+        </div>
+
+        <div class="about-links">
+          <h4>Links</h4>
+          <ul>
+            <li><a href="#" id="link-privacy">Privacy Policy</a></li>
+            <li><a href="#" id="link-terms">Terms of Service</a></li>
+            <li><a href="#" id="link-support">Support</a></li>
+          </ul>
+        </div>
+
+        <div class="about-credits">
+          <h4>Credits</h4>
+          <p>Built with Chrome Extensions Manifest V3</p>
+          <p>Powered by Google Gemini & Cloudflare Workers AI</p>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <div id="toast" class="toast hidden">
+    <span id="toast-message"></span>
+  </div>
+
+  <script src="options.js" type="module"></script>
+</body>
+</html>

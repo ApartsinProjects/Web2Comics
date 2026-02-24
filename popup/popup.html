@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Web to Comic</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="popup-container">
+    <header class="popup-header">
+      <div class="logo">
+        <img src="../icons/icon48.png" alt="Web to Comic" width="24" height="24">
+        <span>Web to Comic</span>
+      </div>
+      <button id="settings-btn" class="icon-btn" title="Settings">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+          <path d="M8 4a1.5 1.5 0 100 3 1.5 1.5 0 000-3zM5.5 8a2.5 2.5 0 115 0 2.5 2.5 0 01-5 0z"/>
+          <path fill-rule="evenodd" d="M6.64 1.31a1 1 0 01.86-.31h1a1 1 0 01.86.31l.64.55a.5.5 0 00.42.16l.77-.15a1 1 0 01.88.36l.6.7a.5.5 0 01.18.4l-.04.77a1 1 0 01-.36.88l-.55.64a1 1 0 010 1.24l.55.64a1 1 0 01.36.88l.04.77a.5.5 0 01-.18.4l-.6.7a1 1 0 01-.88.36l-.77-.15a.5.5 0 00-.42.16l-.64.55a1 1 0 01-.86.31h-1a1 1 0 01-.86-.31l-.64-.55a.5.5 0 00-.42-.16l-.77.15a1 1 0 01-.88-.36l-.6-.7a.5.5 0 01-.18-.4l.04-.77a1 1 0 01.36-.88l.55-.64a1 1 0 010-1.24l-.55-.64a1 1 0 01-.36-.88l-.04-.77a.5.5 0 01.18-.4l.6-.7a1 1 0 01.88-.36l.77.15a.5.5 0 00.42-.16l.64-.55zM8 10a2 2 0 100-4 2 2 0 000 4z"/>
+        </svg>
+      </button>
+    </header>
+
+    <main class="popup-main">
+      <section id="onboarding-section" class="section hidden">
+        <div class="onboarding">
+          <h2>Welcome to Web to Comic!</h2>
+          <p>Transform any web page into an engaging comic strip summary.</p>
+          <div class="onboarding-steps">
+            <div class="step">
+              <span class="step-number">1</span>
+              <span>Select your content source</span>
+            </div>
+            <div class="step">
+              <span class="step-number">2</span>
+              <span>Choose a provider (free options available)</span>
+            </div>
+            <div class="step">
+              <span class="step-number">3</span>
+              <span>Generate your comic!</span>
+            </div>
+          </div>
+          <button id="onboarding-start-btn" class="btn primary">Get Started</button>
+        </div>
+      </section>
+
+      <section id="main-section" class="section">
+        <div class="content-source">
+          <label class="label">Content Source</label>
+          <div class="radio-group">
+            <label class="radio-label">
+              <input type="radio" name="contentSource" value="full" checked>
+              <span>Full page</span>
+            </label>
+            <label class="radio-label">
+              <input type="radio" name="contentSource" value="selection">
+              <span>Selected text</span>
+            </label>
+          </div>
+        </div>
+
+        <div class="extracted-preview">
+          <div class="preview-header">
+            <span class="label">Extracted Content</span>
+            <button id="refresh-preview-btn" class="btn small secondary">Refresh</button>
+          </div>
+          <div id="preview-text" class="preview-text">
+            <span class="loading">Loading...</span>
+          </div>
+          <div class="char-count">
+            <span id="char-count">0</span> characters
+          </div>
+        </div>
+
+        <div class="settings-grid">
+          <div class="setting-item">
+            <label class="label">Panels</label>
+            <select id="panel-count" class="select">
+              <option value="3">3 panels</option>
+              <option value="4">4 panels</option>
+              <option value="5">5 panels</option>
+              <option value="6" selected>6 panels</option>
+              <option value="8">8 panels</option>
+              <option value="10">10 panels</option>
+              <option value="12">12 panels</option>
+            </select>
+          </div>
+
+          <div class="setting-item">
+            <label class="label">Detail</label>
+            <select id="detail-level" class="select">
+              <option value="low">Low</option>
+              <option value="medium" selected>Medium</option>
+              <option value="high">High</option>
+            </select>
+          </div>
+
+          <div class="setting-item full-width">
+            <label class="label">Style</label>
+            <select id="style-preset" class="select">
+              <option value="default">Default (Classic Comic)</option>
+              <option value="noir">Noir (Dark & Dramatic)</option>
+              <option value="minimalist">Minimalist</option>
+              <option value="manga">Manga (Anime)</option>
+              <option value="superhero">Superhero</option>
+              <option value="watercolor">Watercolor</option>
+              <option value="pixel">Pixel Art</option>
+              <option value="custom">Custom...</option>
+            </select>
+          </div>
+
+          <div id="custom-style-container" class="setting-item full-width hidden">
+            <label class="label">Custom Style Description</label>
+            <textarea id="custom-style-input" class="textarea" placeholder="Describe your desired style, e.g., 'vintage 1950s comic book', 'steampunk illustration', 'watercolor landscape with soft colors'..."></textarea>
+            <span class="setting-hint">Optional: Describe the visual style, mood, or theme you want</span>
+          </div>
+
+          <div class="setting-item full-width">
+            <label class="label">Provider</label>
+            <select id="provider-preset" class="select">
+              <option value="gemini-free">Google Gemini (Free tier)</option>
+              <option value="openai">OpenAI (GPT-4 + DALL-E)</option>
+              <option value="cloudflare-free">Cloudflare Workers AI (Free)</option>
+              <option value="chrome-summarizer">Chrome Summarizer (Local)</option>
+            </select>
+            <span id="provider-info" class="provider-info">Free tier available</span>
+          </div>
+        </div>
+
+        <div id="api-key-warning" class="warning hidden">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+            <path d="M8 1.5a6.5 6.5 0 100 13 6.5 6.5 0 000-13zM0 8a8 8 0 1116 0A8 8 0 010 8z"/>
+            <path d="M8 4a.75.75 0 01.75.75v3.5a.75.75 0 01-1.5 0v-3.5A.75.75 0 018 4zm0 8a1 1 0 100-2 1 1 0 000 2z"/>
+          </svg>
+          <span>API key required. <a href="#" id="configure-key-link">Configure</a></span>
+        </div>
+
+        <div class="action-buttons">
+          <button id="generate-btn" class="btn primary full-width">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+              <path d="M11.28 3.22a.75.75 0 00-1.06 1.06l2.25 2.25a.75.75 0 001.06 0l2.25-2.25a.75.75 0 00-1.06-1.06l-1.72 1.72-1.72-1.72z"/>
+              <path fill-rule="evenodd" d="M14 8A6 6 0 102 8a6 6 0 0012 0zM1.5 8a12 12 0 1123.18-3.22.75.75 0 10-1.06-1.06A10.5 10.5 0 008 1.5a10.5 10.5 0 00-8.72 4.22.75.75 0 001.06 1.06A12 12 0 011.5 8z"/>
+            </svg>
+            Generate Comic
+          </button>
+          <button id="open-viewer-btn" class="btn secondary full-width" disabled>
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+              <path d="M1 3.5A1.5 1.5 0 012.5 2h11A1.5 1.5 0 0115 3.5v9a1.5 1.5 0 01-1.5 1.5h-11A1.5 1.5 0 011 12.5v-9zM2.5 3a.5.5 0 00-.5.5v9a.5.5 0 00.5.5h11a.5.5 0 00.5-.5v-9a.5.5 0 00-.5-.5h-11z"/>
+              <path d="M4 6h8v4H4V6z"/>
+            </svg>
+            Open Comic Viewer
+          </button>
+        </div>
+      </section>
+
+      <section id="progress-section" class="section hidden">
+        <div class="progress-container">
+          <h3>Generating Comic</h3>
+          <div id="progress-status" class="progress-status">Preparing...</div>
+          
+          <div class="progress-bar-container">
+            <div id="progress-bar" class="progress-bar"></div>
+          </div>
+          
+          <div id="panel-progress" class="panel-progress">
+            <!-- Panel progress items will be inserted here -->
+          </div>
+          
+          <button id="cancel-btn" class="btn danger">Cancel</button>
+        </div>
+      </section>
+    </main>
+
+    <footer class="popup-footer">
+      <button id="history-btn" class="link-btn">History</button>
+      <span class="version">v1.0</span>
+    </footer>
+  </div>
+
+  <div id="history-modal" class="modal hidden">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3>Generation History</h3>
+        <button class="close-btn" id="close-history-btn">&times;</button>
+      </div>
+      <div id="history-list" class="history-list">
+        <p class="empty-state">No comics generated yet</p>
+      </div>
+      <div class="modal-footer">
+        <button id="clear-history-btn" class="btn danger small">Clear All</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="popup.js" type="module"></script>
+</body>
+</html>

@@ -1,0 +1,17 @@
+{
+  "name": "web-to-comin-tests",
+  "version": "1.0.0",
+  "description": "Tests for Web to Comic Chrome Extension",
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:e2e": "playwright test",
+    "test:e2e:headed": "playwright test --headed",
+    "test:all": "npm run test && npm run test:e2e"
+  },
+  "devDependencies": {
+    "vitest": "^1.2.0",
+    "@playwright/test": "^1.41.0",
+    "jsdom": "^24.0.0"
+  }
+}
