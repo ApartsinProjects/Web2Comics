@@ -9,6 +9,28 @@ Web2Comics is a Chrome extension that:
 - shows the result in a comic viewer side panel
 - saves history and exports a single composite comic image
 
+## Install (Easy ZIP Method)
+
+### Option A: Download ZIP (recommended for non-developers)
+
+1. Open this repository on GitHub.
+2. Click `Code` -> `Download ZIP`.
+3. Extract the ZIP to a folder (for example `C:\Web2Comics`).
+4. Open Chrome and go to `chrome://extensions`.
+5. Turn on `Developer mode` (top-right).
+6. Click `Load unpacked`.
+7. Select the extracted `Web2Comics` folder (the folder containing `manifest.json`).
+8. (Optional) Pin the extension from Chrome’s extensions menu.
+
+### Option B: Clone the repo (developer workflow)
+
+```powershell
+git clone <your-repo-url>
+cd Web2Comics
+```
+
+Then load it in Chrome using the same `chrome://extensions` -> `Load unpacked` steps above.
+
 ## What You Can Do
 
 - Generate comics from articles, docs, blog posts, and reference pages
@@ -63,28 +85,6 @@ These examples were generated from the same `cnn.com` page using different provi
 ### Cloudflare Workers AI
 
 ![Cloudflare CNN comic sample](samplecomics/2026-02-25_13-38-32/cloudflare-cnn-comic-sheet.png)
-
-## Install (Easy ZIP Method)
-
-### Option A: Download ZIP (recommended for non-developers)
-
-1. Open this repository on GitHub.
-2. Click `Code` -> `Download ZIP`.
-3. Extract the ZIP to a folder (for example `C:\Web2Comics`).
-4. Open Chrome and go to `chrome://extensions`.
-5. Turn on `Developer mode` (top-right).
-6. Click `Load unpacked`.
-7. Select the extracted `Web2Comics` folder (the folder containing `manifest.json`).
-8. (Optional) Pin the extension from Chrome’s extensions menu.
-
-### Option B: Clone the repo (developer workflow)
-
-```powershell
-git clone <your-repo-url>
-cd Web2Comics
-```
-
-Then load it in Chrome using the same `chrome://extensions` -> `Load unpacked` steps above.
 
 ## First-Time Setup (Recommended Free-Tier Start)
 
