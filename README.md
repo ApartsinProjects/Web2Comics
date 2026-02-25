@@ -48,6 +48,22 @@ Web2Comics also supports automatic fallback to other configured providers when a
 - Test different model combinations
 - Use model test buttons in `Options -> Providers`
 
+## Sample Comics (Real Provider Runs)
+
+These examples were generated from the same `cnn.com` page using different providers and exported from Web2Comics as single PNG comic sheets.
+
+### OpenAI
+
+![OpenAI CNN comic sample](samplecomics/2026-02-25_13-38-32/openai-cnn-comic-sheet.png)
+
+### Gemini
+
+![Gemini CNN comic sample](samplecomics/2026-02-25_13-38-32/gemini-cnn-comic-sheet.png)
+
+### Cloudflare Workers AI
+
+![Cloudflare CNN comic sample](samplecomics/2026-02-25_13-38-32/cloudflare-cnn-comic-sheet.png)
+
 ## Install (Easy ZIP Method)
 
 ### Option A: Download ZIP (recommended for non-developers)
@@ -167,4 +183,3 @@ HUGGINGFACE_INFERENCE_API_TOKEN=...
 
 - User manual: `docs/user-manual.html`
 - Additional specs: `SPEC.md`, `INSTALL.md`
-
