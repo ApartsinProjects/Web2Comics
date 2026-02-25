@@ -362,3 +362,159 @@ describe('ChromeSummarizerProvider', () => {
     });
   });
 });
+
+describe('Storyboard Parsing Robustness (realistic provider payloads)', () => {
+  function extractBestJsonObject(rawText) {
+    const raw = String(rawText || '');
+    const fenceMatch = raw.match(/```(?:json)?\s*([\s\S]*?)```/i);
+    const source = fenceMatch && fenceMatch[1] ? fenceMatch[1] : raw;
+
+    // Find the first balanced JSON object instead of using a greedy regex.
+    const start = source.indexOf('{');
+    if (start < 0) throw new Error('No JSON object found');
+    let depth = 0;
+    let inString = false;
+    let escape = false;
+    for (let i = start; i < source.length; i++) {
+      const ch = source[i];
+      if (inString) {
+        if (escape) {
+          escape = false;
+        } else if (ch === '\\') {
+          escape = true;
+        } else if (ch === '"') {
+          inString = false;
+        }
+        continue;
+      }
+      if (ch === '"') {
+        inString = true;
+        continue;
+      }
+      if (ch === '{') depth += 1;
+      if (ch === '}') {
+        depth -= 1;
+        if (depth === 0) return source.slice(start, i + 1);
+      }
+    }
+    throw new Error('Unbalanced JSON object');
+  }
+
+  function normalizeTextValue(value) {
+    if (value == null) return '';
+    if (typeof value === 'string') return value;
+    if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+    if (Array.isArray(value)) {
+      return value.map(normalizeTextValue).filter(Boolean).join(' ').trim();
+    }
+    if (typeof value === 'object') {
+      const candidates = [
+        value.text,
+        value.caption,
+        value.content,
+        value.title,
+        value.summary,
+        value.description,
+        value.value
+      ];
+      for (const candidate of candidates) {
+        const normalized = normalizeTextValue(candidate);
+        if (normalized) return normalized;
+      }
+      return '';
+    }
+    return '';
+  }
+
+  function parseStoryboardLoose(responseText) {
+    const parsed = JSON.parse(extractBestJsonObject(responseText));
+    let panelCandidates = [];
+    if (Array.isArray(parsed)) panelCandidates = parsed;
+    else if (Array.isArray(parsed.panels)) panelCandidates = parsed.panels;
+    else if (parsed.storyboard && Array.isArray(parsed.storyboard.panels)) panelCandidates = parsed.storyboard.panels;
+    else if (parsed.comic && Array.isArray(parsed.comic.panels)) panelCandidates = parsed.comic.panels;
+    else if (Array.isArray(parsed.frames)) panelCandidates = parsed.frames;
+    else if (Array.isArray(parsed.scenes)) panelCandidates = parsed.scenes;
+    else if (Array.isArray(parsed.shots)) panelCandidates = parsed.shots;
+    else if (Array.isArray(parsed.slides)) panelCandidates = parsed.slides;
+    else if (Array.isArray(parsed.items)) panelCandidates = parsed.items;
+
+    const panels = panelCandidates.map((p, i) => {
+      const beat = normalizeTextValue(p?.beat_summary ?? p?.summary ?? p?.beat ?? p?.description ?? p?.text);
+      const caption = normalizeTextValue(p?.caption ?? p?.title ?? p?.dialogue) || beat || `Panel ${i + 1}`;
+      const imagePrompt = normalizeTextValue(
+        p?.image_prompt ?? p?.prompt ?? p?.imagePrompt ?? p?.visual_prompt ?? p?.visual
+      ) || `Comic panel illustration of: ${caption}`;
+      return {
+        panel_id: `panel_${i + 1}`,
+        beat_summary: beat,
+        caption,
+        image_prompt: imagePrompt
+      };
+    }).filter((p) => p.caption || p.image_prompt);
+
+    if (!panels.length) throw new Error('No panels found');
+    return { panels };
+  }
+
+  it('parses JSON wrapped in markdown fences and extra prose', () => {
+    const raw = [
+      'Sure, here is the storyboard:',
+      '```json',
+      '{"title":"x","panels":[{"caption":"One","image_prompt":"Prompt one"}]}',
+      '```',
+      'Done.'
+    ].join('\n');
+
+    const result = parseStoryboardLoose(raw);
+    expect(result.panels).toHaveLength(1);
+    expect(result.panels[0].caption).toBe('One');
+    expect(result.panels[0].image_prompt).toBe('Prompt one');
+  });
+
+  it('parses alternate panel array keys used by some providers', () => {
+    const raw = JSON.stringify({
+      items: [
+        { title: 'Opening beat', visual: 'A city skyline at dawn' },
+        { title: 'Conflict', visual_prompt: 'Crowd reacts in panic' }
+      ]
+    });
+
+    const result = parseStoryboardLoose(raw);
+    expect(result.panels.length).toBeGreaterThanOrEqual(1);
+    expect(result.panels[0].caption).toContain('Opening');
+  });
+
+  it('normalizes object and array caption/image fields instead of rendering [object Object]', () => {
+    const raw = JSON.stringify({
+      panels: [
+        {
+          caption: { text: 'Object caption text' },
+          image_prompt: ['comic', 'robot', 'city']
+        },
+        {
+          summary: { content: 'Nested summary value' },
+          prompt: { value: 'Nested prompt value' }
+        }
+      ]
+    });
+
+    const result = parseStoryboardLoose(raw);
+    expect(result.panels[0].caption).toBe('Object caption text');
+    expect(result.panels[0].image_prompt).toContain('comic robot city');
+    expect(result.panels[1].caption).toContain('Nested summary value');
+    expect(result.panels[1].image_prompt).toContain('Nested prompt value');
+    expect(result.panels.map((p) => p.caption).join(' ')).not.toContain('[object Object]');
+  });
+
+  it('synthesizes a fallback image prompt when caption exists but image prompt is missing', () => {
+    const raw = JSON.stringify({
+      panels: [
+        { caption: 'Detective enters the room' }
+      ]
+    });
+    const result = parseStoryboardLoose(raw);
+    expect(result.panels[0].image_prompt).toContain('Comic panel illustration of');
+    expect(result.panels[0].image_prompt).toContain('Detective enters the room');
+  });
+});

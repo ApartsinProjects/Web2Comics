@@ -91,6 +91,7 @@ body {
   font-size: 12px;
   font-weight: 700;
   flex: 0 0 auto;
+  cursor: pointer;
 }
 
 .help-link-icon:hover {
@@ -102,6 +103,10 @@ body {
   width: 18px;
   height: 18px;
   font-size: 10px;
+}
+
+button.help-link-icon.header-icon-button {
+  padding: 0;
 }
 
 .header-mode-toggle {
@@ -389,6 +394,342 @@ body {
   font-size: 14px;
 }
 
+/* Phase-1 preset-id implementations: distinct visual behavior for each named layout preset. */
+
+/* Strip family */
+.comic-display.preset-id-classic-strip .comic-strip .panel {
+  width: clamp(210px, 34vw, 250px);
+  min-width: clamp(210px, 34vw, 250px);
+}
+
+.comic-display.preset-id-split-2-horizontal .comic-strip .panel {
+  width: clamp(260px, 45vw, 340px);
+  min-width: clamp(260px, 45vw, 340px);
+}
+
+.comic-display.preset-id-filmstrip .comic-strip {
+  gap: 6px;
+  padding-bottom: 8px;
+}
+
+.comic-display.preset-id-filmstrip .comic-strip .panel {
+  width: 165px;
+  min-width: 165px;
+  border-radius: 8px;
+}
+
+.comic-display.preset-id-filmstrip .comic-strip .panel-caption {
+  min-height: 44px;
+  font-size: 11px;
+  padding: 6px 8px 7px;
+}
+
+/* Panel grid families */
+.comic-display.preset-id-single-panel-full .comic-panels:not(.hidden) {
+  grid-template-columns: 1fr;
+}
+
+.comic-display.preset-id-single-panel-full .comic-panels .panel {
+  max-width: 100%;
+}
+
+.comic-display.preset-id-single-panel-full .comic-panels .panel-image {
+  aspect-ratio: 16 / 10;
+}
+
+.comic-display.preset-id-split-2-vertical .comic-panels:not(.hidden) {
+  grid-template-columns: 1fr;
+  gap: 12px;
+}
+
+.comic-display.preset-id-split-2-vertical .comic-panels .panel-image {
+  aspect-ratio: 16 / 9;
+}
+
+.comic-display.preset-id-stack-3-vertical .comic-panels:not(.hidden) {
+  grid-template-columns: 1fr;
+  gap: 10px;
+}
+
+.comic-display.preset-id-stack-3-vertical .comic-panels .panel {
+  border-radius: 10px;
+}
+
+.comic-display.preset-id-grid-4 .comic-panels:not(.hidden) {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.comic-display.preset-id-grid-6 .comic-panels:not(.hidden) {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.comic-display.preset-id-grid-6 .comic-panels .panel-caption {
+  font-size: 12px;
+}
+
+.comic-display.preset-id-grid-9 .comic-panels:not(.hidden) {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.comic-display.preset-id-grid-9 .comic-panels .panel {
+  border-radius: 8px;
+}
+
+.comic-display.preset-id-grid-9 .comic-panels .panel-image {
+  aspect-ratio: 1 / 1;
+}
+
+.comic-display.preset-id-grid-9 .comic-panels .panel-caption {
+  font-size: 11px;
+  padding: 6px 8px;
+}
+
+.comic-display.preset-id-classic-comic-page .comic-panels:not(.hidden) {
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.comic-display.preset-id-classic-comic-page .comic-panels .panel:nth-child(1) { grid-column: span 6; }
+.comic-display.preset-id-classic-comic-page .comic-panels .panel:nth-child(2) { grid-column: span 3; }
+.comic-display.preset-id-classic-comic-page .comic-panels .panel:nth-child(3) { grid-column: span 3; }
+.comic-display.preset-id-classic-comic-page .comic-panels .panel:nth-child(4) { grid-column: span 2; }
+.comic-display.preset-id-classic-comic-page .comic-panels .panel:nth-child(5) { grid-column: span 2; }
+.comic-display.preset-id-classic-comic-page .comic-panels .panel:nth-child(6) { grid-column: span 2; }
+.comic-display.preset-id-classic-comic-page .comic-panels .panel:nth-child(n+7) { grid-column: span 3; }
+
+.comic-display.preset-id-manga-page-rtl .comic-panels:not(.hidden) {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  direction: rtl;
+  gap: 10px;
+}
+
+.comic-display.preset-id-manga-page-rtl .comic-panels .panel {
+  direction: ltr;
+}
+
+.comic-display.preset-id-webtoon-scroll .comic-panels:not(.hidden) {
+  grid-template-columns: 1fr;
+  gap: 14px;
+}
+
+.comic-display.preset-id-webtoon-scroll .comic-panels .panel {
+  border-radius: 16px;
+}
+
+.comic-display.preset-id-webtoon-scroll .comic-panels .panel-image {
+  aspect-ratio: 9 / 16;
+}
+
+.comic-display.preset-id-dominant-supporting .comic-panels:not(.hidden) {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.comic-display.preset-id-dominant-supporting .comic-panels .panel:first-child {
+  grid-column: span 3;
+}
+
+.comic-display.preset-id-dominant-supporting .comic-panels .panel:first-child .panel-image {
+  aspect-ratio: 16 / 9;
+}
+
+.comic-display.preset-id-two-tier .comic-panels:not(.hidden) {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.comic-display.preset-id-two-tier .comic-panels .panel:first-child {
+  grid-column: span 4;
+}
+
+.comic-display.preset-id-two-tier .comic-panels .panel:nth-child(n+2) {
+  grid-column: span 2;
+}
+
+.comic-display.preset-id-three-tier .comic-panels:not(.hidden) {
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.comic-display.preset-id-three-tier .comic-panels .panel:nth-child(1) { grid-column: span 6; }
+.comic-display.preset-id-three-tier .comic-panels .panel:nth-child(2),
+.comic-display.preset-id-three-tier .comic-panels .panel:nth-child(3) { grid-column: span 3; }
+.comic-display.preset-id-three-tier .comic-panels .panel:nth-child(n+4) { grid-column: span 2; }
+
+.comic-display.preset-id-side-gutter-captions .comic-panels:not(.hidden) {
+  grid-template-columns: 1fr;
+  gap: 10px;
+}
+
+.comic-display.preset-id-side-gutter-captions .comic-panels .panel {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 180px;
+  align-items: stretch;
+}
+
+.comic-display.preset-id-side-gutter-captions .comic-panels .panel .panel-image {
+  border-bottom: none;
+  border-right: 1px solid var(--border);
+}
+
+.comic-display.preset-id-side-gutter-captions .comic-panels .panel .panel-caption {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  text-align: left;
+}
+
+.comic-display.preset-id-caption-first .comic-panels:not(.hidden) {
+  grid-template-columns: 1fr;
+  gap: 10px;
+}
+
+.comic-display.preset-id-caption-first .comic-panels .panel {
+  display: flex;
+  flex-direction: column;
+}
+
+.comic-display.preset-id-caption-first .comic-panels .panel:nth-child(odd) .panel-caption {
+  order: -1;
+  border-bottom: 1px solid var(--border);
+  border-top: none;
+}
+
+.comic-display.preset-id-caption-first .comic-panels .panel:nth-child(odd) .panel-image {
+  border-bottom: none;
+}
+
+.comic-display.preset-id-polaroid-collage .comic-panels:not(.hidden) {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  align-items: start;
+}
+
+.comic-display.preset-id-polaroid-collage .comic-panels .panel {
+  padding: 8px 8px 14px;
+  background: #fff;
+  border-radius: 6px;
+  transform-origin: center;
+  box-shadow: 0 10px 18px rgba(15, 23, 42, 0.12);
+}
+
+.comic-display.preset-id-polaroid-collage .comic-panels .panel:nth-child(odd) { transform: rotate(-1.5deg); }
+.comic-display.preset-id-polaroid-collage .comic-panels .panel:nth-child(even) { transform: rotate(1.2deg); }
+
+.comic-display.preset-id-polaroid-collage .comic-panels .panel .panel-image {
+  border: 1px solid #e5e7eb;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.comic-display.preset-id-polaroid-collage .comic-panels .panel .panel-caption {
+  background: transparent;
+  text-align: left;
+  font-style: italic;
+}
+
+.comic-display.preset-id-masonry .comic-panels:not(.hidden) {
+  display: block;
+  column-count: 2;
+  column-gap: 12px;
+}
+
+.comic-display.preset-id-masonry .comic-panels .panel {
+  display: inline-block;
+  width: 100%;
+  margin: 0 0 12px;
+  break-inside: avoid;
+}
+
+.comic-display.preset-id-masonry .comic-panels .panel:nth-child(3n) .panel-image {
+  aspect-ratio: 1 / 1;
+}
+
+.comic-display.preset-id-masonry .comic-panels .panel:nth-child(3n+1) .panel-image {
+  aspect-ratio: 4 / 5;
+}
+
+.comic-display.preset-id-guided-path .comic-panels:not(.hidden) {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.comic-display.preset-id-guided-path .comic-panels .panel {
+  position: relative;
+}
+
+.comic-display.preset-id-guided-path .comic-panels .panel::after {
+  content: "→";
+  position: absolute;
+  right: -12px;
+  top: 40%;
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  background: #eef2ff;
+  color: #4338ca;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  border: 1px solid #c7d2fe;
+  box-shadow: var(--shadow-sm);
+}
+
+.comic-display.preset-id-guided-path .comic-panels .panel:nth-child(2n)::after {
+  content: "↓";
+  right: auto;
+  left: 50%;
+  top: auto;
+  bottom: -12px;
+  transform: translateX(-50%);
+}
+
+.comic-display.preset-id-guided-path .comic-panels .panel:last-child::after {
+  display: none;
+}
+
+/* Carousel family */
+.comic-display.preset-id-carousel .carousel-frame {
+  border-radius: 18px;
+}
+
+.comic-display.preset-id-spotlight .carousel-stage {
+  grid-template-columns: 28px minmax(0, 1fr) 28px;
+}
+
+.comic-display.preset-id-spotlight .carousel-frame {
+  box-shadow: 0 14px 28px rgba(15, 23, 42, 0.16);
+  border-width: 2px;
+}
+
+.comic-display.preset-id-spotlight .carousel-thumbs {
+  gap: 6px;
+}
+
+/* Generation view preset continuity (distinct, lightweight variants) */
+.generation-view.preset-id-filmstrip .gen-panel {
+  min-width: 160px;
+}
+
+.generation-view.preset-id-split-2-horizontal .gen-panel {
+  min-width: 280px;
+}
+
+.generation-view.preset-id-grid-9 .gen-panels {
+  gap: 6px;
+}
+
+.generation-view.preset-id-grid-9 .gen-panel {
+  padding: 8px;
+}
+
+.generation-view.preset-id-webtoon-scroll .gen-panels {
+  display: grid;
+  grid-template-columns: 1fr;
+}
+
 .generation-view.preset-compact-strip .gen-panel {
   min-width: 180px;
 }
@@ -551,6 +892,7 @@ body {
   border-radius: 14px;
   overflow: hidden;
   box-shadow: var(--shadow-sm);
+  transition: transform 140ms ease, box-shadow 140ms ease, border-color 140ms ease;
 }
 
 .comic-strip .panel {
@@ -585,6 +927,35 @@ body {
   height: 100%;
   object-fit: cover;
   display: block;
+  transition: transform 180ms ease;
+  transform-origin: center center;
+}
+
+.panel:hover,
+.panel:focus-within {
+  transform: translateY(-2px) scale(1.01);
+  box-shadow: 0 12px 22px rgba(15, 23, 42, 0.14);
+  border-color: rgba(99, 102, 241, 0.35);
+  z-index: 1;
+}
+
+.panel:hover .panel-image img,
+.panel:focus-within .panel-image img {
+  transform: scale(1.06);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .panel,
+  .panel-image img {
+    transition: none;
+  }
+
+  .panel:hover,
+  .panel:focus-within,
+  .panel:hover .panel-image img,
+  .panel:focus-within .panel-image img {
+    transform: none;
+  }
 }
 
 .panel-caption {

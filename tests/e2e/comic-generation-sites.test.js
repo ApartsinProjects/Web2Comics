@@ -515,11 +515,20 @@ async function startGenerationAndWait(context, extensionId, sourcePage, override
   const pollTimeoutMs = USE_REAL_PROVIDER ? 300000 : 30000;
   const jobResult = await extensionPage.evaluate(async ({ timeoutMs }) => {
     const started = Date.now();
+    let sawJob = false;
 
     while (Date.now() - started < timeoutMs) {
       const { currentJob } = await chrome.storage.local.get('currentJob');
+      if (currentJob) {
+        sawJob = true;
+      }
       if (currentJob && ['completed', 'failed', 'canceled'].includes(currentJob.status)) {
         return currentJob;
+      }
+      // Be tolerant of transient missing reads while the service worker is starting/saving.
+      if (!currentJob && !sawJob) {
+        await new Promise((resolve) => setTimeout(resolve, 250));
+        continue;
       }
       await new Promise((resolve) => setTimeout(resolve, 250));
     }
@@ -1734,6 +1743,486 @@ test.describe('Comic generation across real websites (mocked/real providers)', (
     });
 
     expect(manifest.length).toBe(exportCases.length);
+  });
+
+  test('mocked malformed payload: Gemini markdown storyboard fallback still completes', async ({}, testInfo) => {
+    test.skip(USE_REAL_PROVIDER, 'Malformed mocked payload tests run only in mocked mode');
+    test.setTimeout(90000);
+
+    const { context, userDataDir } = await launchExtensionContext();
+    try {
+      await context.route('https://generativelanguage.googleapis.com/v1beta/models/*:generateContent?key=*', async (route) => {
+        const body = route.request().postDataJSON?.() || {};
+        const isImage = Array.isArray(body.generationConfig?.responseModalities) &&
+          body.generationConfig.responseModalities.includes('image');
+
+        if (isImage) {
+          await route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify({
+              candidates: [{ content: { parts: [{ inlineData: { mimeType: 'image/png', data: TINY_PNG_BASE64 } }] } }]
+            })
+          });
+          return;
+        }
+
+        const markdownStoryboard = [
+          '## Comic Summary',
+          '### Panel 1: Opening',
+          'A quick setup scene in the city.',
+          'Image prompt: comic panel of a city skyline at dawn',
+          '### Panel 2: Reaction',
+          'People react to the headline.',
+          'Image prompt: comic panel of people reacting in a newsroom',
+          '### Panel 3: Resolution',
+          'The article ends with a broader takeaway.',
+          'Image prompt: comic panel of a calm closing scene'
+        ].join('\n');
+
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            candidates: [{ content: { parts: [{ text: markdownStoryboard }] } }]
+          })
+        });
+      });
+
+      const extensionId = await getExtensionId(context);
+      await setupExtensionStorage(context, extensionId, {
+        providerId: 'gemini-free',
+        imageProviderId: 'gemini-free',
+        geminiKey: 'gemini-test-key'
+      });
+
+      const page = await context.newPage();
+      await page.goto('https://httpbin.org/html', { waitUntil: 'domcontentloaded' });
+
+      const job = await startGenerationAndWait(context, extensionId, page, {
+        providerId: 'gemini-free',
+        imageProviderId: 'gemini-free',
+        generationSettings: { debug_flag: true }
+      });
+
+      if (!job || job.status !== 'completed') {
+        const diagnostics = await collectExtensionDiagnostics(context, extensionId);
+        await testInfo.attach('extension-diagnostics.json', {
+          body: Buffer.from(JSON.stringify(diagnostics, null, 2)),
+          contentType: 'application/json'
+        });
+        throw new Error(`Malformed Gemini markdown storyboard test failed: ${JSON.stringify(diagnostics?.currentJob || null, null, 2)}`);
+      }
+
+      expect(job.storyboard?.panels?.length).toBeGreaterThanOrEqual(3);
+      expect(job.storyboard.panels.map((p) => String(p.caption || '')).join(' | ')).toContain('Opening');
+      for (const panel of job.storyboard.panels) {
+        expect(panel.artifacts?.image_blob_ref?.startsWith('data:image/')).toBe(true);
+      }
+
+      const diagnostics = await collectExtensionDiagnostics(context, extensionId);
+      await testInfo.attach('extension-diagnostics.json', {
+        body: Buffer.from(JSON.stringify(diagnostics, null, 2)),
+        contentType: 'application/json'
+      });
+      expect(Array.isArray(diagnostics.debugLogs)).toBe(true);
+    } finally {
+      await context.close();
+      fs.rmSync(userDataDir, { recursive: true, force: true });
+    }
+  });
+
+  test('mocked malformed payload: object captions and missing image prompts are normalized and logged', async ({}, testInfo) => {
+    test.skip(USE_REAL_PROVIDER, 'Malformed mocked payload tests run only in mocked mode');
+    test.setTimeout(90000);
+
+    let imageCounter = 0;
+    const { context, userDataDir } = await launchExtensionContext();
+    try {
+      await context.route('https://api.openai.com/v1/chat/completions', async (route) => {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            choices: [{
+              message: {
+                content: JSON.stringify({
+                  title: 'Malformed-ish Comic',
+                  panels: [
+                    {
+                      caption: { text: 'Object Caption 1' },
+                      beat_summary: { text: 'Beat one object' }
+                    },
+                    {
+                      caption: ['Array', 'Caption', '2'],
+                      prompt: { value: 'Array prompt two' }
+                    },
+                    {
+                      title: 'Third Panel Title'
+                    }
+                  ]
+                })
+              }
+            }]
+          })
+        });
+      });
+
+      await context.route('https://api.openai.com/v1/images/generations', async (route) => {
+        imageCounter += 1;
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ data: [{ url: `https://mock-images.test/malformed-${imageCounter}.png` }] })
+        });
+      });
+      await context.route('https://mock-images.test/**', async (route) => {
+        await route.fulfill({
+          status: 200,
+          contentType: 'image/png',
+          body: Buffer.from(TINY_PNG_BASE64, 'base64')
+        });
+      });
+
+      const extensionId = await getExtensionId(context);
+      await setupExtensionStorage(context, extensionId, {
+        providerId: 'openai',
+        imageProviderId: 'openai',
+        openAiKey: 'sk-test-openai-key'
+      });
+
+      const page = await context.newPage();
+      await page.goto('https://httpbin.org/html', { waitUntil: 'domcontentloaded' });
+
+      const job = await startGenerationAndWait(context, extensionId, page, {
+        providerId: 'openai',
+        imageProviderId: 'openai',
+        generationSettings: { debug_flag: true }
+      });
+
+      if (!job || job.status !== 'completed') {
+        const diagnostics = await collectExtensionDiagnostics(context, extensionId);
+        await testInfo.attach('extension-diagnostics.json', {
+          body: Buffer.from(JSON.stringify(diagnostics, null, 2)),
+          contentType: 'application/json'
+        });
+        throw new Error(`Malformed OpenAI storyboard normalization test failed: ${JSON.stringify(diagnostics?.currentJob || null, null, 2)}`);
+      }
+
+      expect(job.storyboard?.panels?.length).toBeGreaterThanOrEqual(3);
+      const captions = job.storyboard.panels.map((p) => String(p.caption || ''));
+      expect(captions.join(' | ')).toContain('Object Caption 1');
+      expect(captions.join(' | ')).toContain('Array Caption 2');
+      expect(captions.join(' | ')).not.toContain('[object Object]');
+      for (const panel of job.storyboard.panels) {
+        expect(String(panel.image_prompt || '').trim()).not.toBe('');
+        expect(panel.artifacts?.image_blob_ref?.startsWith('data:image/')).toBe(true);
+      }
+
+      const diagnostics = await collectExtensionDiagnostics(context, extensionId);
+      await testInfo.attach('extension-diagnostics.json', {
+        body: Buffer.from(JSON.stringify(diagnostics, null, 2)),
+        contentType: 'application/json'
+      });
+      const fullDebugLogsPage = await context.newPage();
+      let debugEvents = [];
+      try {
+        await fullDebugLogsPage.goto(`chrome-extension://${extensionId}/popup/popup.html`, { waitUntil: 'domcontentloaded' });
+        debugEvents = await fullDebugLogsPage.evaluate(async () => {
+          const { debugLogs } = await chrome.storage.local.get('debugLogs');
+          return (Array.isArray(debugLogs) ? debugLogs : []).map((l) => l && l.event);
+        });
+      } finally {
+        await fullDebugLogsPage.close();
+      }
+      expect(debugEvents).not.toContain('unexpected_output.storyboard.missing_image_prompts');
+
+      const sidePanelPage = await context.newPage();
+      try {
+        await sidePanelPage.goto(`chrome-extension://${extensionId}/sidepanel/sidepanel.html`, { waitUntil: 'domcontentloaded' });
+        await expect(sidePanelPage.locator('#comic-display')).toBeVisible({ timeout: 10000 });
+        const allCaptionText = await sidePanelPage.evaluate(() =>
+          Array.from(document.querySelectorAll('.panel-caption, .carousel-caption-text'))
+            .map((el) => (el.textContent || '').trim())
+            .join(' | ')
+        );
+        expect(allCaptionText).toContain('Object Caption 1');
+        expect(allCaptionText).not.toContain('[object Object]');
+      } finally {
+        await sidePanelPage.close();
+      }
+    } finally {
+      await context.close();
+      fs.rmSync(userDataDir, { recursive: true, force: true });
+    }
+  });
+
+  test('mocked malformed payload matrix: parse retry succeeds across OpenAI/Cloudflare/OpenRouter/Hugging Face', async ({}, testInfo) => {
+    test.skip(USE_REAL_PROVIDER, 'Malformed mocked payload tests run only in mocked mode');
+    test.setTimeout(4 * 60 * 1000);
+
+    const cases = [
+      { id: 'openai', textProvider: 'openai', imageProvider: 'openai', key: 'openAiKey' },
+      { id: 'cloudflare', textProvider: 'cloudflare-free', imageProvider: 'cloudflare-free', key: 'cloudflareToken' },
+      { id: 'openrouter', textProvider: 'openrouter', imageProvider: 'openrouter', key: 'openRouterKey' },
+      { id: 'huggingface', textProvider: 'huggingface', imageProvider: 'huggingface', key: 'huggingFaceKey' }
+    ];
+
+    for (const cfg of cases) {
+      let storyboardCalls = 0;
+      const { context, userDataDir } = await launchExtensionContext();
+      try {
+        if (cfg.id === 'openai') {
+          await context.route('https://api.openai.com/v1/chat/completions', async (route) => {
+            storyboardCalls += 1;
+            if (storyboardCalls === 1) {
+              await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ choices: [{ message: { content: '   \n   ' } }] }) });
+              return;
+            }
+            if (storyboardCalls === 2) {
+              await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ choices: [{ message: { content: '```json\n{"panels":[{"caption":"Retry OpenAI","image_prompt":"comic panel retry openai"}]}\n```' } }] }) });
+              return;
+            }
+            await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ choices: [{ message: { content: '```json\n{"panels":[{"caption":"A","image_prompt":"A"},{"caption":"B","image_prompt":"B"},{"caption":"C","image_prompt":"C"}]}\n```' } }] }) });
+          });
+          await context.route('https://api.openai.com/v1/images/generations', async (route) => {
+            await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ data: [{ url: 'https://mock-images.test/openai-retry.png' }] }) });
+          });
+          await context.route('https://mock-images.test/openai-retry.png', async (route) => {
+            await route.fulfill({ status: 200, contentType: 'image/png', body: Buffer.from(TINY_PNG_BASE64, 'base64') });
+          });
+        } else if (cfg.id === 'cloudflare') {
+          await context.route('https://api.cloudflare.com/**', async (route) => {
+            const req = route.request();
+            const body = req.postDataJSON?.() || {};
+            const url = req.url();
+            const isImage = /flux|stable-diffusion/i.test(url);
+            if (isImage) {
+              await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ success: true, result: { image: TINY_PNG_BASE64 } }) });
+              return;
+            }
+            storyboardCalls += 1;
+            let textOut;
+            if (storyboardCalls === 1) textOut = '   \n';
+            else if (storyboardCalls === 2) textOut = '```json\n{"items":[{"title":"Retry Cloudflare","visual":"comic panel retry cloudflare"}]}\n```';
+            else textOut = '```json\n{"panels":[{"caption":"A","image_prompt":"A"},{"caption":"B","image_prompt":"B"},{"caption":"C","image_prompt":"C"}]}\n```';
+            await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ success: true, result: { response: textOut } }) });
+          });
+        } else if (cfg.id === 'openrouter') {
+          await context.route('https://openrouter.ai/api/v1/chat/completions', async (route) => {
+            const body = route.request().postDataJSON?.() || {};
+            const isImage = Array.isArray(body.modalities) && body.modalities.includes('image');
+            if (isImage) {
+              await route.fulfill({
+                status: 200,
+                contentType: 'application/json',
+                body: JSON.stringify({ choices: [{ message: { images: [{ b64_json: TINY_PNG_BASE64 }] } }] })
+              });
+              return;
+            }
+            storyboardCalls += 1;
+            let content;
+            if (storyboardCalls === 1) content = '  ';
+            else if (storyboardCalls === 2) content = '```json\n{"panels":[{"caption":{"text":"Retry OpenRouter"},"image_prompt":["comic","panel","retry","openrouter"]}]}\n```';
+            else content = '```json\n{"panels":[{"caption":"A","image_prompt":"A"},{"caption":"B","image_prompt":"B"},{"caption":"C","image_prompt":"C"}]}\n```';
+            await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ choices: [{ message: { content } }] }) });
+          });
+        } else if (cfg.id === 'huggingface') {
+          await context.route('https://router.huggingface.co/v1/chat/completions', async (route) => {
+            storyboardCalls += 1;
+            let content;
+            if (storyboardCalls === 1) content = '  ';
+            else if (storyboardCalls === 2) content = '```json\n{"panels":[{"caption":{"text":"Retry HF"},"prompt":{"value":"comic panel retry hf"}}]}\n```';
+            else content = '```json\n{"panels":[{"caption":"A","image_prompt":"A"},{"caption":"B","image_prompt":"B"},{"caption":"C","image_prompt":"C"}]}\n```';
+            await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ choices: [{ message: { content } }] }) });
+          });
+          await context.route('https://router.huggingface.co/hf-inference/models/*', async (route) => {
+            await route.fulfill({ status: 200, contentType: 'image/png', body: Buffer.from(TINY_PNG_BASE64, 'base64') });
+          });
+        }
+
+        const extensionId = await getExtensionId(context);
+        const setupOverrides = {
+          providerId: cfg.textProvider,
+          imageProviderId: cfg.imageProvider,
+          generationSettings: { debug_flag: true }
+        };
+        if (cfg.id === 'openai') setupOverrides.openAiKey = 'sk-test-openai-key';
+        if (cfg.id === 'cloudflare') {
+          setupOverrides.cloudflare = { accountId: 'test-account', apiToken: 'cf-test-token' };
+          setupOverrides.cloudflareToken = 'cf-test-token';
+        }
+        if (cfg.id === 'openrouter') setupOverrides.openrouterKey = 'sk-or-v1-mock-key';
+        if (cfg.id === 'huggingface') setupOverrides.huggingfaceKey = 'hf_test_key';
+        await setupExtensionStorage(context, extensionId, setupOverrides);
+
+        const page = await context.newPage();
+        await page.goto('https://httpbin.org/html', { waitUntil: 'domcontentloaded' });
+        const job = await startGenerationAndWait(context, extensionId, page, {
+          providerId: cfg.textProvider,
+          imageProviderId: cfg.imageProvider,
+          generationSettings: { debug_flag: true }
+        });
+
+        if (!job || job.status !== 'completed') {
+          const diagnostics = await collectExtensionDiagnostics(context, extensionId);
+          await testInfo.attach(`diagnostics-malformed-matrix-${cfg.id}.json`, {
+            body: Buffer.from(JSON.stringify(diagnostics, null, 2)),
+            contentType: 'application/json'
+          });
+          throw new Error(`Malformed retry matrix case failed (${cfg.id}): ${JSON.stringify(diagnostics?.currentJob || null)}`);
+        }
+        expect(job.storyboard?.panels?.length).toBeGreaterThanOrEqual(1);
+        expect(job.storyboard.panels[0].artifacts?.image_blob_ref?.startsWith('data:image/')).toBe(true);
+
+        const logsPage = await context.newPage();
+        let events = [];
+        try {
+          await logsPage.goto(`chrome-extension://${extensionId}/popup/popup.html`, { waitUntil: 'domcontentloaded' });
+          events = await logsPage.evaluate(async () => {
+            const { debugLogs } = await chrome.storage.local.get('debugLogs');
+            return (Array.isArray(debugLogs) ? debugLogs : []).map((l) => l && l.event);
+          });
+        } finally {
+          await logsPage.close();
+        }
+        if (cfg.id === 'openai') {
+          expect(storyboardCalls).toBeGreaterThanOrEqual(2);
+        }
+        if (cfg.id === 'openai') {
+          expect(events).toContain('storyboard.parse_retry');
+        }
+      } finally {
+        await context.close();
+        fs.rmSync(userDataDir, { recursive: true, force: true });
+      }
+    }
+  });
+
+  test('mocked malformed payload: too-few-panels triggers panel-count retry before image generation', async ({}, testInfo) => {
+    test.skip(USE_REAL_PROVIDER, 'Malformed mocked payload tests run only in mocked mode');
+    test.setTimeout(90000);
+
+    let storyboardCalls = 0;
+    const { context, userDataDir } = await launchExtensionContext();
+    try {
+      await context.route('https://api.openai.com/v1/chat/completions', async (route) => {
+        storyboardCalls += 1;
+        const body = route.request().postDataJSON?.() || {};
+        const userText = String(body?.messages?.[1]?.content || '');
+        if (storyboardCalls === 1) {
+          await route.fulfill({
+            status: 200, contentType: 'application/json',
+            body: JSON.stringify({ choices: [{ message: { content: JSON.stringify({ panels: [{ caption: 'Only one', image_prompt: 'one prompt' }] }) } }] })
+          });
+          return;
+        }
+        expect(userText).toContain('REMINDER: Return exactly 3 panels');
+        await route.fulfill({
+          status: 200, contentType: 'application/json',
+          body: JSON.stringify({ choices: [{ message: { content: JSON.stringify({ panels: [
+            { caption: 'One', image_prompt: 'one prompt' },
+            { caption: 'Two', image_prompt: 'two prompt' },
+            { caption: 'Three', image_prompt: 'three prompt' }
+          ] }) } }] })
+        });
+      });
+      let imageCounter = 0;
+      await context.route('https://api.openai.com/v1/images/generations', async (route) => {
+        imageCounter += 1;
+        await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ data: [{ url: `https://mock-images.test/panel-count-${imageCounter}.png` }] }) });
+      });
+      await context.route('https://mock-images.test/**', async (route) => {
+        await route.fulfill({ status: 200, contentType: 'image/png', body: Buffer.from(TINY_PNG_BASE64, 'base64') });
+      });
+
+      const extensionId = await getExtensionId(context);
+      await setupExtensionStorage(context, extensionId, {
+        providerId: 'openai',
+        imageProviderId: 'openai',
+        openAiKey: 'sk-test-openai-key'
+      });
+      const page = await context.newPage();
+      await page.goto('https://httpbin.org/html', { waitUntil: 'domcontentloaded' });
+      const job = await startGenerationAndWait(context, extensionId, page, {
+        providerId: 'openai',
+        imageProviderId: 'openai',
+        generationSettings: { debug_flag: true, panel_count: 3 }
+      });
+
+      if (!job || job.status !== 'completed') {
+        const diagnostics = await collectExtensionDiagnostics(context, extensionId);
+        await testInfo.attach('diagnostics-too-few-panels.json', { body: Buffer.from(JSON.stringify(diagnostics, null, 2)), contentType: 'application/json' });
+        throw new Error(`Panel-count retry test failed: ${JSON.stringify(diagnostics?.currentJob || null)}`);
+      }
+      expect(storyboardCalls).toBeGreaterThanOrEqual(2);
+      expect(job.storyboard?.panels?.length).toBe(3);
+
+      const logsPage = await context.newPage();
+      let events = [];
+      try {
+        await logsPage.goto(`chrome-extension://${extensionId}/popup/popup.html`, { waitUntil: 'domcontentloaded' });
+        events = await logsPage.evaluate(async () => {
+          const { debugLogs } = await chrome.storage.local.get('debugLogs');
+          return (Array.isArray(debugLogs) ? debugLogs : []).map((l) => l && l.event);
+        });
+      } finally {
+        await logsPage.close();
+      }
+      expect(events).toContain('storyboard.panel_count_retry');
+    } finally {
+      await context.close();
+      fs.rmSync(userDataDir, { recursive: true, force: true });
+    }
+  });
+
+  test('mocked malformed payload: empty panels fails fast (no generating_images hang)', async ({}, testInfo) => {
+    test.skip(USE_REAL_PROVIDER, 'Malformed mocked payload tests run only in mocked mode');
+    test.setTimeout(90000);
+
+    const { context, userDataDir } = await launchExtensionContext();
+    try {
+      await context.route('https://api.openai.com/v1/chat/completions', async (route) => {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ choices: [{ message: { content: JSON.stringify({ panels: [] }) } }] })
+        });
+      });
+
+      const extensionId = await getExtensionId(context);
+      await setupExtensionStorage(context, extensionId, {
+        providerId: 'openai',
+        imageProviderId: 'openai',
+        openAiKey: 'sk-test-openai-key'
+      });
+      const page = await context.newPage();
+      await page.goto('https://httpbin.org/html', { waitUntil: 'domcontentloaded' });
+
+      const start = Date.now();
+      const job = await startGenerationAndWait(context, extensionId, page, {
+        providerId: 'openai',
+        imageProviderId: 'openai',
+        generationSettings: { debug_flag: true }
+      });
+      const elapsedMs = Date.now() - start;
+
+      expect(job).toBeTruthy();
+      expect(['failed', 'canceled']).toContain(job.status);
+      expect(String(job.error || '')).toMatch(/no panels|api key not configured|storyboard/i);
+      expect(elapsedMs).toBeLessThan(30000);
+
+      const diagnostics = await collectExtensionDiagnostics(context, extensionId);
+      await testInfo.attach('diagnostics-empty-panels-fast-fail.json', {
+        body: Buffer.from(JSON.stringify(diagnostics, null, 2)),
+        contentType: 'application/json'
+      });
+      const events = (diagnostics?.currentJob?.progressEvents || []).map((e) => e && e.type);
+      expect(events).not.toContain('panel.prompt');
+    } finally {
+      await context.close();
+      fs.rmSync(userDataDir, { recursive: true, force: true });
+    }
   });
 
   test('single-site full provider run (real APIs) saves one downloaded comic strip image per provider', async ({}, testInfo) => {

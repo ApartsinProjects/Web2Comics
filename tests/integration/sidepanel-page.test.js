@@ -43,6 +43,8 @@ describe('Sidepanel Page UX', () => {
 
     global.alert = vi.fn();
     global.confirm = vi.fn(() => true);
+    chrome.storage.onChanged = chrome.storage.onChanged || {};
+    chrome.storage.onChanged.addListener = vi.fn();
 
     chrome.storage.local.get.mockImplementation(async (key) => {
       if (key === 'currentJob') return { currentJob: null };
@@ -187,7 +189,7 @@ describe('Sidepanel Page UX', () => {
     await flush();
     await flush();
 
-    select.value = 'cinema-carousel';
+    select.value = 'carousel';
     select.dispatchEvent(new Event('change', { bubbles: true }));
     await flush();
     await flush();
@@ -196,7 +198,96 @@ describe('Sidepanel Page UX', () => {
     expect(comicDisplay.classList.contains('mode-carousel')).toBe(true);
     expect(carousel.classList.contains('hidden')).toBe(false);
     expect(strip.classList.contains('hidden')).toBe(true);
-    expect(persistedPrefs.layoutPreset).toBe('cinema-carousel');
+    expect(persistedPrefs.layoutPreset).toBe('carousel');
+  });
+
+  it('downloads debug logs from sidepanel header icon', async () => {
+    chrome.storage.local.get.mockImplementation(async (key) => {
+      if (key === 'currentJob') return { currentJob: null };
+      if (key === 'history') return { history: [] };
+      if (key === 'debugLogs') return { debugLogs: [{ event: 'viewer.open' }] };
+      if (key === 'sidepanelPrefs') return { sidepanelPrefs: {} };
+      return {};
+    });
+    const createObjectURL = vi.fn(() => 'blob:test');
+    const revokeObjectURL = vi.fn();
+    global.URL.createObjectURL = createObjectURL;
+    global.URL.revokeObjectURL = revokeObjectURL;
+    const anchorClick = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+
+    await import('../../sidepanel/sidepanel.js');
+    document.dispatchEvent(new Event('DOMContentLoaded'));
+    await flush();
+    await flush();
+
+    document.getElementById('download-logs-sidepanel-btn').click();
+    await flush();
+
+    expect(createObjectURL).toHaveBeenCalled();
+    expect(anchorClick).toHaveBeenCalled();
+  });
+
+  it('asks for confirmation before deleting a history item and only deletes on confirm', async () => {
+    let history = [makeHistoryItem(1), makeHistoryItem(2)];
+    chrome.storage.local.get.mockImplementation(async (key) => {
+      if (key === 'currentJob') return { currentJob: null };
+      if (key === 'history') return { history };
+      if (key === 'sidepanelPrefs') return { sidepanelPrefs: {} };
+      return {};
+    });
+    chrome.storage.local.set.mockImplementation(async (payload) => {
+      if (payload.history) history = payload.history;
+    });
+
+    await import('../../sidepanel/sidepanel.js');
+    document.dispatchEvent(new Event('DOMContentLoaded'));
+    await flush();
+    await flush();
+
+    document.getElementById('mode-history-btn').click();
+    await flush();
+
+    const deleteBtn = document.querySelector('#history-browser-grid .history-item-delete-btn');
+    expect(deleteBtn).toBeTruthy();
+
+    global.confirm = vi.fn(() => false);
+    deleteBtn.click();
+    await flush();
+    expect(global.confirm).toHaveBeenCalledWith('Delete this comic from history?');
+    expect(history).toHaveLength(2);
+
+    global.confirm = vi.fn(() => true);
+    deleteBtn.click();
+    await flush();
+    await flush();
+    expect(history).toHaveLength(1);
+    expect(history[0].id).toBe('history-2');
+  });
+
+  it('shows expanded deduplicated layout preset list', async () => {
+    chrome.storage.local.get.mockImplementation(async (key) => {
+      if (key === 'currentJob') return { currentJob: null };
+      if (key === 'history') return { history: [] };
+      if (key === 'sidepanelPrefs') return { sidepanelPrefs: {} };
+      return {};
+    });
+
+    await import('../../sidepanel/sidepanel.js');
+    document.dispatchEvent(new Event('DOMContentLoaded'));
+    await flush();
+    await flush();
+
+    const select = document.getElementById('layout-preset-select');
+    const values = Array.from(select.options).map((o) => o.value);
+    const labels = Array.from(select.options).map((o) => o.textContent.trim());
+
+    expect(values.length).toBe(22);
+    expect(new Set(values).size).toBe(values.length);
+    expect(labels).toContain('Single panel (Full-page)');
+    expect(labels).toContain('Manga page (Right-to-left flow)');
+    expect(labels).toContain('Webtoon scroll (Vertical strip)');
+    expect(labels).toContain('Carousel (Swipe panels)');
+    expect(labels).toContain('Guided path (Numbered / arrowed flow)');
   });
 
   it('restores persisted layout preset and matching view mode on load', async () => {
@@ -218,7 +309,7 @@ describe('Sidepanel Page UX', () => {
     const panels = document.getElementById('comic-panels');
     const strip = document.getElementById('comic-strip');
 
-    expect(select.value).toBe('reading-grid');
+    expect(select.value).toBe('guided-path');
     expect(comicDisplay.classList.contains('preset-reading-grid')).toBe(true);
     expect(panels.classList.contains('hidden')).toBe(false);
     expect(strip.classList.contains('hidden')).toBe(true);
@@ -283,6 +374,137 @@ describe('Sidepanel Page UX', () => {
     expect(text).toContain('Elapsed');
     expect(text).toContain('Rendering panels');
     expect(text).toContain('ETA:');
+  });
+
+  it('renders generation panel caption text using fallback fields when caption is missing', async () => {
+    chrome.storage.local.get.mockImplementation(async (key) => {
+      if (key === 'currentJob') {
+        return {
+          currentJob: {
+            status: 'generating_images',
+            completedPanels: 0,
+            currentPanelIndex: 0,
+            settings: { panel_count: 2 },
+            storyboard: {
+              panels: [
+                { beat_summary: 'Fallback summary caption', runtime_status: 'rendering', artifacts: {} },
+                { title: 'Alt title caption', runtime_status: 'pending', artifacts: {} }
+              ]
+            }
+          }
+        };
+      }
+      if (key === 'history') return { history: [] };
+      if (key === 'sidepanelPrefs') return { sidepanelPrefs: {} };
+      return {};
+    });
+
+    await import('../../sidepanel/sidepanel.js');
+    document.dispatchEvent(new Event('DOMContentLoaded'));
+    await flush();
+    await flush();
+
+    const captions = Array.from(document.querySelectorAll('#gen-panels .gen-panel-caption')).map((el) => el.textContent || '');
+    expect(captions.join(' ')).toContain('Fallback summary caption');
+    expect(captions.join(' ')).toContain('Alt title caption');
+  });
+
+  it('displays the selected history comic when selectedHistoryComicId is set', async () => {
+    const history = [makeHistoryItem(1), makeHistoryItem(2)];
+    chrome.storage.local.get.mockImplementation(async (key) => {
+      if (Array.isArray(key)) {
+        return { selectedHistoryComicId: 'history-2', history };
+      }
+      if (key === 'currentJob') return { currentJob: null };
+      if (key === 'history') return { history };
+      if (key === 'sidepanelPrefs') return { sidepanelPrefs: {} };
+      return {};
+    });
+
+    await import('../../sidepanel/sidepanel.js');
+    document.dispatchEvent(new Event('DOMContentLoaded'));
+    await flush();
+    await flush();
+    await flush();
+
+    expect(document.getElementById('comic-title').textContent).toContain('CNN Story 2');
+    expect(document.getElementById('comic-display').classList.contains('hidden')).toBe(false);
+  });
+
+  it('shows rate-limit retry countdown in sidepanel generation detail when retryState is present', async () => {
+    chrome.storage.local.get.mockImplementation(async (key) => {
+      if (key === 'currentJob') {
+        return {
+          currentJob: {
+            status: 'generating_images',
+            completedPanels: 1,
+            currentPanelIndex: 1,
+            retryState: {
+              type: 'rate_limit',
+              provider: 'gemini-free',
+              panelIndex: 1,
+              delayMs: 6000,
+              retryAt: new Date(Date.now() + 5000).toISOString()
+            },
+            settings: { panel_count: 3 },
+            storyboard: { panels: [{}, {}, {}] }
+          }
+        };
+      }
+      if (key === 'history') return { history: [] };
+      if (key === 'sidepanelPrefs') return { sidepanelPrefs: {} };
+      return {};
+    });
+
+    await import('../../sidepanel/sidepanel.js');
+    document.dispatchEvent(new Event('DOMContentLoaded'));
+    await flush();
+    await flush();
+
+    const text = String(document.getElementById('gen-status-detail')?.textContent || '');
+    expect(text).toContain('Rate limited');
+    expect(text).toContain('Gemini');
+    expect(text).toContain('retrying panel 2');
+  });
+
+  it('does not alert for canceled jobs and keeps generation canceled status visible', async () => {
+    chrome.storage.local.get.mockImplementation(async (key) => {
+      if (key === 'currentJob') return { currentJob: { id: 'job-cancel', status: 'canceled', settings: { panel_count: 2 }, storyboard: { panels: [{}, {}] } } };
+      if (key === 'history') return { history: [] };
+      if (key === 'sidepanelPrefs') return { sidepanelPrefs: {} };
+      return {};
+    });
+
+    await import('../../sidepanel/sidepanel.js');
+    document.dispatchEvent(new Event('DOMContentLoaded'));
+    await flush();
+    await flush();
+
+    expect(global.alert).not.toHaveBeenCalledWith(expect.stringContaining('Generation was canceled.'));
+    expect(String(document.getElementById('gen-status-text')?.textContent || '')).toContain('Canceled');
+    expect(document.getElementById('generation-view').classList.contains('hidden')).toBe(false);
+  });
+
+  it('shows canceling status immediately when cancel is requested', async () => {
+    chrome.storage.local.get.mockImplementation(async (key) => {
+      if (key === 'currentJob') return { currentJob: { status: 'generating_images', settings: { panel_count: 2 }, storyboard: { panels: [{}, {}] } } };
+      if (key === 'history') return { history: [] };
+      if (key === 'sidepanelPrefs') return { sidepanelPrefs: {} };
+      return {};
+    });
+    chrome.runtime.sendMessage.mockResolvedValue({ success: true });
+
+    await import('../../sidepanel/sidepanel.js');
+    document.dispatchEvent(new Event('DOMContentLoaded'));
+    await flush();
+    await flush();
+
+    const cancelBtn = document.getElementById('cancel-gen-btn');
+    cancelBtn.click();
+    await flush();
+
+    expect(String(document.getElementById('gen-status-text')?.textContent || '')).toContain('Canceling');
+    expect(cancelBtn.disabled).toBe(true);
   });
 
   it('exports a composite comic image on Download using canvas and image APIs', async () => {
@@ -366,6 +588,123 @@ describe('Sidepanel Page UX', () => {
       expect(exportClick).toBeTruthy();
       expect(exportClick.download).toContain('CNN-Story-1-comic-sheet.png');
       expect(exportClick.href.startsWith('data:image/png;base64,')).toBe(true);
+    } finally {
+      document.createElement = originalCreateElement;
+      global.Image = OriginalImage;
+    }
+  });
+
+  it('exports comic using preset-aware layout geometry (different presets produce different canvas sizes)', async () => {
+    const item = makeHistoryItem(1);
+    item.storyboard.panels = Array.from({ length: 6 }, (_, i) => ({
+      caption: `Panel ${i + 1} caption`,
+      artifacts: {
+        image_blob_ref:
+          'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMB/axlF8UAAAAASUVORK5CYII='
+      }
+    }));
+    const history = [item];
+
+    chrome.storage.local.get.mockImplementation(async (key) => {
+      if (key === 'currentJob') return { currentJob: { status: 'completed', storyboard: item.storyboard } };
+      if (key === 'history') return { history };
+      if (key === 'sidepanelPrefs') return { sidepanelPrefs: {} };
+      return {};
+    });
+
+    const originalCreateElement = document.createElement.bind(document);
+    const createdCanvases = [];
+    const fakeGradient = { addColorStop: vi.fn() };
+    function makeCanvas() {
+      const ctx = {
+        beginPath: vi.fn(),
+        moveTo: vi.fn(),
+        arcTo: vi.fn(),
+        closePath: vi.fn(),
+        fillRect: vi.fn(),
+        fill: vi.fn(),
+        stroke: vi.fn(),
+        fillText: vi.fn(),
+        save: vi.fn(),
+        clip: vi.fn(),
+        drawImage: vi.fn(),
+        restore: vi.fn(),
+        createLinearGradient: vi.fn(() => fakeGradient),
+        measureText: vi.fn((text) => ({ width: String(text || '').length * 8 })),
+        font: '',
+        fillStyle: '',
+        strokeStyle: '',
+        lineWidth: 1
+      };
+      const canvas = {
+        width: 0,
+        height: 0,
+        getContext: vi.fn(() => ctx),
+        toDataURL: vi.fn(() => 'data:image/png;base64,ZmFrZS1wbmc=')
+      };
+      canvas._ctx = ctx;
+      return canvas;
+    }
+
+    document.createElement = vi.fn((tagName, ...rest) => {
+      if (String(tagName).toLowerCase() === 'canvas') {
+        const c = makeCanvas();
+        createdCanvases.push(c);
+        return c;
+      }
+      const el = originalCreateElement(tagName, ...rest);
+      if (String(tagName).toLowerCase() === 'a') {
+        el.click = vi.fn();
+      }
+      return el;
+    });
+
+    const OriginalImage = global.Image;
+    global.Image = class FakeImage {
+      constructor() { this.width = 800; this.height = 600; }
+      set src(_value) { setTimeout(() => this.onload && this.onload(), 0); }
+    };
+
+    try {
+      await import('../../sidepanel/sidepanel.js');
+      document.dispatchEvent(new Event('DOMContentLoaded'));
+      await flush();
+      await flush();
+      await new Promise((resolve) => setTimeout(resolve, 10));
+
+      const select = document.getElementById('layout-preset-select');
+      const comicDisplay = document.getElementById('comic-display');
+      const viewer = window.__sidepanelViewer;
+      expect(viewer).toBeTruthy();
+
+      select.value = 'single-panel-full';
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+      await flush();
+      expect(comicDisplay.classList.contains('preset-id-single-panel-full')).toBe(true);
+      createdCanvases.length = 0;
+      await viewer.exportComicAsCompositeImage();
+      await flush();
+      await flush();
+      const first = createdCanvases[0];
+      expect(first).toBeTruthy();
+
+      select.value = 'grid-6';
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+      await flush();
+      expect(comicDisplay.classList.contains('preset-id-grid-6')).toBe(true);
+      createdCanvases.length = 0;
+      await viewer.exportComicAsCompositeImage();
+      await flush();
+      await flush();
+      const second = createdCanvases[0];
+      expect(second).toBeTruthy();
+      expect(first.width).toBe(1200);
+      expect(second.width).toBe(1200);
+      expect(first.height).not.toBe(second.height);
+      expect(first._ctx.drawImage).toHaveBeenCalled();
+      expect(second._ctx.drawImage).toHaveBeenCalled();
+      expect(first._ctx.drawImage.mock.calls.length).toBe(1);
+      expect(second._ctx.drawImage.mock.calls.length).toBeGreaterThan(1);
     } finally {
       document.createElement = originalCreateElement;
       global.Image = OriginalImage;
@@ -475,6 +814,105 @@ describe('Sidepanel Page UX', () => {
     expect(String(global.alert.mock.calls.at(-1)?.[0] || '')).toContain('Original prompt');
   });
 
+  it('renders caption fallback text when panel.caption is missing', async () => {
+    const item = makeHistoryItem(1);
+    item.storyboard.panels = [
+      {
+        beat_summary: 'Fallback beat summary text',
+        artifacts: {
+          image_blob_ref:
+            'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMB/axlF8UAAAAASUVORK5CYII='
+        }
+      }
+    ];
+    chrome.storage.local.get.mockImplementation(async (key) => {
+      if (key === 'currentJob') return { currentJob: { status: 'completed', storyboard: item.storyboard } };
+      if (key === 'history') return { history: [item] };
+      if (key === 'sidepanelPrefs') return { sidepanelPrefs: {} };
+      return {};
+    });
+
+    await import('../../sidepanel/sidepanel.js');
+    document.dispatchEvent(new Event('DOMContentLoaded'));
+    await flush();
+    await flush();
+
+    const panelCaption = document.querySelector('.comic-strip .panel-caption');
+    expect(panelCaption).toBeTruthy();
+    expect(String(panelCaption.textContent)).toContain('Fallback beat summary text');
+
+    const carouselCaption = document.getElementById('carousel-panel-caption-text');
+    expect(String(carouselCaption.textContent)).toContain('Fallback beat summary text');
+  });
+
+  it('normalizes object-shaped caption values instead of rendering [object Object]', async () => {
+    const item = makeHistoryItem(1);
+    item.storyboard.panels = [
+      {
+        caption: { text: 'Caption from object payload' },
+        artifacts: {
+          image_blob_ref:
+            'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMB/axlF8UAAAAASUVORK5CYII='
+        }
+      }
+    ];
+    chrome.storage.local.get.mockImplementation(async (key) => {
+      if (key === 'currentJob') return { currentJob: { status: 'completed', storyboard: item.storyboard } };
+      if (key === 'history') return { history: [item] };
+      if (key === 'sidepanelPrefs') return { sidepanelPrefs: {} };
+      return {};
+    });
+
+    await import('../../sidepanel/sidepanel.js');
+    document.dispatchEvent(new Event('DOMContentLoaded'));
+    await flush();
+    await flush();
+
+    const panelCaption = document.querySelector('.comic-strip .panel-caption');
+    expect(panelCaption).toBeTruthy();
+    expect(String(panelCaption.textContent)).toContain('Caption from object payload');
+    expect(String(panelCaption.textContent)).not.toContain('[object Object]');
+
+    const carouselCaption = document.getElementById('carousel-panel-caption-text');
+    expect(String(carouselCaption.textContent)).toContain('Caption from object payload');
+    expect(String(carouselCaption.textContent)).not.toContain('[object Object]');
+  });
+
+  it('logs caption.missing when a panel has no usable caption fields', async () => {
+    const item = makeHistoryItem(1);
+    item.storyboard.panels = [
+      {
+        panel_id: 'panel_x',
+        artifacts: {
+          image_blob_ref:
+            'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMB/axlF8UAAAAASUVORK5CYII='
+        }
+      }
+    ];
+    const setCalls = [];
+    chrome.storage.local.set.mockImplementation(async (payload) => {
+      setCalls.push(payload);
+    });
+    chrome.storage.local.get.mockImplementation(async (key) => {
+      if (key === 'currentJob') return { currentJob: { status: 'completed', storyboard: item.storyboard } };
+      if (key === 'history') return { history: [item] };
+      if (key === 'sidepanelPrefs') return { sidepanelPrefs: {} };
+      if (key === 'debugLogs') return { debugLogs: [] };
+      return {};
+    });
+
+    await import('../../sidepanel/sidepanel.js');
+    document.dispatchEvent(new Event('DOMContentLoaded'));
+    await flush();
+    await flush();
+
+    const debugSet = setCalls.find((p) => Array.isArray(p.debugLogs));
+    expect(debugSet).toBeTruthy();
+    const last = debugSet.debugLogs.at(-1);
+    expect(last.event).toBe('caption.missing');
+    expect(last.data.panelId).toBe('panel_x');
+  });
+
   it('escapes history/comic text and sanitizes unsafe source links', async () => {
     const malicious = makeHistoryItem(1);
     malicious.id = 'x"><svg onload=alert(1)>';
@@ -515,5 +953,122 @@ describe('Sidepanel Page UX', () => {
     expect(historyTitle.innerHTML).not.toContain('<img');
     const originalLink = document.querySelector('#history-browser-grid .history-source-link');
     expect(originalLink.getAttribute('href')).toBe('#');
+  });
+
+  it('refreshes viewer when currentJob completes while sidepanel is already open', async () => {
+    chrome.storage.local.get.mockImplementation(async (key) => {
+      if (key === 'currentJob') return { currentJob: null };
+      if (key === 'history') return { history: [] };
+      if (key === 'sidepanelPrefs') return { sidepanelPrefs: {} };
+      return {};
+    });
+
+    await import('../../sidepanel/sidepanel.js');
+    document.dispatchEvent(new Event('DOMContentLoaded'));
+    await flush();
+    await flush();
+
+    const listener = chrome.storage.onChanged.addListener.mock.calls[0]?.[0];
+    expect(typeof listener).toBe('function');
+
+    listener({
+      currentJob: {
+        newValue: {
+          id: 'job-completed-live',
+          status: 'completed',
+          storyboard: {
+            source: { url: 'https://www.cnn.com/new', title: 'CNN Live Refresh' },
+            panels: [
+              { beat_summary: 'Live beat A', artifacts: { image_blob_ref: 'data:image/png;base64,aaa' } },
+              { beat_summary: 'Live beat B', artifacts: { image_blob_ref: 'data:image/png;base64,bbb' } }
+            ]
+          }
+        }
+      }
+    }, 'local');
+    await flush();
+    await flush();
+
+    expect(document.getElementById('empty-state').classList.contains('hidden')).toBe(true);
+    expect(document.body.textContent).toContain('Live beat A');
+  });
+
+  it('updates viewer from runtime progress broadcast so multiple open sidepanels can refresh', async () => {
+    chrome.storage.local.get.mockImplementation(async (key) => {
+      if (key === 'currentJob') return { currentJob: null };
+      if (key === 'history') return { history: [] };
+      if (key === 'sidepanelPrefs') return { sidepanelPrefs: {} };
+      return {};
+    });
+
+    await import('../../sidepanel/sidepanel.js');
+    document.dispatchEvent(new Event('DOMContentLoaded'));
+    await flush();
+    await flush();
+
+    const runtimeListener = chrome.runtime.onMessage.addListener.mock.calls[0]?.[0];
+    expect(typeof runtimeListener).toBe('function');
+
+    runtimeListener({
+      type: 'JOB_PROGRESS_BROADCAST',
+      job: {
+        id: 'job-runtime-broadcast',
+        status: 'completed',
+        storyboard: {
+          source: { url: 'https://www.cnn.com/broadcast', title: 'Broadcast Comic' },
+          panels: [
+            { caption: 'Broadcast panel', artifacts: { image_blob_ref: 'data:image/png;base64,aaa' } }
+          ]
+        }
+      }
+    });
+    await flush();
+    await flush();
+
+    expect(document.getElementById('empty-state').classList.contains('hidden')).toBe(true);
+    expect(document.body.textContent).toContain('Broadcast panel');
+  });
+
+  it('keeps generation view visible with failed status and partial panel results on failed job update', async () => {
+    chrome.storage.local.get.mockImplementation(async (key) => {
+      if (key === 'currentJob') return { currentJob: null };
+      if (key === 'history') return { history: [] };
+      if (key === 'sidepanelPrefs') return { sidepanelPrefs: {} };
+      return {};
+    });
+
+    await import('../../sidepanel/sidepanel.js');
+    document.dispatchEvent(new Event('DOMContentLoaded'));
+    await flush();
+    await flush();
+
+    const listener = chrome.storage.onChanged.addListener.mock.calls[0]?.[0];
+    listener({
+      currentJob: {
+        newValue: {
+          id: 'job-failed-live',
+          status: 'failed',
+          error: 'Provider timeout',
+          completedPanels: 1,
+          currentPanelIndex: 1,
+          settings: { panel_count: 3 },
+          storyboard: {
+            panels: [
+              { caption: 'Done panel', runtime_status: 'completed', artifacts: { image_blob_ref: 'data:image/png;base64,aaa' } },
+              { caption: 'Failed panel', runtime_status: 'error', artifacts: {} },
+              { caption: 'Pending panel', runtime_status: 'pending', artifacts: {} }
+            ]
+          }
+        }
+      }
+    }, 'local');
+    await flush();
+    await flush();
+
+    expect(document.getElementById('generation-view').classList.contains('hidden')).toBe(false);
+    expect(document.getElementById('gen-status-title').textContent).toContain('Generation Failed');
+    expect(document.getElementById('gen-status-text').textContent).toContain('Failed');
+    expect(document.getElementById('gen-panels').textContent).toContain('Done panel');
+    expect(global.alert).toHaveBeenCalled();
   });
 });

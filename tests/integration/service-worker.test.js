@@ -277,6 +277,94 @@ describe('Provider Routing', () => {
   });
 });
 
+describe('Storyboard Parse Retry Strategy', () => {
+  function isMalformedStoryboardError(error) {
+    const msg = String((error && error.message) || error || '').toLowerCase();
+    return /failed to parse storyboard|no panels found|no json object found|malformed/i.test(msg);
+  }
+
+  async function generateWithMalformedRetry(mockProvider) {
+    try {
+      return await mockProvider.generateStoryboard({ malformedRetry: false });
+    } catch (error) {
+      if (!isMalformedStoryboardError(error)) throw error;
+      return mockProvider.generateStoryboard({ malformedRetry: true });
+    }
+  }
+
+  it('retries once when storyboard parse is malformed', async () => {
+    const provider = {
+      generateStoryboard: vi.fn()
+        .mockRejectedValueOnce(new Error('Failed to parse storyboard: No JSON object found'))
+        .mockResolvedValueOnce({ panels: [{ caption: 'ok', image_prompt: 'ok' }] })
+    };
+
+    const result = await generateWithMalformedRetry(provider);
+    expect(result.panels).toHaveLength(1);
+    expect(provider.generateStoryboard).toHaveBeenCalledTimes(2);
+    expect(provider.generateStoryboard.mock.calls[1][0]).toEqual({ malformedRetry: true });
+  });
+
+  it('does not retry non-parse provider errors', async () => {
+    const provider = {
+      generateStoryboard: vi.fn().mockRejectedValueOnce(new Error('Quota exceeded'))
+    };
+
+    await expect(generateWithMalformedRetry(provider)).rejects.toThrow('Quota exceeded');
+    expect(provider.generateStoryboard).toHaveBeenCalledTimes(1);
+  });
+
+  it('retries with panel count reminder when provider returns too few panels', async () => {
+    const provider = {
+      generateStoryboard: vi.fn()
+        .mockResolvedValueOnce({ panels: [{ caption: 'only one', image_prompt: 'one' }] })
+        .mockResolvedValueOnce({ panels: [
+          { caption: '1', image_prompt: '1' },
+          { caption: '2', image_prompt: '2' },
+          { caption: '3', image_prompt: '3' }
+        ] })
+    };
+
+    async function generateWithQualityRetry(requestedCount) {
+      const first = await provider.generateStoryboard({ panelCountRetry: false });
+      if ((first?.panels?.length || 0) > 0 && (first.panels.length < requestedCount)) {
+        return provider.generateStoryboard({ panelCountRetry: true });
+      }
+      return first;
+    }
+
+    const result = await generateWithQualityRetry(3);
+    expect(result.panels).toHaveLength(3);
+    expect(provider.generateStoryboard).toHaveBeenCalledTimes(2);
+    expect(provider.generateStoryboard.mock.calls[1][0]).toEqual({ panelCountRetry: true });
+  });
+
+  it('allows fallback after malformed storyboard remains bad', async () => {
+    const errors = [];
+    async function attemptProviders() {
+      const providers = [
+        { id: 'a', generateStoryboard: vi.fn().mockRejectedValue(new Error('Failed to parse storyboard: No JSON object found')) },
+        { id: 'b', generateStoryboard: vi.fn().mockResolvedValue({ panels: [{ caption: 'ok', image_prompt: 'ok' }] }) }
+      ];
+      for (let i = 0; i < providers.length; i++) {
+        try {
+          const result = await providers[i].generateStoryboard({});
+          return { result, tried: i + 1 };
+        } catch (e) {
+          e.malformedStoryboard = /parse storyboard/i.test(String(e.message || e));
+          errors.push(e);
+          if (!e.malformedStoryboard) throw e;
+        }
+      }
+      throw errors[errors.length - 1];
+    }
+
+    const out = await attemptProviders();
+    expect(out.result.panels).toHaveLength(1);
+    expect(out.tried).toBe(2);
+  });
+});
+
 describe('Budget Fallback Policy', () => {
   const isBudgetProviderErrorMessage = (message) => {
     const text = String(message || '').toLowerCase();
@@ -446,5 +534,156 @@ describe('Service Worker Resilience Logic (helper semantics)', () => {
       return Number.isFinite(ts) && ts > thirtyDaysAgo;
     });
     expect(filtered.length).toBe(1);
+  });
+
+  it('normalizes malformed storyboard payloads to a safe panels array', () => {
+    const normalizeStoryboard = (storyboard) => {
+      const normalized = (storyboard && typeof storyboard === 'object') ? storyboard : {};
+      if (!Array.isArray(normalized.panels)) normalized.panels = [];
+      return normalized;
+    };
+
+    expect(normalizeStoryboard(null).panels).toEqual([]);
+    expect(normalizeStoryboard('bad').panels).toEqual([]);
+    expect(normalizeStoryboard({ panels: 'not-array' }).panels).toEqual([]);
+    expect(normalizeStoryboard({ panels: [{ caption: 'ok' }] }).panels.length).toBe(1);
+  });
+
+  it('treats provider success without image data as an error (not completed panel)', () => {
+    const finalizePanelImageResult = (imageResult) => {
+      if (!imageResult || !imageResult.imageData) {
+        throw new Error('Provider returned no image data');
+      }
+      return {
+        artifacts: {
+          image_blob_ref: imageResult.imageData
+        }
+      };
+    };
+
+    expect(() => finalizePanelImageResult({ providerMetadata: { provider_id: 'gemini-free' } }))
+      .toThrow('Provider returned no image data');
+    expect(finalizePanelImageResult({ imageData: 'data:image/png;base64,abc' }).artifacts.image_blob_ref)
+      .toContain('data:image/png;base64,');
+  });
+
+  it('detects unexpected output counts for missing/partial images and captions', () => {
+    const summarizeOutput = (job) => {
+      const panels = Array.isArray(job?.storyboard?.panels) ? job.storyboard.panels : [];
+      const expected = Number(job?.settings?.panel_count || panels.length || 0);
+      let imageCount = 0;
+      let textCount = 0;
+      for (const panel of panels) {
+        const hasImage = !!(panel?.artifacts?.image_blob_ref);
+        if (hasImage) imageCount += 1;
+        const candidates = [
+          panel?.caption,
+          panel?.beat_summary,
+          panel?.summary,
+          panel?.title,
+          panel?.text,
+          panel?.narration,
+          panel?.description,
+          panel?.text_content,
+          panel?.caption_text,
+          panel?.dialogue
+        ];
+        if (candidates.some((v) => typeof v === 'string' && v.trim())) textCount += 1;
+      }
+      return {
+        expected,
+        imageCount,
+        textCount,
+        imageState: imageCount === 0 ? 'none' : (imageCount < expected ? 'partial' : 'complete'),
+        textState: textCount === 0 ? 'none' : (textCount < expected ? 'partial' : 'complete')
+      };
+    };
+
+    const partial = summarizeOutput({
+      settings: { panel_count: 3 },
+      storyboard: {
+        panels: [
+          { caption: 'A', artifacts: { image_blob_ref: 'data:image/png;base64,1' } },
+          { beat_summary: 'B', artifacts: {} },
+          { artifacts: {} }
+        ]
+      }
+    });
+    expect(partial.imageState).toBe('partial');
+    expect(partial.textState).toBe('partial');
+    expect(partial.imageCount).toBe(1);
+    expect(partial.textCount).toBe(2);
+
+    const none = summarizeOutput({
+      settings: { panel_count: 2 },
+      storyboard: { panels: [{}, {}] }
+    });
+    expect(none.imageState).toBe('none');
+    expect(none.textState).toBe('none');
+  });
+
+  it('validates storyboard contract centrally and synthesizes missing caption/image_prompt fields', () => {
+    function normalizeLooseTextValue(value) {
+      if (value == null) return '';
+      if (typeof value === 'string') return value;
+      if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+      if (Array.isArray(value)) return value.map(normalizeLooseTextValue).filter(Boolean).join(' ').trim();
+      if (typeof value === 'object') {
+        return normalizeLooseTextValue(value.text || value.title || value.summary || value.description || value.value || '');
+      }
+      return '';
+    }
+    function validateStoryboardContract(storyboard, requestedPanelCount) {
+      const normalized = (storyboard && typeof storyboard === 'object') ? storyboard : {};
+      if (!Array.isArray(normalized.panels)) normalized.panels = [];
+      normalized.panels = normalized.panels.map((panel, index) => {
+        const p = panel && typeof panel === 'object' ? { ...panel } : {};
+        const beat = normalizeLooseTextValue(p.beat_summary || p.summary || p.description || p.text);
+        const caption = normalizeLooseTextValue(p.caption || p.title || p.dialogue) || beat || `Panel ${index + 1}`;
+        const imagePrompt = normalizeLooseTextValue(p.image_prompt || p.prompt || p.visual) || `Comic panel illustration of: ${caption}${beat ? `. ${beat}` : ''}`;
+        p.caption = caption;
+        p.image_prompt = imagePrompt;
+        if (!p.panel_id) p.panel_id = `panel_${index + 1}`;
+        return p;
+      }).slice(0, requestedPanelCount || undefined);
+      return normalized;
+    }
+
+    const result = validateStoryboardContract({
+      panels: [
+        { summary: { text: 'A lead panel summary' } },
+        { caption: { text: 'Object caption' } },
+        { title: 'Titled panel', image_prompt: '' }
+      ]
+    }, 3);
+
+    expect(Array.isArray(result.panels)).toBe(true);
+    expect(result.panels).toHaveLength(3);
+    expect(result.panels[0].caption).toBe('A lead panel summary');
+    expect(result.panels[0].image_prompt).toContain('Comic panel illustration of');
+    expect(result.panels[1].caption).toBe('Object caption');
+    expect(result.panels[1].image_prompt).toContain('Object caption');
+    expect(result.panels[2].caption).toBe('Titled panel');
+    expect(result.panels[2].image_prompt).toContain('Titled panel');
+  });
+
+  it('treats empty storyboard panels as terminal validation failure (pre-image phase)', () => {
+    function validateStoryboardContract(storyboard) {
+      const normalized = (storyboard && typeof storyboard === 'object') ? storyboard : {};
+      if (!Array.isArray(normalized.panels)) normalized.panels = [];
+      return { storyboard: normalized, meta: { hasPanelsArray: Array.isArray(storyboard?.panels), panelCount: normalized.panels.length } };
+    }
+    function assertNonEmptyStoryboardOrThrow(storyboard) {
+      const contract = validateStoryboardContract(storyboard);
+      if (!contract.meta.hasPanelsArray || contract.meta.panelCount === 0) {
+        const err = new Error('Storyboard returned no panels');
+        err.malformedStoryboard = true;
+        throw err;
+      }
+      return contract.storyboard;
+    }
+
+    expect(() => assertNonEmptyStoryboardOrThrow({ panels: [] })).toThrow('Storyboard returned no panels');
+    expect(() => assertNonEmptyStoryboardOrThrow({ panels: [{}] })).not.toThrow();
   });
 });

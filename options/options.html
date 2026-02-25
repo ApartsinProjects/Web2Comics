@@ -69,8 +69,14 @@
           </div>
 
           <div id="default-custom-style-container" class="setting-item" style="display: none;">
+            <label for="default-custom-style-name">Custom Style Name</label>
+            <input type="text" id="default-custom-style-name" placeholder="e.g. Retro Pulp Adventure">
+            <p class="setting-description">A short label used when this custom style is applied in generation prompts.</p>
             <label for="default-custom-style">Custom Style Description</label>
             <textarea id="default-custom-style" class="textarea" rows="2" placeholder="Describe your desired style, e.g., 'vintage 1950s comic', 'steampunk illustration'..."></textarea>
+            <div class="inline-actions">
+              <button id="create-default-style-btn" class="btn btn-secondary" type="button">Create Style</button>
+            </div>
           </div>
 
           <div class="setting-item">
@@ -110,26 +116,13 @@
           </div>
 
           <div class="setting-item">
-            <label>Image Generation → Content Filtering Handling</label>
-            <div class="radio-group" id="image-refusal-handling-group">
-              <label class="radio-option">
-                <input type="radio" name="image-refusal-handling" value="rewrite_and_retry" checked>
-                <span><strong>Rewrite and try again (keep real figure)</strong></span>
-              </label>
-              <p class="setting-description">If the provider blocks the prompt, rewrite it to a neutral editorial style and retry once.</p>
-
-              <label class="radio-option">
-                <input type="radio" name="image-refusal-handling" value="replace_people_and_triggers">
-                <span><strong>Replace people and trigger words, then retry</strong></span>
-              </label>
-              <p class="setting-description">Replace real names and sensitive trigger phrases with neutral fictional descriptors, then retry once.</p>
-
-              <label class="radio-option">
-                <input type="radio" name="image-refusal-handling" value="show_blocked">
-                <span><strong>Do nothing (show blocked panel)</strong></span>
-              </label>
-              <p class="setting-description">Don’t retry; show a blocked placeholder panel in the comic strip.</p>
-            </div>
+            <label for="image-refusal-handling-select">Image Generation → Content Filtering Handling</label>
+            <select id="image-refusal-handling-select">
+              <option value="rewrite_and_retry" selected>Rewrite and try again (keep real figure)</option>
+              <option value="replace_people_and_triggers">Replace people and trigger words, then retry</option>
+              <option value="show_blocked">Do nothing (show blocked panel)</option>
+            </select>
+            <p class="setting-description">Choose what Web2Comics should do if the image provider blocks a panel prompt: retry with a safer rewrite, sanitize names/trigger words, or keep a blocked placeholder panel.</p>
           </div>
 
           <div class="setting-item checkbox">
@@ -174,6 +167,7 @@
               <label>API Key</label>
               <input type="password" id="gemini-api-key" placeholder="Enter Gemini API key">
               <button class="btn small secondary validate-btn" data-provider="gemini">Validate</button>
+              <a class="manual-inline-link" href="../docs/user-manual.html#appendix-gemini" target="_blank" rel="noopener noreferrer">Get API Token</a>
             </div>
             <div class="model-selection">
               <div class="model-item">
@@ -210,7 +204,22 @@
             <div class="provider-cost">Cost: Free (15k neurons/day)</div>
             <div class="provider-status" id="cloudflare-status">
               <span class="status-indicator"></span>
-              <span>Ready (no key required)</span>
+              <span>Not configured</span>
+            </div>
+            <div class="provider-config">
+              <label>Account ID</label>
+              <input type="text" id="cloudflare-account-id" placeholder="Cloudflare Account ID">
+              <label>API Token (Recommended)</label>
+              <input type="password" id="cloudflare-api-token" placeholder="Cloudflare API Token">
+              <details class="provider-advanced-creds">
+                <summary>Use Email + Global API Key instead (optional)</summary>
+                <label>Email</label>
+                <input type="email" id="cloudflare-email" placeholder="you@example.com">
+                <label>Global API Key</label>
+                <input type="password" id="cloudflare-api-key" placeholder="Cloudflare Global API Key">
+              </details>
+              <button class="btn small secondary validate-btn" data-provider="cloudflare">Validate</button>
+              <a class="manual-inline-link" href="../docs/user-manual.html#appendix-cloudflare" target="_blank" rel="noopener noreferrer">Get API Token</a>
             </div>
             <div class="model-selection">
               <div class="model-item">
@@ -252,6 +261,7 @@
               <label>API Key</label>
               <input type="password" id="openrouter-api-key" placeholder="sk-or-v1-...">
               <button class="btn small secondary validate-btn" data-provider="openrouter">Validate</button>
+              <a class="manual-inline-link" href="../docs/user-manual.html#appendix-openrouter" target="_blank" rel="noopener noreferrer">Get API Token</a>
             </div>
             <div class="model-selection">
               <div class="model-item">
@@ -269,6 +279,14 @@
                   <option value="google/gemini-2.5-flash-image-preview" selected>Gemini 2.5 Flash Image Preview (Preferred, if available)</option>
                   <option value="google/gemini-2.5-flash-image">Gemini 2.5 Flash Image (If available)</option>
                   <option value="openai/gpt-image-1">OpenAI GPT-Image-1 (If enabled on OpenRouter)</option>
+                </select>
+              </div>
+              <div class="model-item">
+                <label>Image Size (Speed)</label>
+                <select id="openrouter-image-size" class="model-select">
+                  <option value="1K" selected>1K (Fastest)</option>
+                  <option value="1.5K">1.5K</option>
+                  <option value="2K">2K (Slower / if supported)</option>
                 </select>
               </div>
             </div>
@@ -293,6 +311,7 @@
               <label>API Key</label>
               <input type="password" id="huggingface-api-key" placeholder="hf_...">
               <button class="btn small secondary validate-btn" data-provider="huggingface">Validate</button>
+              <a class="manual-inline-link" href="../docs/user-manual.html#appendix-huggingface" target="_blank" rel="noopener noreferrer">Get API Token</a>
             </div>
             <div class="model-selection">
               <div class="model-item">
@@ -311,6 +330,23 @@
                   <option value="black-forest-labs/FLUX.1-schnell" selected>FLUX.1 Schnell (Preferred / Fast)</option>
                   <option value="stabilityai/stable-diffusion-xl-base-1.0">SDXL Base 1.0 (Classic / Broad support)</option>
                   <option value="black-forest-labs/FLUX.1-dev">FLUX.1 Dev (Deprecated on many HF endpoints)</option>
+                </select>
+              </div>
+              <div class="model-item">
+                <label>Image Quality (Speed)</label>
+                <select id="huggingface-image-quality" class="model-select">
+                  <option value="fastest" selected>Fastest</option>
+                  <option value="faster">Faster</option>
+                  <option value="balanced">Balanced</option>
+                  <option value="high">High quality (Slower)</option>
+                </select>
+              </div>
+              <div class="model-item">
+                <label>Image Size (Speed)</label>
+                <select id="huggingface-image-size" class="model-select">
+                  <option value="512x512" selected>512x512 (Fastest)</option>
+                  <option value="768x768">768x768</option>
+                  <option value="1024x1024">1024x1024 (Slower)</option>
                 </select>
               </div>
             </div>
@@ -335,6 +371,7 @@
               <label>API Key</label>
               <input type="password" id="openai-api-key" placeholder="sk-...">
               <button class="btn small secondary validate-btn" data-provider="openai">Validate</button>
+              <a class="manual-inline-link" href="../docs/user-manual.html#appendix-openai" target="_blank" rel="noopener noreferrer">Get API Token</a>
             </div>
             <div class="model-selection">
               <div class="model-item">
@@ -397,6 +434,9 @@
             <select id="prompt-provider-scope">
               <option value="openai" selected>OpenAI</option>
               <option value="gemini">Google Gemini</option>
+              <option value="cloudflare">Cloudflare Workers AI</option>
+              <option value="openrouter">OpenRouter</option>
+              <option value="huggingface">Hugging Face Inference API</option>
             </select>
             <p class="setting-description">Phase 1 scaffold: provider-specific editable templates for storyboard and image prompts.</p>
           </div>

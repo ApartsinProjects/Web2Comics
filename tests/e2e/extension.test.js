@@ -76,10 +76,10 @@ test.describe('Web2Comics Extension E2E', () => {
         await page.locator('#create-comic-btn').click();
 
         await expect(page.locator('#generate-btn')).toBeVisible();
-        await expect(page.locator('#style-preset')).toBeVisible();
         await expect(page.locator('#panel-count')).toBeVisible();
         await expect(page.locator('#wizard-readiness')).toBeVisible();
         await page.locator('#advanced-settings-toggle').click();
+        await expect(page.locator('#style-preset')).toBeVisible();
         await expect(page.locator('#provider-preset')).toBeVisible();
       } finally {
         await context.close();

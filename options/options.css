@@ -311,6 +311,19 @@ textarea:focus, select:focus, input:focus {
   margin-left: auto;
 }
 
+.manual-inline-link {
+  display: inline-block;
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--primary);
+  text-decoration: none;
+}
+
+.manual-inline-link:hover,
+.manual-inline-link:focus-visible {
+  text-decoration: underline;
+}
+
 .model-selection {
   display: flex;
   gap: 12px;
@@ -346,11 +359,68 @@ textarea:focus, select:focus, input:focus {
   border-color: var(--primary);
 }
 
+.model-test-inline {
+  margin-top: 8px;
+}
+
+.model-test-inline .test-model-btn {
+  width: 100%;
+  justify-content: center;
+}
+
+.btn.is-loading {
+  position: relative;
+  pointer-events: none;
+  opacity: 0.9;
+}
+
+.btn.is-loading::before {
+  content: "";
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  margin-right: 8px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  vertical-align: -2px;
+  animation: spin 0.8s linear infinite;
+}
+
+.model-test-status {
+  min-height: 18px;
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.model-test-status.pending {
+  color: var(--text-secondary);
+}
+
+.model-test-status.success {
+  color: var(--success);
+}
+
+.model-test-status.error {
+  color: var(--error);
+}
+
 .model-test-actions {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
   margin-top: 10px;
+}
+
+.inline-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
 }
 
 .prompt-template-textarea {

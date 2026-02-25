@@ -161,6 +161,10 @@ a.icon-btn {
   display: none;
 }
 
+.hidden {
+  display: none !important;
+}
+
 .home-launcher {
   display: flex;
   flex-direction: column;

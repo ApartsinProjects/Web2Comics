@@ -17,8 +17,11 @@ const DEFAULT_SETTINGS = {
   cloudflareImageModel: '@cf/black-forest-labs/flux-1-schnell',
   openrouterTextModel: 'openai/gpt-oss-20b:free',
   openrouterImageModel: 'google/gemini-2.5-flash-image-preview',
+  openrouterImageSize: '1K',
   huggingfaceTextModel: 'mistralai/Mistral-7B-Instruct-v0.2',
   huggingfaceImageModel: 'black-forest-labs/FLUX.1-schnell',
+  huggingfaceImageSize: '512x512',
+  huggingfaceImageQuality: 'fastest',
   openaiImageQuality: 'standard',
   openaiImageSize: '256x256',
   characterConsistency: false,
@@ -33,6 +36,13 @@ const DEFAULT_SETTINGS = {
 const CREATE_NEW_STYLE_VALUE = '__create_new_style__';
 const USER_STYLE_PREFIX = 'user:';
 const IMAGE_CAPABLE_PROVIDERS = new Set(['openai', 'gemini-free', 'cloudflare-free', 'huggingface', 'openrouter']);
+const PROVIDER_LABELS = {
+  'gemini-free': 'Gemini',
+  'openai': 'OpenAI',
+  'cloudflare-free': 'Cloudflare',
+  'openrouter': 'OpenRouter',
+  'huggingface': 'Hugging Face'
+};
 
 function mapRecommendedSettingsPayload(payload) {
   if (!payload || typeof payload !== 'object') return {};
@@ -52,6 +62,10 @@ function mapRecommendedSettingsPayload(payload) {
   };
 }
 
+function getProviderDisplayLabel(providerId) {
+  return PROVIDER_LABELS[String(providerId || '')] || String(providerId || 'provider');
+}
+
 class PopupController {
   constructor() {
     this.settings = { ...DEFAULT_SETTINGS };
@@ -61,6 +75,7 @@ class PopupController {
     this.currentJobId = null;
     this.advancedSettingsExpanded = false;
     this.providerIsReady = false;
+    this.hasAnyConfiguredProviders = false;
     this.lastWizardReadiness = {
       contentReady: false,
       settingsReady: false,
@@ -69,8 +84,10 @@ class PopupController {
     };
     this.extractRetryTimer = null;
     this.extractRetryCount = 0;
+    this.extractFallbackTried = false;
     this.progressStartedAtMs = 0;
     this.progressFirstPanelAtMs = 0;
+    this.cancelRequestedByUser = false;
     
     this.init();
   }
@@ -187,12 +204,38 @@ class PopupController {
     }, delayMs);
   }
 
+  getSelectedContentSource() {
+    return document.querySelector('input[name="contentSource"]:checked')?.value || 'full';
+  }
+
+  setSelectedContentSource(mode) {
+    const radio = document.querySelector(`input[name="contentSource"][value="${mode}"]`);
+    if (radio) radio.checked = true;
+  }
+
+  tryFallbackContentExtraction(contentSource, failureReason) {
+    if (contentSource !== 'full' || this.extractFallbackTried) return false;
+    this.extractFallbackTried = true;
+    this.clearExtractRetry();
+    this.extractRetryCount = 0;
+    this.setSelectedContentSource('selection');
+    this.updatePreview('Full-page extraction failed. Trying selected text mode...');
+    void this.appendDebugLog('content.extract.fallback_to_selection', {
+      reason: failureReason || 'unknown'
+    });
+    void this.extractContent({ isRetry: false, fallbackTriggered: true });
+    return true;
+  }
+
   async extractContent(options = {}) {
-    const contentSource = document.querySelector('input[name="contentSource"]:checked').value;
+    const contentSource = this.getSelectedContentSource();
     const isRetry = !!options.isRetry;
     if (!isRetry) {
       this.extractRetryCount = 0;
       this.clearExtractRetry();
+      if (!options.fallbackTriggered) {
+        this.extractFallbackTried = false;
+      }
     }
     
     try {
@@ -232,6 +275,15 @@ class PopupController {
 
         if (
           contentSource === 'full' &&
+          /could not extract enough readable content/i.test(failureMessage)
+        ) {
+          if (this.tryFallbackContentExtraction(contentSource, 'not-enough-content')) {
+            return;
+          }
+        }
+
+        if (
+          contentSource === 'full' &&
           (tabStatus !== 'complete' || /could not extract enough readable content/i.test(failureMessage))
         ) {
           this.scheduleExtractRetry(tabStatus !== 'complete' ? 'tab-loading' : 'not-enough-content', 1200);
@@ -241,15 +293,41 @@ class PopupController {
       console.error('Extraction error:', error);
       var message = error && error.message ? error.message : String(error);
       this.extractedText = '';
-      this.updatePreview('Unable to extract content. Retrying...');
       void this.appendDebugLog('content.extract.error', { message: message, retry: isRetry });
 
       if (/Receiving end does not exist|Could not establish connection|The message port closed/i.test(message)) {
-        this.scheduleExtractRetry('content-script-not-ready', 1000);
+        const reinjected = await this.tryReinjectContentScript();
+        this.updatePreview(reinjected ? 'Preparing page content extraction... Retrying...' : 'Unable to extract content yet. Retrying...');
+        this.scheduleExtractRetry(reinjected ? 'content-script-reinjected' : 'content-script-not-ready', 1000);
+        return;
+      }
+
+      if (this.tryFallbackContentExtraction(contentSource, message)) {
         return;
       }
 
       this.updatePreview('Unable to extract content. Try selecting text on the page.');
+    }
+  }
+
+  async tryReinjectContentScript() {
+    try {
+      if (!chrome?.scripting?.executeScript) return false;
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (!tab?.id) return false;
+      const url = String(tab.url || '');
+      if (!/^https?:/i.test(url)) return false;
+      await chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        files: ['content/content-script.js']
+      });
+      void this.appendDebugLog('content.extract.reinject.success', { tabId: tab.id });
+      return true;
+    } catch (error) {
+      void this.appendDebugLog('content.extract.reinject.failure', {
+        message: error && error.message ? error.message : String(error)
+      });
+      return false;
     }
   }
 
@@ -347,13 +425,18 @@ class PopupController {
     document.getElementById('generate-btn').addEventListener('click', () => this.startGeneration());
     
     // Open viewer button
-    document.getElementById('open-viewer-btn').addEventListener('click', () => this.openSidePanel());
+    document.getElementById('open-viewer-btn').addEventListener('click', async () => {
+      const opened = await this.openSidePanel({ userInitiated: true });
+      if (opened) this.closePopupWindow();
+    });
+    document.getElementById('configure-providers-btn')?.addEventListener('click', () => this.openOptions());
     
     // Cancel button
     document.getElementById('cancel-btn')?.addEventListener('click', () => this.cancelGeneration());
     
     // Settings button
     document.getElementById('settings-btn').addEventListener('click', () => this.openOptions());
+    document.getElementById('download-logs-btn')?.addEventListener('click', () => this.downloadDebugLogs());
     
     // History
     document.getElementById('history-btn')?.addEventListener('click', () => this.showHistory());
@@ -370,6 +453,7 @@ class PopupController {
   updateUI() {
     // Update form values from settings
     document.getElementById('panel-count').value = this.settings.panelCount;
+    this.normalizePanelCountSetting();
     document.getElementById('detail-level').value = this.settings.detailLevel;
     this.renderStyleOptions();
     if (this.getSelectedUserStyle() || this.settings.styleId === 'custom') {
@@ -381,6 +465,53 @@ class PopupController {
     
     this.toggleLegacyCustomStyleEditor();
     this.updateWizardReadiness();
+  }
+
+  formatDebugLogFileTimestamp(date) {
+    const d = date instanceof Date ? date : new Date();
+    return d.toISOString().replace(/[:.]/g, '-');
+  }
+
+  async downloadDebugLogs() {
+    try {
+      const { debugLogs } = await chrome.storage.local.get('debugLogs');
+      const logs = Array.isArray(debugLogs) ? debugLogs : [];
+      const payload = {
+        exportedAt: new Date().toISOString(),
+        count: logs.length,
+        logs
+      };
+      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `web2comics-debug-logs-${this.formatDebugLogFileTimestamp(new Date())}.json`;
+      a.style.display = 'none';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 0);
+      void this.appendDebugLog('debugLogs.export.popup', { count: logs.length });
+    } catch (error) {
+      console.error('Failed to export debug logs from popup:', error);
+      this.showError('Failed to export debug logs.');
+    }
+  }
+
+  normalizePanelCountSetting() {
+    const select = document.getElementById('panel-count');
+    const raw = parseInt(this.settings.panelCount, 10);
+    const allowed = select
+      ? Array.from(select.options)
+          .map((opt) => parseInt(opt.value, 10))
+          .filter((n) => Number.isFinite(n))
+      : [3, 4, 5, 6, 8, 10, 12];
+    const fallback = allowed.includes(3) ? 3 : (allowed[0] || 3);
+    const normalized = allowed.includes(raw) ? raw : fallback;
+    this.settings.panelCount = normalized;
+    if (select && select.value !== String(normalized)) {
+      select.value = String(normalized);
+    }
   }
 
   setAdvancedSettingsExpanded(expanded) {
@@ -407,7 +538,7 @@ class PopupController {
       if (!style || !style.id || !style.name) return;
       const opt = document.createElement('option');
       opt.value = USER_STYLE_PREFIX + style.id;
-      opt.textContent = 'Saved: ' + style.name;
+      opt.textContent = style.name;
       opt.dataset.customStyle = 'true';
       if (createOpt) {
         select.insertBefore(opt, createOpt);
@@ -430,26 +561,7 @@ class PopupController {
     const customStyleInput = document.getElementById('custom-style-input');
     const customStyleNameInput = document.getElementById('custom-style-name-input');
     if (!customStyleContainer || !customStyleInput || !customStyleNameInput) return;
-
-    const selectedUserStyle = this.getSelectedUserStyle();
-    if (selectedUserStyle) {
-      customStyleContainer.classList.remove('hidden');
-      customStyleNameInput.value = selectedUserStyle.name || '';
-      customStyleInput.value = selectedUserStyle.description || '';
-      customStyleNameInput.disabled = true;
-      customStyleInput.disabled = true;
-      return;
-    }
-
-    customStyleNameInput.disabled = false;
-    customStyleInput.disabled = false;
-    if (this.settings.styleId === 'custom') {
-      customStyleContainer.classList.remove('hidden');
-      customStyleInput.value = this.settings.customStyleTheme || '';
-      customStyleNameInput.value = this.settings.customStyleName || '';
-    } else {
-      customStyleContainer.classList.add('hidden');
-    }
+    customStyleContainer.classList.add('hidden');
   }
 
   getSelectedUserStyle() {
@@ -568,17 +680,37 @@ class PopupController {
 
     let apiKeys = {};
     let providerValidation = {};
+    let cloudflareConfig = {};
+    let cloudflareLegacy = {};
     try {
-      const result = await chrome.storage.local.get(['apiKeys', 'providerValidation']);
+      const result = await chrome.storage.local.get(['apiKeys', 'providerValidation', 'cloudflareConfig', 'cloudflare']);
       apiKeys = result && result.apiKeys ? result.apiKeys : {};
       providerValidation = result && result.providerValidation ? result.providerValidation : {};
+      cloudflareConfig = result && result.cloudflareConfig ? result.cloudflareConfig : {};
+      cloudflareLegacy = result && result.cloudflare ? result.cloudflare : {};
     } catch (error) {
       console.error('Failed to load API keys for provider filtering:', error);
     }
 
+    const hasCloudflareAuth = (() => {
+      const cfg = cloudflareConfig || cloudflareLegacy || {};
+      const accountId = cfg.accountId || cfg.account_id || '';
+      const apiToken = cfg.apiToken || cfg.api_token || apiKeys.cloudflare || '';
+      const email = cfg.email || '';
+      const apiKey = cfg.apiKey || cfg.api_key || '';
+      return Boolean(accountId && (apiToken || (email && apiKey)));
+    })();
+
     const visibleValues = [];
     Array.from(providerSelect.options).forEach((option) => {
       const providerId = option.value;
+      if (!providerId) return;
+      if (providerId === 'cloudflare-free') {
+        option.hidden = !hasCloudflareAuth;
+        option.disabled = !hasCloudflareAuth;
+        if (hasCloudflareAuth) visibleValues.push(providerId);
+        return;
+      }
       const keyName = requiresKeyMap[providerId];
       const validationKey = validationKeyMap[providerId];
       const hasKey = keyName ? Boolean(apiKeys && apiKeys[keyName]) : true;
@@ -589,20 +721,28 @@ class PopupController {
       option.disabled = !configured;
       if (configured) visibleValues.push(providerId);
     });
+    this.hasAnyConfiguredProviders = visibleValues.length > 0;
+    providerSelect.disabled = visibleValues.length === 0;
 
     let nextProvider = this.settings.activeTextProvider;
     if (!visibleValues.includes(nextProvider)) {
-      nextProvider = visibleValues[0] || 'cloudflare-free';
-      this.settings.activeTextProvider = nextProvider;
-      this.settings.activeImageProvider = await this.resolveImageProviderForTextProvider(nextProvider);
-      void this.saveSettings();
+      nextProvider = visibleValues[0] || '';
+      if (nextProvider) {
+        this.settings.activeTextProvider = nextProvider;
+        this.settings.activeImageProvider = await this.resolveImageProviderForTextProvider(nextProvider);
+        void this.saveSettings();
+      }
     }
 
-    providerSelect.value = nextProvider;
+    if (nextProvider) {
+      providerSelect.value = nextProvider;
+    }
     void this.appendDebugLog('providers.filtered', {
       activeProvider: nextProvider,
-      visibleProviders: visibleValues
+      visibleProviders: visibleValues,
+      hasAnyConfiguredProviders: this.hasAnyConfiguredProviders
     });
+    this.updateProviderWarning();
   }
 
   async resolveImageProviderForTextProvider(textProvider) {
@@ -627,6 +767,12 @@ class PopupController {
 
   async updateProviderWarning() {
     const warning = document.getElementById('api-key-warning');
+    if (!this.hasAnyConfiguredProviders) {
+      warning.classList.add('hidden');
+      this.providerIsReady = false;
+      this.updateWizardReadiness();
+      return;
+    }
     const provider = this.settings.activeTextProvider;
 
     const requiresKey = provider === 'gemini-free' || provider === 'openai' || provider === 'openrouter' || provider === 'huggingface';
@@ -675,14 +821,14 @@ class PopupController {
     if (!contentStep || !settingsStep || !generateStep || !readinessBox || !readinessText) return;
 
     const contentReady = Boolean(this.extractedText && this.extractedText.length >= 50);
-    const styleReady = this.settings.styleId !== 'custom' ||
-      (!!String(this.settings.customStyleName || '').trim() && !!String(this.settings.customStyleTheme || '').trim());
-    const providerReady = this.providerIsReady !== false; // default optimistic until async validation check resolves
+    const styleReady = true;
+    const providerReady = this.hasAnyConfiguredProviders && (this.providerIsReady !== false);
     const settingsReady = providerReady && styleReady;
     const canGenerate = contentReady && settingsReady;
     const issues = [];
     if (!contentReady) issues.push('extract more page content');
-    if (!providerReady) issues.push('validate the selected provider');
+    if (!this.hasAnyConfiguredProviders) issues.push('configure model providers');
+    else if (!providerReady) issues.push('validate the selected provider');
     if (!styleReady) issues.push('complete custom style name and description');
     this.lastWizardReadiness = { contentReady, settingsReady, canGenerate, issues };
 
@@ -701,9 +847,13 @@ class PopupController {
 
     readinessBox.classList.remove('ready', 'warn');
     const generateBtn = document.getElementById('generate-btn');
+    const configureProvidersCta = document.getElementById('configure-providers-cta');
     if (generateBtn && !this.isGenerating) {
       generateBtn.disabled = !canGenerate;
       generateBtn.title = canGenerate ? '' : ('Before generating: ' + issues.join('; '));
+    }
+    if (configureProvidersCta) {
+      configureProvidersCta.classList.toggle('hidden', this.hasAnyConfiguredProviders);
     }
     if (canGenerate) {
       readinessBox.classList.add('ready');
@@ -781,6 +931,15 @@ class PopupController {
   async startGeneration() {
     if (this.isGenerating) return;
 
+    this.normalizePanelCountSetting();
+    const panelSelect = document.getElementById('panel-count');
+    if (panelSelect) {
+      const uiPanelCount = parseInt(panelSelect.value, 10);
+      if (Number.isFinite(uiPanelCount)) {
+        this.settings.panelCount = uiPanelCount;
+      }
+    }
+
     if (!this.lastWizardReadiness.canGenerate) {
       const issues = (this.lastWizardReadiness.issues || []).length
         ? this.lastWizardReadiness.issues
@@ -809,6 +968,8 @@ class PopupController {
     const resolvedStyle = this.getResolvedStylePayload();
     const selectedTextModel = this.getSelectedTextModelForProvider(this.settings.activeTextProvider);
     const selectedImageModel = this.getSelectedImageModelForProvider(this.settings.activeImageProvider);
+    const selectedImageQuality = this.getSelectedImageQualityForProvider(this.settings.activeImageProvider);
+    const selectedImageSize = this.getSelectedImageSizeForProvider(this.settings.activeImageProvider);
     
     try {
       const response = await chrome.tabs.sendMessage(tab.id, {
@@ -826,8 +987,8 @@ class PopupController {
             provider_image: this.settings.activeImageProvider,
             text_model: selectedTextModel,
             image_model: selectedImageModel,
-            image_quality: this.settings.openaiImageQuality || 'standard',
-            image_size: this.settings.openaiImageSize || '256x256',
+            image_quality: selectedImageQuality,
+            image_size: selectedImageSize,
             custom_style_theme: resolvedStyle.customStyleTheme || '',
             custom_style_name: resolvedStyle.customStyleName || '',
             debug_flag: !!this.settings.debugFlag,
@@ -843,7 +1004,7 @@ class PopupController {
         void this.appendDebugLog('generation.start.accepted', { jobId: response.jobId, response: response });
         if (this.settings.autoOpenSidePanel !== false) {
           try {
-            await this.openSidePanel();
+            await this.openSidePanel({ userInitiated: false });
             void this.appendDebugLog('generation.viewer_opened_auto_progress', { jobId: response.jobId });
           } catch (openError) {
             console.error('Failed to auto-open viewer on generation start:', openError);
@@ -898,6 +1059,30 @@ class PopupController {
     }
   }
 
+  getSelectedImageQualityForProvider(providerId) {
+    switch (providerId) {
+      case 'openai':
+        return this.settings.openaiImageQuality || 'standard';
+      case 'huggingface':
+        return this.settings.huggingfaceImageQuality || 'fastest';
+      default:
+        return '';
+    }
+  }
+
+  getSelectedImageSizeForProvider(providerId) {
+    switch (providerId) {
+      case 'openai':
+        return this.settings.openaiImageSize || '256x256';
+      case 'openrouter':
+        return this.settings.openrouterImageSize || '1K';
+      case 'huggingface':
+        return this.settings.huggingfaceImageSize || '512x512';
+      default:
+        return '';
+    }
+  }
+
   showProgress() {
     document.getElementById('home-section')?.classList.add('hidden');
     document.getElementById('main-section')?.classList.add('hidden');
@@ -910,6 +1095,7 @@ class PopupController {
     }
     this.progressStartedAtMs = Date.now();
     this.progressFirstPanelAtMs = 0;
+    this.cancelRequestedByUser = false;
     var debugLogEl = document.getElementById('progress-debug-log');
     if (debugLogEl) {
       debugLogEl.innerHTML = '';
@@ -936,6 +1122,7 @@ class PopupController {
     this.isGenerating = false;
     this.progressStartedAtMs = 0;
     this.progressFirstPanelAtMs = 0;
+    this.cancelRequestedByUser = false;
     this.updateWizardReadiness();
   }
 
@@ -956,6 +1143,7 @@ class PopupController {
     const totalPanels = Math.max(0, panelCount || 0);
     const completedPanels = Math.max(0, Number(job?.completedPanels || 0));
     const currentIndex = Math.max(0, Number(job?.currentPanelIndex || 0));
+    const retryState = job && job.retryState ? job.retryState : null;
     let phaseText = 'Waiting for updates...';
 
     if (job.status === 'generating_text') {
@@ -975,6 +1163,17 @@ class PopupController {
       phaseText = 'Canceled';
     } else if (job.status === 'pending') {
       phaseText = 'Preparing generation job';
+    }
+
+    if (job.status === 'generating_images' && retryState && retryState.delayMs > 0) {
+      const retryAtMs = retryState.retryAt ? new Date(retryState.retryAt).getTime() : (now + Number(retryState.delayMs || 0));
+      const remainingMs = Math.max(0, retryAtMs - now);
+      const providerLabel = getProviderDisplayLabel(retryState.provider);
+      if (retryState.type === 'rate_limit') {
+        phaseText = `Rate limited by ${providerLabel}; retrying panel ${(Number(retryState.panelIndex) || 0) + 1} in ${this.formatDurationShort(remainingMs)}`;
+      } else {
+        phaseText = `Retrying panel ${(Number(retryState.panelIndex) || 0) + 1} after temporary error (${this.formatDurationShort(remainingMs)})`;
+      }
     }
 
     if (!this.progressFirstPanelAtMs && completedPanels >= 1) {
@@ -1041,14 +1240,18 @@ class PopupController {
           this.reportCompletedWithWarnings(currentJob);
           this.hideProgress();
           this.isGenerating = false;
+          this.showHome();
           if (document.getElementById('open-viewer-btn')) {
             document.getElementById('open-viewer-btn').disabled = false;
           }
           await this.addToHistory(currentJob);
           if (this.settings.autoOpenSidePanel !== false) {
             try {
-              await this.openSidePanel();
-              void this.appendDebugLog('generation.viewer_opened_auto', { jobId: currentJob.id || null });
+              const opened = await this.openSidePanel({ userInitiated: false });
+              if (opened) {
+                this.closePopupWindow();
+              }
+              void this.appendDebugLog('generation.viewer_opened_auto', { jobId: currentJob.id || null, opened: !!opened });
             } catch (openError) {
               console.error('Failed to auto-open comic viewer:', openError);
               void this.appendDebugLog('generation.viewer_opened_auto.error', {
@@ -1062,13 +1265,20 @@ class PopupController {
           });
         } else if (currentJob.status === 'failed' || currentJob.status === 'canceled') {
           clearInterval(pollInterval);
+          const userCanceled = currentJob.status === 'canceled' && this.cancelRequestedByUser;
           this.hideProgress();
           this.isGenerating = false;
           var fallbackMessage = currentJob.status === 'canceled'
             ? 'Generation was canceled.'
             : 'Generation failed. No error details were provided.';
           var message = currentJob.error ? ('Generation failed: ' + currentJob.error) : fallbackMessage;
-          this.reportUserError(message, currentJob.errorDetails || '');
+          if (!userCanceled) {
+            this.reportUserError(message, currentJob.errorDetails || '');
+          } else {
+            void this.appendDebugLog('generation.canceled.user', { jobId: currentJob.id || null });
+          }
+          this.cancelRequestedByUser = false;
+          this.showHome();
         }
       } catch (error) {
         console.error('Poll error:', error);
@@ -1209,15 +1419,24 @@ class PopupController {
 
   async cancelGeneration() {
     try {
+      this.cancelRequestedByUser = true;
+      const cancelBtn = document.getElementById('cancel-btn');
+      if (cancelBtn) cancelBtn.disabled = true;
+      const statusEl = document.getElementById('progress-status');
+      const detailEl = document.getElementById('progress-status-detail');
+      if (statusEl) statusEl.textContent = 'Canceling...';
+      if (detailEl) detailEl.textContent = 'Waiting for provider requests to stop...';
       await chrome.runtime.sendMessage({ type: 'CANCEL_GENERATION' });
-      this.isGenerating = false;
-      this.hideProgress();
     } catch (error) {
       console.error('Cancel error:', error);
+      this.cancelRequestedByUser = false;
+      const cancelBtn = document.getElementById('cancel-btn');
+      if (cancelBtn) cancelBtn.disabled = false;
     }
   }
 
-  async openSidePanel() {
+  async openSidePanel(options = {}) {
+    const userInitiated = !!(options && options.userInitiated);
     try {
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
       await chrome.sidePanel.open({ tabId: tab.id });
@@ -1225,14 +1444,29 @@ class PopupController {
         tabId: tab.id,
         path: 'sidepanel/sidepanel.html'
       });
+      return true;
     } catch (error) {
+      const message = error && error.message ? error.message : String(error || '');
+      if (!userInitiated && /user gesture/i.test(message)) {
+        void this.appendDebugLog('sidepanel.open.skipped.user_gesture_required', { message });
+        return false;
+      }
       console.error('Failed to open side panel:', error);
-      window.open('sidepanel/sidepanel.html', '_blank');
+      try {
+        window.open('sidepanel/sidepanel.html', '_blank');
+      } catch (_) {}
+      return false;
     }
   }
 
   openOptions() {
     chrome.runtime.openOptionsPage();
+  }
+
+  closePopupWindow() {
+    try {
+      window.close();
+    } catch (_) {}
   }
 
   async showHistory() {
@@ -1265,15 +1499,39 @@ class PopupController {
                 <div class="history-title">${safeSourceTitle}</div>
                 <div class="history-meta">${this.escapeHtml(dateText)}</div>
               </div>
+              <button type="button" class="history-item-delete-btn" data-action="delete-history-item" aria-label="Delete comic from history">Delete</button>
             </div>
           `;
         }).join('');
         
         list.querySelectorAll('.history-item').forEach(el => {
-          el.addEventListener('click', () => {
+          el.addEventListener('click', (event) => {
+            if (event?.target?.closest?.('.history-item-delete-btn')) return;
             void this.appendDebugLog('history.item.click', { id: el.dataset.id || null });
-            this.openSidePanel();
+            const selectedId = el.dataset.id || null;
+            chrome.storage.local.set({ selectedHistoryComicId: selectedId }).catch(() => {});
+            this.openSidePanel({ userInitiated: true }).then((opened) => {
+              if (opened) this.closePopupWindow();
+            });
             this.hideHistory();
+          });
+        });
+
+        list.querySelectorAll('.history-item-delete-btn').forEach((btn) => {
+          btn.addEventListener('click', async (e) => {
+            e.stopPropagation();
+            const itemEl = e.currentTarget.closest('.history-item');
+            const itemId = itemEl && itemEl.dataset ? itemEl.dataset.id : '';
+            if (!itemId) return;
+            if (!confirm('Delete this comic from history?')) return;
+            const { history: currentHistory } = await chrome.storage.local.get('history');
+            const nextHistory = (Array.isArray(currentHistory) ? currentHistory : []).filter((h) => h && h.id !== itemId);
+            const payload = { history: nextHistory };
+            const { selectedHistoryComicId } = await chrome.storage.local.get('selectedHistoryComicId');
+            if (selectedHistoryComicId === itemId) payload.selectedHistoryComicId = null;
+            await chrome.storage.local.set(payload);
+            void this.appendDebugLog('history.item.deleted', { id: itemId, via: 'popup' });
+            await this.showHistory();
           });
         });
       }

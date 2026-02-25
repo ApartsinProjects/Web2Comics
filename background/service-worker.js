@@ -46,14 +46,15 @@ function getStyleSpec(options) {
 
 var DEFAULT_PROVIDER_PROMPT_TEMPLATES = {
   openai: {
-    storyboard: 'Create a comic storyboard as strict JSON with a top-level "panels" array.\nSource: {{source_title}} ({{source_url}})\nPanels: {{panel_count}}\nDetail: {{detail_level}}\nStyle: {{style_prompt}}\nContent:\n{{content}}',
+    storyboard: 'Create a comic storyboard as strict JSON.\nJSON only, no markdown.\nSchema: {"panels":[{"caption":string,"image_prompt":string}]}\nPanels: {{panel_count}}\nStyle: {{style_prompt}}\nContent:\n{{content}}',
     image: 'Comic panel {{panel_index}}/{{panel_count}}.\nCaption: {{panel_caption}}\nSummary: {{panel_summary}}\nStyle: {{style_prompt}}\nReturn a single image matching the comic style.'
   },
   gemini: {
-    storyboard: 'Generate a comic storyboard in strict JSON only, with a top-level "panels" array.\nSource title: {{source_title}}\nSource URL: {{source_url}}\nPanel count: {{panel_count}}\nDetail level: {{detail_level}}\nStyle guidance: {{style_prompt}}\nContent:\n{{content}}',
+    storyboard: 'Generate a comic storyboard in strict JSON.\nJSON only, no markdown.\nSchema: {"panels":[{"caption":string,"image_prompt":string}]}\nPanel count: {{panel_count}}\nStyle guidance: {{style_prompt}}\nContent:\n{{content}}',
     image: 'Create comic panel artwork {{panel_index}}/{{panel_count}}.\nPanel caption: {{panel_caption}}\nPanel summary: {{panel_summary}}\nStyle guidance: {{style_prompt}}'
   }
 };
+var STORYBOARD_RETRY_JSON_ONLY_PROMPT = 'Return ONLY valid JSON object with top-level "panels" array. No markdown fences.';
 
 var DEFAULT_FETCH_TIMEOUT_MS = 45000;
 var STORYBOARD_TIMEOUT_MS = 90000;
@@ -98,6 +99,15 @@ function isTransientProviderErrorMessage(message) {
   return /timeout|timed out|failed to fetch|fetch failed|temporar|overload|503|502|504|rate limit|too many requests|429|connection reset|econnreset|socket/i.test(text);
 }
 
+function isRateLimitProviderErrorMessage(message) {
+  var text = String(message || '').toLowerCase();
+  return /rate limit|too many requests|429|resource_exhausted|quota exceeded:.*per minute|retry later/i.test(text);
+}
+
+function waitMs(ms) {
+  return new Promise(function(resolve) { setTimeout(resolve, Math.max(0, Number(ms) || 0)); });
+}
+
 function isBudgetProviderErrorMessage(message) {
   var text = String(message || '').toLowerCase();
   return /insufficient_quota|quota|budget|billing|payment required|402|exceeded your current quota|free[_ -]?tier|limit:\s*0|resource_exhausted|credits?\b/i.test(text);
@@ -110,6 +120,313 @@ function renderPromptTemplate(template, values) {
     var value = values[token];
     return value == null ? '' : String(value);
   });
+}
+
+function normalizeLooseTextValue(value) {
+  if (value == null) return '';
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+  if (Array.isArray(value)) {
+    return value.map(normalizeLooseTextValue).filter(Boolean).join(' ').trim();
+  }
+  if (typeof value === 'object') {
+    var preferredKeys = [
+      'text', 'caption', 'content', 'title', 'summary', 'description', 'dialogue', 'value', 'label'
+    ];
+    for (var i = 0; i < preferredKeys.length; i++) {
+      var normalized = normalizeLooseTextValue(value[preferredKeys[i]]);
+      if (normalized) return normalized;
+    }
+    if (Array.isArray(value.parts)) {
+      var partsText = normalizeLooseTextValue(value.parts);
+      if (partsText) return partsText;
+    }
+    try {
+      return JSON.stringify(value);
+    } catch (_) {
+      return '';
+    }
+  }
+  return '';
+}
+
+function extractJsonCandidate(rawText) {
+  var raw = String(rawText || '');
+  var fenceMatch = raw.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  var source = fenceMatch && fenceMatch[1] ? fenceMatch[1] : raw;
+  var start = source.indexOf('{');
+  if (start < 0) return '';
+
+  var depth = 0;
+  var inString = false;
+  var escape = false;
+  for (var i = start; i < source.length; i++) {
+    var ch = source[i];
+    if (inString) {
+      if (escape) {
+        escape = false;
+      } else if (ch === '\\') {
+        escape = true;
+      } else if (ch === '"') {
+        inString = false;
+      }
+      continue;
+    }
+    if (ch === '"') { inString = true; continue; }
+    if (ch === '{') depth += 1;
+    if (ch === '}') {
+      depth -= 1;
+      if (depth === 0) return source.slice(start, i + 1);
+    }
+  }
+  return '';
+}
+
+function parseStoryboardMarkdownFallback(responseText, options) {
+  var raw = String(responseText || '');
+  var lines = raw.split(/\r?\n/).map(function(line) { return line.trim(); }).filter(Boolean);
+  var titleLine = lines.find(function(line) { return /^#{1,6}\s+/.test(line); }) || '';
+  var title = titleLine ? titleLine.replace(/^#{1,6}\s+/, '').trim() : 'Comic Summary';
+  var segments = [];
+  var current = null;
+
+  lines.forEach(function(line) {
+    if (/^#{1,6}\s+/.test(line) || /^panel\s*\d+\b[:.-]*/i.test(line)) {
+      if (current && (current.caption || current.body.length)) segments.push(current);
+      current = {
+        caption: line.replace(/^#{1,6}\s+/, '').replace(/^panel\s*\d+\s*[:.-]*/i, '').trim(),
+        body: []
+      };
+      return;
+    }
+    if (!current) current = { caption: '', body: [] };
+    current.body.push(line);
+  });
+  if (current && (current.caption || current.body.length)) segments.push(current);
+
+  var fallbackPanels = segments.map(function(seg, idx) {
+    var bodyText = (seg.body || []).join(' ');
+    var imagePromptMatch = bodyText.match(/image\s*prompt\s*[:\-]\s*(.+)$/i);
+    var caption = seg.caption || ('Panel ' + (idx + 1));
+    var beat = bodyText.replace(/image\s*prompt\s*[:\-]\s*.+$/i, '').trim();
+    return {
+      panel_id: 'panel_' + (idx + 1),
+      beat_summary: beat || caption,
+      caption: caption,
+      image_prompt: (imagePromptMatch && imagePromptMatch[1] ? imagePromptMatch[1].trim() : ('Comic panel illustration of: ' + caption + (beat ? (', ' + beat) : '')))
+    };
+  }).filter(function(panel) { return panel.caption || panel.image_prompt; });
+
+  return {
+    title: title,
+    panels: (options && options.panelCount) ? fallbackPanels.slice(0, options.panelCount) : fallbackPanels
+  };
+}
+
+function scorePanelArrayKey(key) {
+  var normalized = String(key || '').toLowerCase();
+  var scoreMap = {
+    panels: 100,
+    frames: 95,
+    scenes: 90,
+    shots: 85,
+    slides: 80,
+    items: 75
+  };
+  if (Object.prototype.hasOwnProperty.call(scoreMap, normalized)) return scoreMap[normalized];
+  if (/panel|frame|scene|shot|slide|item/.test(normalized)) return 50;
+  return 10;
+}
+
+function discoverStoryboardPanelCandidates(parsed) {
+  if (!parsed) return [];
+  if (Array.isArray(parsed)) return parsed;
+  if (typeof parsed !== 'object') return [];
+
+  var candidateSpecs = [];
+  function pushCandidate(array, keyPath, keyName) {
+    if (!Array.isArray(array)) return;
+    candidateSpecs.push({
+      array: array,
+      keyPath: keyPath,
+      keyName: keyName || keyPath.split('.').pop() || '',
+      score: scorePanelArrayKey(keyName || keyPath)
+    });
+  }
+
+  pushCandidate(parsed.panels, 'panels', 'panels');
+  pushCandidate(parsed.frames, 'frames', 'frames');
+  pushCandidate(parsed.scenes, 'scenes', 'scenes');
+  pushCandidate(parsed.shots, 'shots', 'shots');
+  pushCandidate(parsed.slides, 'slides', 'slides');
+  pushCandidate(parsed.items, 'items', 'items');
+
+  if (parsed.storyboard && typeof parsed.storyboard === 'object') {
+    pushCandidate(parsed.storyboard.panels, 'storyboard.panels', 'panels');
+    pushCandidate(parsed.storyboard.frames, 'storyboard.frames', 'frames');
+    pushCandidate(parsed.storyboard.scenes, 'storyboard.scenes', 'scenes');
+  }
+  if (parsed.comic && typeof parsed.comic === 'object') {
+    pushCandidate(parsed.comic.panels, 'comic.panels', 'panels');
+    pushCandidate(parsed.comic.frames, 'comic.frames', 'frames');
+  }
+  if (parsed.data && typeof parsed.data === 'object') {
+    pushCandidate(parsed.data.panels, 'data.panels', 'panels');
+    pushCandidate(parsed.data.items, 'data.items', 'items');
+  }
+  if (parsed.result && typeof parsed.result === 'object') {
+    pushCandidate(parsed.result.panels, 'result.panels', 'panels');
+    pushCandidate(parsed.result.items, 'result.items', 'items');
+  }
+
+  Object.keys(parsed).forEach(function(key) {
+    if (!Array.isArray(parsed[key])) return;
+    pushCandidate(parsed[key], key, key);
+  });
+
+  candidateSpecs.sort(function(a, b) { return b.score - a.score; });
+  return candidateSpecs.length ? candidateSpecs[0].array : [];
+}
+
+function normalizeStoryboardPanels(parsed, requestedPanelCount) {
+  var panelCandidates = discoverStoryboardPanelCandidates(parsed);
+  var normalizedPanels = (panelCandidates || [])
+    .map(function(p, i) {
+      if (!p || typeof p !== 'object') return null;
+      var beat = normalizeLooseTextValue(p.beat_summary || p.summary || p.beat || p.description || p.text || p.narration || '');
+      var caption = normalizeLooseTextValue(p.caption || p.title || p.dialogue || p.caption_text || p.text_content) || beat || ('Panel ' + (i + 1));
+      var imagePrompt = normalizeLooseTextValue(p.image_prompt || p.prompt || p.imagePrompt || p.visual_prompt || p.visual || p.image || p.scene_prompt) || ('Comic panel illustration of: ' + caption);
+      return {
+        panel_id: 'panel_' + (i + 1),
+        beat_summary: beat,
+        caption: caption,
+        image_prompt: imagePrompt
+      };
+    })
+    .filter(function(p) { return p && (p.caption || p.image_prompt); });
+
+  if (requestedPanelCount && Number(requestedPanelCount) > 0) {
+    normalizedPanels = normalizedPanels.slice(0, Number(requestedPanelCount));
+  }
+  return normalizedPanels;
+}
+
+function parseStoryboardLoose(raw, options) {
+  raw = String(raw || '');
+  var parsed = null;
+  var parseError = null;
+  var normalizedPanels = [];
+
+  try {
+    var jsonCandidate = extractJsonCandidate(raw);
+    if (!jsonCandidate) throw new Error('No JSON object found in provider response');
+    parsed = JSON.parse(jsonCandidate);
+    normalizedPanels = normalizeStoryboardPanels(parsed, options && options.panelCount);
+  } catch (e) {
+    parseError = e;
+  }
+
+  if (!normalizedPanels.length) {
+    var fallback = parseStoryboardMarkdownFallback(raw, options || {});
+    if (fallback && Array.isArray(fallback.panels) && fallback.panels.length) {
+      normalizedPanels = normalizeStoryboardPanels({ panels: fallback.panels }, options && options.panelCount);
+      if (!parsed || typeof parsed !== 'object') parsed = {};
+      if (!parsed.title && fallback.title) parsed.title = fallback.title;
+    }
+  }
+
+  return {
+    parsed: parsed,
+    parseError: parseError,
+    panels: normalizedPanels
+  };
+}
+
+function parseStoryboardResponseShared(responseText, options, config) {
+  var providerTextId = (config && config.providerTextId) || 'unknown';
+  var providerImageId = (config && config.providerImageId) || providerTextId;
+  var defaultTextModel = (config && config.defaultTextModel) || '';
+  var defaultImageModel = (config && config.defaultImageModel) || '';
+  var loose = parseStoryboardLoose(responseText, options);
+  var parsed = loose.parsed;
+  var parseError = loose.parseError;
+  var normalizedPanels = loose.panels || [];
+
+  if (!normalizedPanels.length) {
+    var keys = parsed && typeof parsed === 'object' ? Object.keys(parsed).join(', ') : '';
+    var parseMsg = parseError ? parseError.message : ('No panels found' + (keys ? ('. Keys: ' + keys) : ''));
+    var err = new Error('Failed to parse storyboard: ' + parseMsg);
+    err.rawOutputSnippet = String(responseText || '').replace(/\s+/g, ' ').trim().substring(0, 280);
+    err.parsedKeys = keys;
+    throw err;
+  }
+
+  return {
+    schema_version: '1.0',
+    title: (parsed && parsed.title) ? normalizeLooseTextValue(parsed.title) : undefined,
+    settings: {
+      panel_count: (options && options.panelCount) || 6,
+      detail_level: (options && options.detailLevel) || 'medium',
+      style_id: (options && options.styleId) || 'default',
+      caption_len: (options && options.captionLength) || 'short',
+      provider_text: providerTextId,
+      provider_image: providerImageId,
+      text_model: (options && options.textModel) || defaultTextModel || '',
+      image_model: (options && options.imageModel) || defaultImageModel || '',
+      image_quality: (options && options.imageQuality) || '',
+      image_size: (options && options.imageSize) || '',
+      custom_style_theme: (options && options.customStyleTheme) || '',
+      custom_style_name: (options && options.customStyleName) || ''
+    },
+    panels: normalizedPanels
+  };
+}
+
+function summarizeRawOutputForRetry(error) {
+  var snippet = (error && error.rawOutputSnippet) ? String(error.rawOutputSnippet) : '';
+  if (!snippet) return 'No parseable JSON found.';
+  return 'Previous malformed output snippet: "' + snippet + '"';
+}
+
+function validateStoryboardContract(storyboard, requestedPanelCount) {
+  var normalized = (storyboard && typeof storyboard === 'object') ? storyboard : {};
+  if (!Array.isArray(normalized.panels)) normalized.panels = [];
+
+  var beforeMissingCaption = 0;
+  var beforeMissingImagePrompt = 0;
+
+  normalized.panels = normalized.panels
+    .map(function(panel, index) {
+      if (!panel || typeof panel !== 'object') return null;
+      var p = { ...panel };
+      var beat = normalizeLooseTextValue(p.beat_summary || p.summary || p.beat || p.description || p.text || p.narration || '');
+      var caption = normalizeLooseTextValue(p.caption || p.title || p.dialogue || p.caption_text || p.text_content);
+      var imagePrompt = normalizeLooseTextValue(p.image_prompt || p.prompt || p.imagePrompt || p.visual_prompt || p.visual || p.image || p.scene_prompt);
+
+      if (!caption) beforeMissingCaption += 1;
+      if (!imagePrompt) beforeMissingImagePrompt += 1;
+
+      p.beat_summary = p.beat_summary || beat || '';
+      p.caption = caption || beat || ('Panel ' + (index + 1));
+      p.image_prompt = imagePrompt || ('Comic panel illustration of: ' + p.caption + (beat ? ('. ' + beat) : ''));
+      if (!p.panel_id) p.panel_id = 'panel_' + (index + 1);
+      return p;
+    })
+    .filter(function(panel) { return !!panel; });
+
+  if (requestedPanelCount && Number(requestedPanelCount) > 0) {
+    normalized.panels = normalized.panels.slice(0, Number(requestedPanelCount));
+  }
+
+  return {
+    storyboard: normalized,
+    meta: {
+      hasPanelsArray: Array.isArray((storyboard && storyboard.panels)) || Array.isArray(normalized.panels),
+      panelCount: normalized.panels.length,
+      missingCaptionBeforeSynthesis: beforeMissingCaption,
+      missingImagePromptBeforeSynthesis: beforeMissingImagePrompt
+    }
+  };
 }
 
 function getProviderPromptTemplateScope(providerId) {
@@ -227,141 +544,40 @@ class GeminiProvider {
         style_prompt: styleSpec.directive,
         content: String(text || '').substring(0, 4000)
       });
-      if (renderedTemplate && renderedTemplate.trim()) {
+        if (renderedTemplate && renderedTemplate.trim()) {
+        if (options && options.panelCountRetry) {
+          renderedTemplate += '\n\nREMINDER: Return exactly ' + panelCount + ' panels in the top-level "panels" array.';
+        }
+        if (options && options.malformedRetry) {
+          return renderedTemplate + '\n\nIMPORTANT RETRY: ' + STORYBOARD_RETRY_JSON_ONLY_PROMPT;
+        }
         return renderedTemplate;
       }
     }
 
-    return 'Create a ' + panelCount + '-panel comic strip storyboard based on the following text content.\n\n' +
+    var prompt = 'Create a ' + panelCount + '-panel comic storyboard.\n' +
+      'JSON only, no markdown.\n' +
+      'Schema: {"panels":[{"caption":string,"image_prompt":string}]}\n' +
       'Visual style requirement: ' + styleSpec.directive + '\n' +
-      'Keep the style consistent across all panels.\n\n' +
-      'Generate JSON with: title, panels (beat_summary, caption, image_prompt).\n\nText: ' + text.substring(0, 4000);
+      'Keep the style consistent across all panels.\n' +
+      'Text: ' + text.substring(0, 4000);
+    if (options && options.parseFailureSummary) {
+      prompt += '\n\n' + String(options.parseFailureSummary).substring(0, 320);
+    }
+    if (options && options.malformedRetry) {
+      prompt += '\n\nIMPORTANT RETRY: ' + STORYBOARD_RETRY_JSON_ONLY_PROMPT;
+    }
+    if (options && options.panelCountRetry) {
+      prompt += '\n\nREMINDER: Return exactly ' + panelCount + ' panels in the top-level "panels" array.';
+    }
+    return prompt;
   }
   
   parseStoryboardResponse(responseText, options) {
-    var jsonStr = responseText;
-    var match = responseText.match(/\{[\s\S]*\}/);
-    if (match) jsonStr = match[0];
-    
-    try {
-      var parsed = JSON.parse(jsonStr);
-      var panelCandidates = [];
-
-      if (Array.isArray(parsed)) {
-        panelCandidates = parsed;
-      } else if (parsed && Array.isArray(parsed.panels)) {
-        panelCandidates = parsed.panels;
-      } else if (parsed && parsed.storyboard && Array.isArray(parsed.storyboard.panels)) {
-        panelCandidates = parsed.storyboard.panels;
-      } else if (parsed && parsed.comic && Array.isArray(parsed.comic.panels)) {
-        panelCandidates = parsed.comic.panels;
-      } else if (parsed && parsed.frames && Array.isArray(parsed.frames)) {
-        panelCandidates = parsed.frames;
-      } else if (parsed && parsed.scenes && Array.isArray(parsed.scenes)) {
-        panelCandidates = parsed.scenes;
-      } else if (parsed && typeof parsed === 'object') {
-        var firstArrayKey = Object.keys(parsed).find(function(key) { return Array.isArray(parsed[key]); });
-        if (firstArrayKey) panelCandidates = parsed[firstArrayKey];
-      }
-
-      var normalizedPanels = (panelCandidates || [])
-        .map(function(p, i) {
-          if (!p || typeof p !== 'object') return null;
-          return {
-            panel_id: 'panel_' + (i + 1),
-            beat_summary: String(p.beat_summary || p.summary || p.beat || p.description || ''),
-            caption: String(p.caption || p.title || p.dialogue || ('Panel ' + (i + 1))),
-            image_prompt: String(p.image_prompt || p.prompt || p.imagePrompt || p.visual_prompt || p.visual || '')
-          };
-        })
-        .filter(function(p) { return p && (p.caption || p.image_prompt); });
-
-      if (!normalizedPanels.length) {
-        throw new Error('Gemini storyboard JSON parsed but no panels found. Keys: ' + Object.keys(parsed || {}).join(', '));
-      }
-
-      return {
-        schema_version: '1.0',
-        settings: { 
-          panel_count: options.panelCount || 6, 
-          detail_level: options.detailLevel || 'medium', 
-          style_id: options.styleId || 'default', 
-          caption_len: options.captionLength || 'short', 
-          provider_text: 'gemini-free', 
-          provider_image: 'gemini-free',
-          text_model: options.textModel || '',
-          image_model: options.imageModel || '',
-          image_quality: options.imageQuality || '',
-          image_size: options.imageSize || '',
-          custom_style_theme: options.customStyleTheme || '',
-          custom_style_name: options.customStyleName || ''
-        },
-        panels: normalizedPanels
-      };
-    } catch (e) {
-      // Gemini sometimes ignores the JSON-only instruction and returns markdown headings.
-      // Fall back to a lightweight markdown parser so generation still succeeds.
-      try {
-        var raw = String(responseText || '');
-        var lines = raw.split(/\r?\n/).map(function(line) { return line.trim(); }).filter(Boolean);
-        var titleLine = lines.find(function(line) { return /^#{1,6}\s+/.test(line); }) || '';
-        var title = titleLine ? titleLine.replace(/^#{1,6}\s+/, '').trim() : 'Comic Summary';
-
-        var segments = [];
-        var current = null;
-        lines.forEach(function(line) {
-          if (/^#{1,6}\s+/.test(line) || /^panel\s*\d+\b[:.-]*/i.test(line)) {
-            if (current && (current.caption || current.body.length)) segments.push(current);
-            current = { caption: line.replace(/^#{1,6}\s+/, '').replace(/^panel\s*\d+\s*[:.-]*/i, '').trim(), body: [] };
-            return;
-          }
-          if (!current) current = { caption: '', body: [] };
-          current.body.push(line);
-        });
-        if (current && (current.caption || current.body.length)) segments.push(current);
-
-        var fallbackPanels = segments
-          .map(function(seg, idx) {
-            var bodyText = (seg.body || []).join(' ');
-            var imagePromptMatch = bodyText.match(/image\s*prompt\s*[:\-]\s*(.+)$/i);
-            var caption = seg.caption || ('Panel ' + (idx + 1));
-            var beat = bodyText.replace(/image\s*prompt\s*[:\-]\s*.+$/i, '').trim();
-            return {
-              panel_id: 'panel_' + (idx + 1),
-              beat_summary: beat || caption,
-              caption: caption,
-              image_prompt: (imagePromptMatch && imagePromptMatch[1] ? imagePromptMatch[1].trim() : ('Comic panel illustration of ' + caption + (beat ? (', ' + beat) : '')))
-            };
-          })
-          .filter(function(panel) { return panel.caption || panel.image_prompt; });
-
-        if (!fallbackPanels.length) {
-          throw e;
-        }
-
-        return {
-          schema_version: '1.0',
-          title: title,
-          settings: {
-            panel_count: options.panelCount || fallbackPanels.length || 6,
-            detail_level: options.detailLevel || 'medium',
-            style_id: options.styleId || 'default',
-            caption_len: options.captionLength || 'short',
-            provider_text: 'gemini-free',
-            provider_image: 'gemini-free',
-            text_model: options.textModel || '',
-            image_model: options.imageModel || '',
-            image_quality: options.imageQuality || '',
-            image_size: options.imageSize || '',
-            custom_style_theme: options.customStyleTheme || '',
-            custom_style_name: options.customStyleName || ''
-          },
-          panels: fallbackPanels.slice(0, options.panelCount || fallbackPanels.length)
-        };
-      } catch (_) {
-        throw new Error('Failed to parse storyboard: ' + e.message);
-      }
-    }
+    return parseStoryboardResponseShared(responseText, options, {
+      providerTextId: 'gemini-free',
+      providerImageId: 'gemini-free'
+    });
   }
   
   async generateImage(prompt, options) {
@@ -468,9 +684,11 @@ class OpenAIProvider {
       var styleSpec = getStyleSpec(options);
       var textModel = (options && options.textModel) || self.textModel;
       var userPrompt =
-        'Create a ' + (options.panelCount || 6) + '-panel comic storyboard from this content. ' +
+        'Create a ' + (options.panelCount || 6) + '-panel comic storyboard. ' +
+        'JSON only, no markdown. ' +
+        'Schema: {"panels":[{"caption":string,"image_prompt":string}]}. ' +
         'Style requirement: ' + styleSpec.directive + '. ' +
-        'Return exactly the JSON schema requested. Content: ' + text.substring(0, 8000);
+        'Content: ' + text.substring(0, 8000);
       if (options && options.storyboardTemplate) {
         var renderedTemplate = renderPromptTemplate(options.storyboardTemplate, {
           source_title: options.sourceTitle || '',
@@ -484,6 +702,15 @@ class OpenAIProvider {
           userPrompt = renderedTemplate;
         }
       }
+      if (options && options.malformedRetry) {
+        userPrompt += '\n\nIMPORTANT RETRY: ' + STORYBOARD_RETRY_JSON_ONLY_PROMPT;
+      }
+      if (options && options.parseFailureSummary) {
+        userPrompt += '\n\n' + String(options.parseFailureSummary).substring(0, 320);
+      }
+      if (options && options.panelCountRetry) {
+        userPrompt += '\n\nREMINDER: Return exactly ' + (options.panelCount || 6) + ' panels in the top-level "panels" array.';
+      }
       
       var response = await fetchWithTimeout(self.baseUrl + '/chat/completions', {
         method: 'POST',
@@ -494,9 +721,9 @@ class OpenAIProvider {
             {
               role: 'system',
               content:
-                'You are a comic strip storyboard generator. Respond ONLY with valid JSON object. ' +
-                'Schema: {"title":string,"panels":[{"beat_summary":string,"caption":string,"image_prompt":string}]}. ' +
-                'Do not include markdown fences. Include the requested art style in each panel image_prompt.'
+                'You are a comic storyboard generator. Respond with JSON only, no markdown fences. ' +
+                'Schema: {"panels":[{"caption":string,"image_prompt":string}]}. ' +
+                'Include the requested art style in each panel image_prompt.'
             },
             {
               role: 'user',
@@ -517,88 +744,21 @@ class OpenAIProvider {
       var storyboardText = data.choices?.[0]?.message?.content;
       if (!storyboardText) { reject(new Error('Invalid response from OpenAI')); return; }
       
-      resolve(self.parseStoryboardResponse(storyboardText, options));
+      try {
+        resolve(self.parseStoryboardResponse(storyboardText, options));
+      } catch (parseError) {
+        reject(parseError);
+      }
     });
   }
   
   parseStoryboardResponse(responseText, options) {
-    var jsonStr = responseText;
-    var match = responseText.match(/\{[\s\S]*\}/);
-    if (match) jsonStr = match[0];
-    
-    try {
-      var parsed = JSON.parse(jsonStr);
-      var panelCandidates = [];
-
-      if (Array.isArray(parsed)) {
-        panelCandidates = parsed;
-      } else if (parsed && Array.isArray(parsed.panels)) {
-        panelCandidates = parsed.panels;
-      } else if (parsed && parsed.comic && Array.isArray(parsed.comic.panels)) {
-        panelCandidates = parsed.comic.panels;
-      } else if (parsed && parsed.storyboard && Array.isArray(parsed.storyboard.panels)) {
-        panelCandidates = parsed.storyboard.panels;
-      } else if (parsed && parsed.data && Array.isArray(parsed.data.panels)) {
-        panelCandidates = parsed.data.panels;
-      } else if (parsed && parsed.result && Array.isArray(parsed.result.panels)) {
-        panelCandidates = parsed.result.panels;
-      } else if (parsed && parsed.frames && Array.isArray(parsed.frames)) {
-        panelCandidates = parsed.frames;
-      } else if (parsed && parsed.scenes && Array.isArray(parsed.scenes)) {
-        panelCandidates = parsed.scenes;
-      } else if (parsed && typeof parsed === 'object') {
-        var firstArrayKey = Object.keys(parsed).find(function(key) { return Array.isArray(parsed[key]); });
-        if (firstArrayKey) {
-          panelCandidates = parsed[firstArrayKey];
-        }
-      }
-
-      var normalizedPanels = (panelCandidates || [])
-        .map(function(p, i) {
-          if (!p || typeof p !== 'object') return null;
-          var beat = p.beat_summary || p.summary || p.beat || p.description || p.text || '';
-          var caption = p.caption || p.title || p.dialogue || beat || ('Panel ' + (i + 1));
-          var imagePrompt =
-            p.image_prompt ||
-            p.prompt ||
-            p.imagePrompt ||
-            p.visual_prompt ||
-            p.visual ||
-            ('Comic panel illustration of: ' + caption);
-          return {
-            panel_id: 'panel_' + (i + 1),
-            beat_summary: String(beat || ''),
-            caption: String(caption || ''),
-            image_prompt: String(imagePrompt || '')
-          };
-        })
-        .filter(function(p) { return p && (p.caption || p.image_prompt); });
-
-      if (!normalizedPanels.length) {
-        throw new Error('OpenAI storyboard JSON parsed but no panels found. Keys: ' + Object.keys(parsed || {}).join(', '));
-      }
-
-      return {
-        schema_version: '1.0',
-        settings: { 
-          panel_count: options.panelCount || 6, 
-          detail_level: options.detailLevel || 'medium',
-          style_id: options.styleId || 'default',
-          caption_len: options.captionLength || 'short',
-          provider_text: 'openai', 
-          provider_image: 'openai',
-          text_model: options.textModel || this.textModel,
-          image_model: (options && options.imageModel) || this.imageModel,
-          image_quality: (options && options.imageQuality) || 'standard',
-          image_size: (options && options.imageSize) || '256x256',
-          custom_style_theme: options.customStyleTheme || '',
-          custom_style_name: options.customStyleName || ''
-        },
-        panels: normalizedPanels
-      };
-    } catch (e) { 
-      throw new Error('Failed to parse storyboard: ' + e.message); 
-    }
+    return parseStoryboardResponseShared(responseText, options, {
+      providerTextId: 'openai',
+      providerImageId: 'openai',
+      defaultTextModel: this.textModel,
+      defaultImageModel: this.imageModel
+    });
   }
   
   async generateImage(prompt, options) {
@@ -745,23 +905,31 @@ class OpenRouterProvider {
   buildStoryboardPrompt(text, options) {
     var panelCount = options.panelCount || 6;
     var styleSpec = getStyleSpec(options);
-    return [
+    var prompt = [
       'Create a comic storyboard from the content below.',
-      'Return ONLY valid JSON.',
-      'Schema: {"title":string,"panels":[{"beat_summary":string,"caption":string,"image_prompt":string}]}',
+      'JSON only, no markdown.',
+      'Schema: {"panels":[{"caption":string,"image_prompt":string}]}',
       'Panel count: ' + panelCount,
       'Style requirement: ' + styleSpec.directive,
       'Keep the style consistent across all panels.',
       'Content:',
       String(text || '').substring(0, 3500)
     ].join('\n');
+    if (options && options.malformedRetry) {
+      prompt += '\nIMPORTANT RETRY: ' + STORYBOARD_RETRY_JSON_ONLY_PROMPT;
+    }
+    if (options && options.parseFailureSummary) {
+      prompt += '\n' + String(options.parseFailureSummary).substring(0, 320);
+    }
+    if (options && options.panelCountRetry) {
+      prompt += '\nREMINDER: Return exactly ' + panelCount + ' panels in the top-level "panels" array.';
+    }
+    return prompt;
   }
   parseStoryboardResponse(responseText, options) {
-    // Reuse OpenAI's robust parser implementation.
-    return OpenAIProvider.prototype.parseStoryboardResponse.call({ textModel: 'openrouter', imageModel: '' }, responseText, {
-      ...options,
-      textModel: options && options.textModel ? options.textModel : '',
-      imageModel: options && options.imageModel ? options.imageModel : ''
+    return parseStoryboardResponseShared(responseText, options, {
+      providerTextId: 'openrouter',
+      providerImageId: (options && options.providerImage) || 'openrouter'
     });
   }
   async generateStoryboard(text, options) {
@@ -824,6 +992,37 @@ class OpenRouterProvider {
         }
         return storyboard;
       } catch (parseError) {
+        var parseMsg = String((parseError && parseError.message) || parseError || '').toLowerCase();
+        var canRepairRetry = !options?.malformedRetry && /failed to parse storyboard|no json object found|no panels found|malformed/i.test(parseMsg);
+        if (canRepairRetry) {
+          try {
+            var retryPrompt = this.buildStoryboardPrompt(text, { ...(options || {}), malformedRetry: true });
+            var retryResponse = await fetchWithTimeout(this.baseUrl + '/chat/completions', {
+              method: 'POST',
+              headers: {
+                'Authorization': 'Bearer ' + apiKey,
+                'Content-Type': 'application/json',
+                'HTTP-Referer': 'https://web2comics.local',
+                'X-Title': 'Web2Comics'
+              },
+              body: JSON.stringify({
+                model: model,
+                messages: [{ role: 'user', content: retryPrompt }],
+                max_tokens: 2048
+              })
+            }, STORYBOARD_TIMEOUT_MS, 'OpenRouter storyboard retry');
+            if (retryResponse.ok) {
+              var retryData = await retryResponse.json();
+              var retryContent = retryData.choices?.[0]?.message?.content || retryData.choices?.[0]?.message?.reasoning || '';
+              if (retryContent) {
+                var repairedStoryboard = this.parseStoryboardResponse(retryContent, { ...(options || {}), textModel: model, malformedRetry: true });
+                if (repairedStoryboard && repairedStoryboard.settings) repairedStoryboard.settings.provider_text = 'openrouter';
+                try { chrome.storage.local.get('debugLogs').then(function(r){ var logs = Array.isArray(r.debugLogs)?r.debugLogs:[]; logs.push({ ts: new Date().toISOString(), event: 'storyboard.parse_retry', data: { provider: 'openrouter' } }); return chrome.storage.local.set({ debugLogs: logs.slice(-500) }); }); } catch (_) {}
+                return repairedStoryboard;
+              }
+            }
+          } catch (_) {}
+        }
         lastError = parseError;
       }
     }
@@ -886,6 +1085,8 @@ class OpenRouterProvider {
       }
     }
 
+    var requestedImageSize = String((options && options.imageSize) || '1K').trim();
+    var openRouterImageSize = ['1K', '1.5K', '2K'].indexOf(requestedImageSize) >= 0 ? requestedImageSize : '1K';
     var imageCandidates = orderedCandidates(options && options.imageModel, this.imageModelCandidates);
     var lastError = null;
     for (var i = 0; i < imageCandidates.length; i++) {
@@ -905,7 +1106,7 @@ class OpenRouterProvider {
             modalities: ['image', 'text'],
             image_config: {
               aspect_ratio: '1:1',
-              image_size: '1K'
+              image_size: openRouterImageSize
             },
             max_tokens: 256
           })
@@ -951,7 +1152,8 @@ class OpenRouterProvider {
             model: model,
             endpoint: 'chat/completions',
             modalities: ['image', 'text'],
-            image_transport: imageResult.type
+            image_transport: imageResult.type,
+            size: openRouterImageSize
           }
         };
       } catch (error) {
@@ -988,19 +1190,29 @@ class HuggingFaceProvider {
   buildStoryboardPrompt(text, options) {
     var panelCount = options.panelCount || 6;
     var styleSpec = getStyleSpec(options);
-    return [
-      'Return ONLY valid JSON (no markdown).',
-      'Schema: {"title":string,"panels":[{"beat_summary":string,"caption":string,"image_prompt":string}]}',
+    var prompt = [
+      'JSON only, no markdown.',
+      'Schema: {"panels":[{"caption":string,"image_prompt":string}]}',
       'Create a ' + panelCount + '-panel comic storyboard.',
       'Style requirement: ' + styleSpec.directive,
       'Content:',
       String(text || '').substring(0, 3500)
     ].join('\n');
+    if (options && options.malformedRetry) {
+      prompt += '\nIMPORTANT RETRY: ' + STORYBOARD_RETRY_JSON_ONLY_PROMPT;
+    }
+    if (options && options.parseFailureSummary) {
+      prompt += '\n' + String(options.parseFailureSummary).substring(0, 320);
+    }
+    if (options && options.panelCountRetry) {
+      prompt += '\nREMINDER: Return exactly ' + panelCount + ' panels in the top-level "panels" array.';
+    }
+    return prompt;
   }
   parseStoryboardResponse(responseText, options) {
-    return OpenAIProvider.prototype.parseStoryboardResponse.call({ textModel: 'huggingface', imageModel: '' }, responseText, {
-      ...options,
-      textModel: options && options.textModel ? options.textModel : ''
+    return parseStoryboardResponseShared(responseText, options, {
+      providerTextId: 'huggingface',
+      providerImageId: (options && options.providerImage) || 'huggingface'
     });
   }
   async generateStoryboard(text, options) {
@@ -1051,7 +1263,33 @@ class HuggingFaceProvider {
           continue;
         }
 
-        var storyboard = this.parseStoryboardResponse(outputText, { ...options, textModel: model });
+        var storyboard;
+        try {
+          storyboard = this.parseStoryboardResponse(outputText, { ...options, textModel: model });
+        } catch (parseError) {
+          var parseMsg = String((parseError && parseError.message) || parseError || '').toLowerCase();
+          var canRepairRetry = !options?.malformedRetry && /failed to parse storyboard|no json object found|no panels found|malformed/i.test(parseMsg);
+          if (!canRepairRetry) throw parseError;
+          var retryPrompt = this.buildStoryboardPrompt(text, { ...(options || {}), malformedRetry: true });
+          var retryResponse = await fetchWithTimeout(this.baseUrl + '/chat/completions', {
+            method: 'POST',
+            headers: {
+              'Authorization': 'Bearer ' + apiKey,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+              model: model,
+              messages: [{ role: 'user', content: retryPrompt }],
+              max_tokens: 1200
+            })
+          }, STORYBOARD_TIMEOUT_MS, 'HuggingFace storyboard retry');
+          if (!retryResponse.ok) throw parseError;
+          var retryData = await retryResponse.json();
+          var retryText = retryData?.choices?.[0]?.message?.content || '';
+          if (!retryText) throw parseError;
+          storyboard = this.parseStoryboardResponse(retryText, { ...(options || {}), textModel: model, malformedRetry: true });
+          try { chrome.storage.local.get('debugLogs').then(function(r){ var logs = Array.isArray(r.debugLogs)?r.debugLogs:[]; logs.push({ ts: new Date().toISOString(), event: 'storyboard.parse_retry', data: { provider: 'huggingface' } }); return chrome.storage.local.set({ debugLogs: logs.slice(-500) }); }); } catch (_) {}
+        }
         if (storyboard && storyboard.settings) {
           storyboard.settings.provider_text = 'huggingface';
           storyboard.settings.provider_image = (options && options.providerImage) || storyboard.settings.provider_image;
@@ -1085,6 +1323,14 @@ class HuggingFaceProvider {
       }
     }
 
+    var requestedSize = String((options && options.imageSize) || '512x512').trim();
+    var hfSize = ['512x512', '768x768', '1024x1024'].indexOf(requestedSize) >= 0 ? requestedSize : '512x512';
+    var dims = hfSize.split('x');
+    var width = parseInt(dims[0], 10) || 512;
+    var height = parseInt(dims[1], 10) || 512;
+    var qualityMode = String((options && options.imageQuality) || 'fastest').trim().toLowerCase();
+    var stepsByQuality = { fastest: 4, faster: 6, balanced: 10, high: 16 };
+    var inferenceSteps = stepsByQuality[qualityMode] || 4;
     var hfImageCandidates = orderedCandidates(options && options.imageModel, this.imageModelCandidates);
     var lastError = null;
     for (var i = 0; i < hfImageCandidates.length; i++) {
@@ -1099,9 +1345,9 @@ class HuggingFaceProvider {
           body: JSON.stringify({
             inputs: styledPrompt,
             parameters: {
-              width: 1024,
-              height: 1024,
-              num_inference_steps: 4
+              width: width,
+              height: height,
+              num_inference_steps: inferenceSteps
             }
           })
         }, IMAGE_TIMEOUT_MS, 'HuggingFace image');
@@ -1137,7 +1383,14 @@ class HuggingFaceProvider {
           });
           return {
             imageData: imageData,
-            providerMetadata: { model: model, endpoint: 'hf-inference', contentType: contentType }
+            providerMetadata: {
+              model: model,
+              endpoint: 'hf-inference',
+              contentType: contentType,
+              size: hfSize,
+              quality: qualityMode,
+              steps: inferenceSteps
+            }
           };
         }
 
@@ -1153,7 +1406,14 @@ class HuggingFaceProvider {
             imageData: String(base64Image).startsWith('data:image/')
               ? base64Image
               : ('data:image/png;base64,' + base64Image),
-            providerMetadata: { model: model, endpoint: 'hf-inference', contentType: contentType || 'application/json' }
+            providerMetadata: {
+              model: model,
+              endpoint: 'hf-inference',
+              contentType: contentType || 'application/json',
+              size: hfSize,
+              quality: qualityMode,
+              steps: inferenceSteps
+            }
           };
         }
 
@@ -1249,71 +1509,32 @@ class CloudflareProvider {
   buildStoryboardPrompt(text, options) {
     var panelCount = options.panelCount || 6;
     var styleSpec = getStyleSpec(options);
-    return [
+    var prompt = [
       'Create a comic storyboard from the content below.',
-      'Return ONLY valid JSON.',
-      'Schema: {"title":string,"panels":[{"beat_summary":string,"caption":string,"image_prompt":string}]}',
+      'JSON only, no markdown.',
+      'Schema: {"panels":[{"caption":string,"image_prompt":string}]}',
       'Panel count: ' + panelCount,
       'Style requirement: ' + styleSpec.directive,
       'Keep image prompts concise but descriptive and safe for image generation.',
       'Content:',
       String(text || '').substring(0, 7000)
     ].join('\n');
+    if (options && options.malformedRetry) {
+      prompt += '\nIMPORTANT RETRY: ' + STORYBOARD_RETRY_JSON_ONLY_PROMPT;
+    }
+    if (options && options.parseFailureSummary) {
+      prompt += '\n' + String(options.parseFailureSummary).substring(0, 320);
+    }
+    if (options && options.panelCountRetry) {
+      prompt += '\nREMINDER: Return exactly ' + panelCount + ' panels in the top-level "panels" array.';
+    }
+    return prompt;
   }
   parseStoryboardResponse(responseText, options) {
-    var raw = String(responseText || '');
-    var jsonStr = raw;
-    var fenceMatch = raw.match(/```(?:json)?\s*([\s\S]*?)```/i);
-    if (fenceMatch && fenceMatch[1]) jsonStr = fenceMatch[1];
-    var objectMatch = jsonStr.match(/\{[\s\S]*\}/);
-    if (objectMatch) jsonStr = objectMatch[0];
-
-    var parsed = JSON.parse(jsonStr);
-    var panelCandidates = [];
-    if (Array.isArray(parsed)) panelCandidates = parsed;
-    else if (parsed && Array.isArray(parsed.panels)) panelCandidates = parsed.panels;
-    else if (parsed && parsed.storyboard && Array.isArray(parsed.storyboard.panels)) panelCandidates = parsed.storyboard.panels;
-    else if (parsed && parsed.comic && Array.isArray(parsed.comic.panels)) panelCandidates = parsed.comic.panels;
-    else if (parsed && parsed.frames && Array.isArray(parsed.frames)) panelCandidates = parsed.frames;
-    else if (parsed && parsed.scenes && Array.isArray(parsed.scenes)) panelCandidates = parsed.scenes;
-
-    var normalized = (panelCandidates || []).map(function(panel, index) {
-      if (!panel || typeof panel !== 'object') return null;
-      var beat = panel.beat_summary || panel.summary || panel.beat || panel.description || '';
-      var caption = panel.caption || panel.title || panel.dialogue || beat || ('Panel ' + (index + 1));
-      var imagePrompt = panel.image_prompt || panel.prompt || panel.imagePrompt || panel.visual || ('Comic panel illustration of ' + caption);
-      return {
-        panel_id: 'panel_' + (index + 1),
-        beat_summary: String(beat || ''),
-        caption: String(caption || ''),
-        image_prompt: String(imagePrompt || '')
-      };
-    }).filter(function(panel) {
-      return panel && (panel.caption || panel.image_prompt);
+    return parseStoryboardResponseShared(responseText, options, {
+      providerTextId: 'cloudflare-free',
+      providerImageId: 'cloudflare-free'
     });
-
-    if (!normalized.length) {
-      throw new Error('Cloudflare storyboard JSON parsed but no panels found. Keys: ' + Object.keys(parsed || {}).join(', '));
-    }
-
-    return {
-      schema_version: '1.0',
-      settings: {
-        panel_count: options.panelCount || 6,
-        detail_level: options.detailLevel || 'medium',
-        style_id: options.styleId || 'default',
-        caption_len: options.captionLength || 'short',
-        provider_text: 'cloudflare-free',
-        provider_image: 'cloudflare-free',
-        text_model: options.textModel || '',
-        image_model: options.imageModel || '',
-        image_quality: options.imageQuality || '',
-        image_size: options.imageSize || '',
-        custom_style_theme: options.customStyleTheme || '',
-        custom_style_name: options.customStyleName || ''
-      },
-      panels: normalized
-    };
   }
   async generateStoryboard(text, options) {
     var prompt = this.buildStoryboardPrompt(text, options || {});
@@ -1655,29 +1876,112 @@ var ServiceWorker = function() {
       return attemptProvider(0, null);
     }
 
+    function setRetryState(state) {
+      if (!job) return;
+      if (state) {
+        job.retryState = {
+          panelIndex: panelIndex,
+          panelId: panel && panel.panel_id ? panel.panel_id : ('panel_' + (panelIndex + 1)),
+          provider: (state.provider || settings.provider_image || ''),
+          type: state.type || 'retry',
+          attempt: state.attempt || 1,
+          delayMs: state.delayMs || 0,
+          retryAt: state.retryAt || new Date(Date.now() + (state.delayMs || 0)).toISOString(),
+          message: state.message || ''
+        };
+      } else {
+        delete job.retryState;
+      }
+      job.updatedAt = new Date().toISOString();
+      self.saveJob();
+      self.notifyProgress();
+    }
+
     return generateImageAttempt(prompt, 'Image generation panel ' + (panelIndex + 1)).then(function(result) {
+      setRetryState(null);
       return attachRefusalMetadata(result, {
         mode: policy.mode,
         retried: false,
         blockedPlaceholder: false
       });
     }).catch(function(error) {
-      if (isTransientProviderErrorMessage((error && error.message) || error)) {
-        self.pushProgressEvent('panel.retry', 'Retrying panel ' + (panelIndex + 1) + ' after transient error', (error && error.message) || String(error));
+      var errMsg = (error && error.message) || String(error);
+      if (isTransientProviderErrorMessage(errMsg)) {
+        var isRateLimited = isRateLimitProviderErrorMessage(errMsg);
+        var retryDelayMs = isRateLimited ? 6000 : 1500;
+        self.pushProgressEvent(
+          'panel.retry',
+          (isRateLimited ? 'Rate limited, retrying panel ' : 'Retrying panel ') + (panelIndex + 1),
+          errMsg
+        );
         self.appendDebugLog('panel.image.retry_transient', {
           panelIndex: panelIndex,
           panelId: panel.panel_id || null,
-          message: (error && error.message) || String(error)
+          message: errMsg,
+          rateLimited: isRateLimited,
+          delayMs: retryDelayMs
         });
-        return generateImageAttempt(prompt, 'Image generation retry panel ' + (panelIndex + 1)).then(function(result) {
+        if (isRateLimited) {
+          setRetryState({
+            provider: settings.provider_image,
+            type: 'rate_limit',
+            attempt: 1,
+            delayMs: retryDelayMs,
+            message: errMsg
+          });
+        } else {
+          setRetryState({
+            provider: settings.provider_image,
+            type: 'transient',
+            attempt: 1,
+            delayMs: retryDelayMs,
+            message: errMsg
+          });
+        }
+        return waitMs(retryDelayMs).then(function() {
+          setRetryState(null);
+          return generateImageAttempt(prompt, 'Image generation retry panel ' + (panelIndex + 1));
+        }).then(function(result) {
           return attachRefusalMetadata(result, {
             mode: policy.mode,
             retried: true,
             transient_retry: true,
             blockedPlaceholder: false
           });
+        }).catch(function(secondError) {
+          var secondMsg = (secondError && secondError.message) || String(secondError);
+          if (isRateLimitProviderErrorMessage(secondMsg)) {
+            var secondDelayMs = 12000;
+            self.pushProgressEvent('panel.retry', 'Rate limited again, retrying panel ' + (panelIndex + 1), secondMsg);
+            self.appendDebugLog('panel.image.retry_rate_limit_again', {
+              panelIndex: panelIndex,
+              panelId: panel.panel_id || null,
+              message: secondMsg,
+              delayMs: secondDelayMs
+            });
+            setRetryState({
+              provider: settings.provider_image,
+              type: 'rate_limit',
+              attempt: 2,
+              delayMs: secondDelayMs,
+              message: secondMsg
+            });
+            return waitMs(secondDelayMs).then(function() {
+              setRetryState(null);
+              return generateImageAttempt(prompt, 'Image generation second retry panel ' + (panelIndex + 1));
+            }).then(function(result2) {
+              return attachRefusalMetadata(result2, {
+                mode: policy.mode,
+                retried: true,
+                transient_retry: true,
+                blockedPlaceholder: false
+              });
+            });
+          }
+          throw secondError;
         });
       }
+      setRetryState(null);
       if (!self.isImageRefusalError(error)) {
         throw error;
       }
@@ -1788,6 +2092,7 @@ var ServiceWorker = function() {
     self.messageHandlers['CANCEL_GENERATION'] = function(msg) { return self.handleCancelGeneration(msg); };
     self.messageHandlers['GET_STATUS'] = function(msg) { return self.handleGetStatus(msg); };
     self.messageHandlers['TEST_PROVIDER_MODEL'] = function(msg) { return self.handleTestProviderModel(msg); };
+    self.messageHandlers['VALIDATE_PROVIDER_REMOTE'] = function(msg) { return self.handleValidateProviderRemote(msg); };
   };
   
   this.setupLifecycleHandlers = function() {
@@ -1847,7 +2152,8 @@ var ServiceWorker = function() {
     var providerIds = [settings.provider_text].concat(self.getBudgetFallbackTextProviderOrder(settings.provider_text));
     var attempted = [];
 
-    function buildTextOptions() {
+    function buildTextOptions(extra) {
+      var overrides = extra && typeof extra === 'object' ? extra : {};
       return {
         panelCount: settings.panel_count,
         detailLevel: settings.detail_level,
@@ -1860,25 +2166,98 @@ var ServiceWorker = function() {
         sourceTitle: job.sourceTitle,
         sourceUrl: job.sourceUrl,
         storyboardTemplate: resolvedPromptTemplates.text && resolvedPromptTemplates.text.storyboard,
-        providerImage: settings.provider_image
+        providerImage: settings.provider_image,
+        malformedRetry: !!overrides.malformedRetry,
+        parseFailureSummary: overrides.parseFailureSummary || '',
+        panelCountRetry: !!overrides.panelCountRetry
       };
+    }
+
+    function isMalformedStoryboardError(error) {
+      var msg = String((error && error.message) || error || '').toLowerCase();
+      return /failed to parse storyboard|no panels found|no json object found|malformed/i.test(msg);
+    }
+
+    function isTooFewPanels(storyboard) {
+      var requested = Number(settings.panel_count || 0);
+      var actual = storyboard && Array.isArray(storyboard.panels) ? storyboard.panels.length : 0;
+      if (requested <= 1) return false;
+      return actual > 0 && actual < requested;
+    }
+
+    function validateStoryboardBeforeImages(storyboard, providerId) {
+      var validated = validateStoryboardContract(storyboard, settings.panel_count);
+      var s = validated.storyboard;
+      if (!s.panels.length) {
+        var emptyErr = new Error('Storyboard has no panels after validation');
+        emptyErr.malformedStoryboard = true;
+        emptyErr.providerId = providerId;
+        throw emptyErr;
+      }
+      return s;
+    }
+
+    function generateWithMalformedRetry(provider, providerId) {
+      return withTimeout(provider.generateStoryboard(job.extractedText, buildTextOptions()), STORYBOARD_TIMEOUT_MS, 'Storyboard generation')
+        .catch(function(error) {
+          if (!isMalformedStoryboardError(error)) throw error;
+          self.pushProgressEvent('storyboard.retry', 'Retrying malformed storyboard response', 'Provider: ' + providerId);
+          self.appendDebugLog('storyboard.parse_retry', {
+            provider: providerId,
+            message: (error && error.message) || String(error || ''),
+            rawSummary: summarizeRawOutputForRetry(error)
+          });
+          return withTimeout(provider.generateStoryboard(job.extractedText, buildTextOptions({
+            malformedRetry: true,
+            parseFailureSummary: summarizeRawOutputForRetry(error)
+          })), STORYBOARD_TIMEOUT_MS, 'Storyboard generation retry');
+        })
+        .then(function(storyboard) {
+          var validated = validateStoryboardBeforeImages(storyboard, providerId);
+          if (!isTooFewPanels(validated)) return validated;
+          self.pushProgressEvent('storyboard.retry', 'Retrying with panel count reminder', 'Provider: ' + providerId + '; expected ' + settings.panel_count + ', got ' + validated.panels.length);
+          self.appendDebugLog('storyboard.panel_count_retry', {
+            provider: providerId,
+            expected: settings.panel_count,
+            actual: validated.panels.length
+          });
+          return withTimeout(provider.generateStoryboard(job.extractedText, buildTextOptions({
+            malformedRetry: true,
+            panelCountRetry: true
+          })), STORYBOARD_TIMEOUT_MS, 'Storyboard panel-count retry')
+            .then(function(retriedStoryboard) {
+              return validateStoryboardBeforeImages(retriedStoryboard, providerId);
+            });
+        })
+        .then(function(finalStoryboard) {
+          if (isTooFewPanels(finalStoryboard)) {
+            var tooFew = new Error('Storyboard returned too few panels (' + finalStoryboard.panels.length + '/' + settings.panel_count + ')');
+            tooFew.malformedStoryboard = true;
+            tooFew.providerId = providerId;
+            throw tooFew;
+          }
+          return finalStoryboard;
+        });
     }
 
     function attempt(idx, previousError) {
       if (idx >= providerIds.length) throw (previousError || new Error('Storyboard generation failed'));
-      if (idx > 0 && !self.isBudgetProviderError(previousError)) throw previousError;
+      var allowMalformedFallback = !!(previousError && previousError.malformedStoryboard);
+      if (idx > 0 && !self.isBudgetProviderError(previousError) && !allowMalformedFallback) throw previousError;
       var providerId = providerIds[idx];
       if (idx > 0) {
-        self.pushProgressEvent('provider.fallback', 'Switching text provider after budget/quota error', (settings.provider_text || '') + ' -> ' + providerId);
+        var fallbackReasonLabel = self.isBudgetProviderError(previousError) ? 'budget/quota error' : 'malformed storyboard output';
+        self.pushProgressEvent('provider.fallback', 'Switching text provider after ' + fallbackReasonLabel, (settings.provider_text || '') + ' -> ' + providerId);
         self.appendDebugLog('provider.text.fallback', {
           from: settings.provider_text,
           to: providerId,
-          reason: (previousError && previousError.message) || String(previousError || '')
+          reason: (previousError && previousError.message) || String(previousError || ''),
+          malformed: !!allowMalformedFallback
         });
       }
       attempted.push(providerId);
       var provider = self.getTextProvider(providerId);
-      return withTimeout(provider.generateStoryboard(job.extractedText, buildTextOptions()), STORYBOARD_TIMEOUT_MS, 'Storyboard generation')
+      return generateWithMalformedRetry(provider, providerId)
         .catch(function(error) { return attempt(idx + 1, error); });
     }
 
@@ -1936,8 +2315,17 @@ var ServiceWorker = function() {
     self.executeGeneration()
       .catch(function(error) {
         if (self.currentJob) {
+          var errorMessage = error && error.message ? error.message : String(error);
+          if (/parse storyboard|parsed but no panels|json/i.test(String(errorMessage || '').toLowerCase())) {
+            self.appendDebugLog('unexpected_output.storyboard.parse_failed', {
+              message: errorMessage,
+              sourceUrl: self.currentJob.sourceUrl || null
+            });
+          } else {
+            self.appendDebugLog('job.failed', { message: errorMessage });
+          }
           self.currentJob.status = 'failed';
-          self.currentJob.error = error.message;
+          self.currentJob.error = errorMessage;
           if (self.currentJob.settings && self.currentJob.settings.debug_flag) {
             self.currentJob.errorDetails = error && error.stack ? error.stack : String(error);
           }
@@ -1989,15 +2377,27 @@ var ServiceWorker = function() {
         'Panels: ' + ((storyboard && storyboard.panels && storyboard.panels.length) || 0) +
           '; source title: ' + self.truncateForDebug(job.sourceTitle || '', 120)
       );
-      storyboard.source = { url: job.sourceUrl, title: job.sourceTitle, extracted_at: new Date().toISOString() };
-      if (Array.isArray(storyboard.panels)) {
-        storyboard.panels = storyboard.panels.map(function(panel, idx) {
-          var p = panel || {};
-          p.runtime_status = 'pending';
-          if (!p.panel_id) p.panel_id = 'panel_' + (idx + 1);
-          return p;
+      var contract = validateStoryboardContract(storyboard, settings.panel_count);
+      storyboard = contract.storyboard;
+      if (!contract.meta.hasPanelsArray || contract.meta.panelCount === 0) {
+        self.appendDebugLog('unexpected_output.storyboard.no_panels', {
+          hasStoryboard: !!storyboard,
+          panelsType: storyboard && typeof storyboard.panels,
+          sourceUrl: job.sourceUrl || null
         });
+        self.pushProgressEvent('unexpected_output', 'Storyboard returned no panels', 'Provider returned an empty storyboard');
+        var noPanelsErr = new Error('Storyboard returned no panels');
+        noPanelsErr.malformedStoryboard = true;
+        noPanelsErr.providerId = (storyboard && storyboard.settings && storyboard.settings.provider_text) || settings.provider_text;
+        throw noPanelsErr;
       }
+      storyboard.source = { url: job.sourceUrl, title: job.sourceTitle, extracted_at: new Date().toISOString() };
+      storyboard.panels = (Array.isArray(storyboard.panels) ? storyboard.panels : []).map(function(panel, idx) {
+        var p = panel || {};
+        p.runtime_status = 'pending';
+        if (!p.panel_id) p.panel_id = 'panel_' + (idx + 1);
+        return p;
+      });
       storyboard.settings = {
         ...(storyboard.settings || {}),
         debug_flag: !!settings.debug_flag,
@@ -2013,6 +2413,20 @@ var ServiceWorker = function() {
       self.saveJob();
       self.notifyProgress();
       self.appendDebugLog('job.storyboard_ready', { panels: storyboard.panels ? storyboard.panels.length : 0 });
+      if (Array.isArray(storyboard.panels) && storyboard.panels.length) {
+        if (contract.meta.missingCaptionBeforeSynthesis > 0) {
+          self.appendDebugLog('unexpected_output.storyboard.missing_panel_text', {
+            missingPanels: contract.meta.missingCaptionBeforeSynthesis,
+            totalPanels: storyboard.panels.length
+          });
+        }
+        if (contract.meta.missingImagePromptBeforeSynthesis > 0) {
+          self.appendDebugLog('unexpected_output.storyboard.missing_image_prompts', {
+            missingPanels: contract.meta.missingImagePromptBeforeSynthesis,
+            totalPanels: storyboard.panels.length
+          });
+        }
+      }
 
       // Generate images sequentially so UI can show panel-by-panel progress reliably.
       var chain = Promise.resolve();
@@ -2043,6 +2457,19 @@ var ServiceWorker = function() {
               imagePromptTemplate
             ), IMAGE_TIMEOUT_MS + 30000, 'Panel ' + (panelIndex + 1) + ' image generation')
             .then(function(imageResult) {
+              if (!imageResult || !imageResult.imageData) {
+                self.appendDebugLog('unexpected_output.panel.no_image_data', {
+                  panelIndex: panelIndex,
+                  panelId: panel.panel_id || null,
+                  providerMetadata: imageResult && imageResult.providerMetadata ? imageResult.providerMetadata : null
+                });
+                self.pushProgressEvent(
+                  'unexpected_output',
+                  'Panel ' + (panelIndex + 1) + ' returned no image data',
+                  'Provider response was missing image data'
+                );
+                throw new Error('Provider returned no image data');
+              }
               panel.runtime_status = 'receiving';
               job.updatedAt = new Date().toISOString();
               self.saveJob();
@@ -2101,6 +2528,40 @@ var ServiceWorker = function() {
     })
     .then(function() {
       if (job.status !== 'canceled') {
+        if (job.storyboard && Array.isArray(job.storyboard.panels)) {
+          var totalPanels = job.storyboard.panels.length;
+          var panelsWithImages = 0;
+          var panelsWithText = 0;
+          (job.storyboard.panels || []).forEach(function(panel) {
+            var p = panel || {};
+            var hasImage = !!(p.artifacts && p.artifacts.image_blob_ref);
+            var hasText = !!(p.caption || p.beat_summary || p.summary || p.title || p.text || p.narration || p.description || p.text_content || p.caption_text || p.dialogue);
+            if (hasImage) panelsWithImages += 1;
+            if (hasText) panelsWithText += 1;
+          });
+          if (totalPanels > 0 && panelsWithImages === 0) {
+            self.appendDebugLog('unexpected_output.images.none', {
+              totalPanels: totalPanels,
+              panelErrors: (job.panelErrors || []).length
+            });
+          } else if (panelsWithImages < totalPanels) {
+            self.appendDebugLog('unexpected_output.images.partial', {
+              totalPanels: totalPanels,
+              panelsWithImages: panelsWithImages,
+              panelErrors: (job.panelErrors || []).length
+            });
+          }
+          if (totalPanels > 0 && panelsWithText === 0) {
+            self.appendDebugLog('unexpected_output.text.none', {
+              totalPanels: totalPanels
+            });
+          } else if (panelsWithText < totalPanels) {
+            self.appendDebugLog('unexpected_output.text.partial', {
+              totalPanels: totalPanels,
+              panelsWithText: panelsWithText
+            });
+          }
+        }
         job.status = 'completed';
         if (job.storyboard && job.storyboard.panels) {
           job.completedPanels = job.storyboard.panels.length;
@@ -2134,6 +2595,7 @@ var ServiceWorker = function() {
       self.isProcessing = false;
       return { success: true };
     }
+    self.appendDebugLog('job.canceled.no_active_job');
     return { success: false, error: 'No job to cancel' };
   };
   
@@ -2208,6 +2670,61 @@ var ServiceWorker = function() {
         }
       };
     });
+  };
+
+  this.handleValidateProviderRemote = async function(message) {
+    var payload = message && message.payload ? message.payload : {};
+    var providerId = String(payload.providerId || '').trim();
+    if (!providerId) {
+      throw new Error('providerId is required');
+    }
+
+    if (providerId !== 'openai') {
+      return { result: { ok: true, summary: 'No remote validation implemented for this provider' } };
+    }
+
+    var apiKey = String(payload.apiKey || '').trim();
+    if (!apiKey) {
+      throw new Error('OpenAI API key is required');
+    }
+
+    var textModel = String(payload.textModel || 'gpt-4o-mini').trim() || 'gpt-4o-mini';
+    var response = await fetchWithTimeout('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': 'Bearer ' + apiKey,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        model: textModel,
+        messages: [
+          { role: 'user', content: 'Reply with OK' }
+        ],
+        max_tokens: 5
+      })
+    }, 15000, 'OpenAI remote validation');
+
+    if (!response.ok) {
+      var errorMessage = 'OpenAI validation failed';
+      try {
+        var errorJson = await response.json();
+        errorMessage = (errorJson && errorJson.error && errorJson.error.message) || errorMessage;
+      } catch (_) {
+        try {
+          var errorText = await response.text();
+          if (errorText) errorMessage = errorText;
+        } catch (_) {}
+      }
+      throw new Error(errorMessage + ' (HTTP ' + response.status + ')');
+    }
+
+    return {
+      result: {
+        ok: true,
+        summary: 'OpenAI key can make model requests',
+        providerMetadata: { model: textModel }
+      }
+    };
   };
 
   this.compactJobForStorage = function(job, level) {
@@ -2287,6 +2804,9 @@ var ServiceWorker = function() {
       })
       .catch(function(finalError) {
         console.error('Failed to save currentJob:', finalError);
+        self.appendDebugLog('storage.currentJob.save.error', {
+          message: finalError && finalError.message ? finalError.message : String(finalError)
+        });
       });
     return self._saveJobChain;
   };
@@ -2297,7 +2817,27 @@ var ServiceWorker = function() {
       views.forEach(function(view) {
         view.postMessage && view.postMessage({ type: 'JOB_PROGRESS', job: self.currentJob });
       });
-    } catch (e) {}
+    } catch (e) {
+      self.appendDebugLog('notify.popup_views.error', {
+        message: e && e.message ? e.message : String(e)
+      });
+    }
+    try {
+      var maybePromise = chrome.runtime && chrome.runtime.sendMessage
+        ? chrome.runtime.sendMessage({ type: 'JOB_PROGRESS_BROADCAST', job: self.currentJob })
+        : null;
+      if (maybePromise && typeof maybePromise.catch === 'function') {
+        maybePromise.catch(function(err) {
+          self.appendDebugLog('notify.broadcast.error', {
+            message: err && err.message ? err.message : String(err)
+          });
+        });
+      }
+    } catch (e2) {
+      self.appendDebugLog('notify.broadcast.throw', {
+        message: e2 && e2.message ? e2.message : String(e2)
+      });
+    }
   };
   
   this.cleanupOldJobs = function() {
@@ -2312,7 +2852,14 @@ var ServiceWorker = function() {
       });
 
       if (filtered.length !== history.length) {
-        chrome.storage.local.set({ history: filtered });
+        var maybeSetPromise = chrome.storage.local.set({ history: filtered });
+        if (maybeSetPromise && typeof maybeSetPromise.catch === 'function') {
+          maybeSetPromise.catch(function(error) {
+            self.appendDebugLog('history.cleanup.persist.error', {
+              message: error && error.message ? error.message : String(error)
+            });
+          });
+        }
       }
     });
   };
@@ -2404,6 +2951,9 @@ var ServiceWorker = function() {
       })
       .catch(function(error) {
         console.error('Failed to persist history in service worker:', error);
+        self.appendDebugLog('history.persist.error', {
+          message: error && error.message ? error.message : String(error)
+        });
       });
   };
   
@@ -2412,3 +2962,23 @@ var ServiceWorker = function() {
 
 // Initialize service worker
 new ServiceWorker();
+
+// Open the Options page on fresh install to guide provider setup and first-run configuration.
+try {
+  if (chrome && chrome.runtime && chrome.runtime.onInstalled) {
+    chrome.runtime.onInstalled.addListener(function(details) {
+      if (!details || details.reason !== 'install') return;
+      Promise.resolve()
+        .then(function() {
+          if (chrome.runtime.openOptionsPage) {
+            return chrome.runtime.openOptionsPage();
+          }
+        })
+        .catch(function(err) {
+          console.warn('Failed to open options page after install:', err);
+        });
+    });
+  }
+} catch (e) {
+  console.warn('Failed to register onInstalled handler:', e);
+}

@@ -13,6 +13,7 @@
         <div class="header-title-row">
           <h1>Web2Comics</h1>
           <a class="help-link-icon" href="../docs/user-manual.html#sidepanel-overview" target="_blank" rel="noopener noreferrer" title="Open user manual (comic viewer)">?</a>
+          <button id="download-logs-sidepanel-btn" class="help-link-icon header-icon-button" type="button" title="Download debug logs">⭳</button>
         </div>
         <div class="header-mode-toggle" role="tablist" aria-label="Primary views">
           <button id="mode-comic-btn" class="header-mode-btn active" data-view="comic" role="tab" aria-selected="true">Comic View</button>
@@ -55,16 +56,28 @@
           <div class="layout-preset-row">
             <label for="layout-preset-select">Layout Preset</label>
             <select id="layout-preset-select" class="layout-preset-select" aria-label="Comic layout preset">
-              <option value="classic-strip">Classic Strip</option>
-              <option value="compact-strip">Compact Strip</option>
-              <option value="wide-strip">Wide Strip</option>
-              <option value="storyboard-grid">Storyboard Grid</option>
-              <option value="magazine-grid">Magazine Grid</option>
-              <option value="poster-grid">Poster Grid</option>
-              <option value="focus-carousel">Focus Carousel</option>
-              <option value="cinema-carousel">Cinema Carousel</option>
-              <option value="contact-sheet">Contact Sheet</option>
-              <option value="reading-grid">Reading Grid</option>
+              <option value="single-panel-full">Single panel (Full-page)</option>
+              <option value="split-2-vertical">2-panel split (Vertical)</option>
+              <option value="split-2-horizontal">2-panel split (Horizontal)</option>
+              <option value="classic-strip">3-panel strip (Horizontal)</option>
+              <option value="stack-3-vertical">3-panel stack (Vertical)</option>
+              <option value="grid-4">4-panel grid (2×2)</option>
+              <option value="grid-6">6-panel grid (3×2)</option>
+              <option value="grid-9">9-panel grid (3×3)</option>
+              <option value="classic-comic-page">Classic comic page (Mixed panels)</option>
+              <option value="manga-page-rtl">Manga page (Right-to-left flow)</option>
+              <option value="webtoon-scroll">Webtoon scroll (Vertical strip)</option>
+              <option value="filmstrip">Filmstrip (Uniform frames)</option>
+              <option value="spotlight">Spotlight (One large + small thumbnails)</option>
+              <option value="dominant-supporting">Dominant + supporting (One large + 2–6 small)</option>
+              <option value="two-tier">Two-tier (Top wide + bottom row)</option>
+              <option value="three-tier">Three-tier (Three rows, varying widths)</option>
+              <option value="side-gutter-captions">Side gutter captions (Panels + caption column)</option>
+              <option value="caption-first">Caption-first (Text blocks alternating with panels)</option>
+              <option value="polaroid-collage">Polaroid collage (Overlapping frames)</option>
+              <option value="masonry">Masonry (Staggered bricks)</option>
+              <option value="carousel">Carousel (Swipe panels)</option>
+              <option value="guided-path">Guided path (Numbered / arrowed flow)</option>
             </select>
           </div>
 
