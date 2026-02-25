@@ -196,13 +196,16 @@ describe('Service Worker - Generation Flow', () => {
 describe('Provider Routing', () => {
   const TEXT_PROVIDERS = {
     'gemini-free': { name: 'Gemini', supportsImages: true },
-    'cloudflare-free': { name: 'Cloudflare', supportsImages: false },
+    'cloudflare-free': { name: 'Cloudflare', supportsImages: true },
     'chrome-summarizer': { name: 'Chrome', supportsImages: false },
-    'openai': { name: 'OpenAI', supportsImages: true }
+    'openai': { name: 'OpenAI', supportsImages: true },
+    'openrouter': { name: 'OpenRouter', supportsImages: false },
+    'huggingface': { name: 'HuggingFace', supportsImages: false }
   };
 
   const IMAGE_PROVIDERS = {
     'gemini-free': { name: 'Gemini' },
+    'cloudflare-free': { name: 'Cloudflare' },
     'openai': { name: 'OpenAI' }
   };
 
@@ -232,8 +235,8 @@ describe('Provider Routing', () => {
       expect(openai).toBeDefined();
     });
 
-    it('should return undefined for non-image provider', () => {
-      const provider = IMAGE_PROVIDERS['cloudflare-free'];
+    it('should return undefined for text-only providers', () => {
+      const provider = IMAGE_PROVIDERS['openrouter'];
       expect(provider).toBeUndefined();
     });
   });
@@ -248,10 +251,18 @@ describe('Provider Routing', () => {
     });
 
     it('should allow mixing providers', () => {
-      const textProvider = 'cloudflare-free';
+      const textProvider = 'openrouter';
       const imageProvider = 'openai';
       
       expect(TEXT_PROVIDERS[textProvider].supportsImages).toBe(false);
+      expect(IMAGE_PROVIDERS[imageProvider]).toBeDefined();
+    });
+
+    it('should support Cloudflare for both text and image', () => {
+      const textProvider = 'cloudflare-free';
+      const imageProvider = 'cloudflare-free';
+
+      expect(TEXT_PROVIDERS[textProvider].supportsImages).toBe(true);
       expect(IMAGE_PROVIDERS[imageProvider]).toBeDefined();
     });
   });
@@ -286,5 +297,105 @@ describe('Message Handling', () => {
     
     expect(result.success).toBe(true);
     expect(handler).toHaveBeenCalled();
+  });
+});
+
+describe('Service Worker Resilience Logic (helper semantics)', () => {
+  function isTransientProviderErrorMessage(message) {
+    const text = String(message || '').toLowerCase();
+    return /timeout|timed out|failed to fetch|fetch failed|temporar|overload|503|502|504|rate limit|too many requests|429|connection reset|econnreset|socket/i.test(text);
+  }
+
+  function compactJobForStorage(job, level = 1) {
+    const compact = JSON.parse(JSON.stringify(job));
+    const keepExtractLen = level >= 3 ? 300 : (level >= 2 ? 1000 : 2000);
+    if (typeof compact.extractedText === 'string' && compact.extractedText.length > keepExtractLen) {
+      compact.extractedText = compact.extractedText.slice(0, keepExtractLen) + '...';
+    }
+    const keepEvents = level >= 3 ? 5 : (level >= 2 ? 10 : 15);
+    if (Array.isArray(compact.progressEvents) && compact.progressEvents.length > keepEvents) {
+      compact.progressEvents = compact.progressEvents.slice(-keepEvents);
+    }
+    if (Array.isArray(compact.panelErrors) && level >= 2 && compact.panelErrors.length > 10) {
+      compact.panelErrors = compact.panelErrors.slice(-10);
+    }
+    if (compact.storyboard?.panels) {
+      compact.storyboard.panels = compact.storyboard.panels.map((p) => {
+        const panel = JSON.parse(JSON.stringify(p));
+        if (panel?.artifacts?.image_blob_ref) {
+          panel.artifacts.image_omitted_due_to_quota = true;
+          delete panel.artifacts.image_blob_ref;
+        }
+        if (level >= 2 && typeof panel.image_prompt === 'string' && panel.image_prompt.length > 240) {
+          panel.image_prompt = panel.image_prompt.slice(0, 240) + '...';
+        }
+        if (level >= 3 && typeof panel.beat_summary === 'string' && panel.beat_summary.length > 160) {
+          panel.beat_summary = panel.beat_summary.slice(0, 160) + '...';
+        }
+        return panel;
+      });
+      if (level >= 3 && compact.storyboard.panels.length > 20) {
+        compact.storyboard.panels = compact.storyboard.panels.slice(0, 20);
+        compact.storyboard.panels_truncated_for_quota = true;
+      }
+    }
+    return compact;
+  }
+
+  it('classifies timeout/network/rate-limit errors as transient', () => {
+    expect(isTransientProviderErrorMessage('Request timed out after 90000ms')).toBe(true);
+    expect(isTransientProviderErrorMessage('Failed to fetch')).toBe(true);
+    expect(isTransientProviderErrorMessage('429 Too Many Requests')).toBe(true);
+    expect(isTransientProviderErrorMessage('503 Service Unavailable')).toBe(true);
+    expect(isTransientProviderErrorMessage('content policy violation')).toBe(false);
+    expect(isTransientProviderErrorMessage('invalid api key')).toBe(false);
+  });
+
+  it('compacts job progressively for quota pressure edge cases', () => {
+    const job = {
+      extractedText: 'x'.repeat(5000),
+      progressEvents: Array.from({ length: 30 }, (_, i) => ({ i })),
+      panelErrors: Array.from({ length: 20 }, (_, i) => ({ i })),
+      storyboard: {
+        panels: Array.from({ length: 25 }, (_, i) => ({
+          panel_id: `panel_${i + 1}`,
+          beat_summary: 'b'.repeat(300),
+          image_prompt: 'p'.repeat(500),
+          artifacts: { image_blob_ref: 'data:image/png;base64,' + 'a'.repeat(2000) }
+        }))
+      }
+    };
+
+    const l1 = compactJobForStorage(job, 1);
+    expect(l1.extractedText.length).toBeLessThanOrEqual(2003);
+    expect(l1.progressEvents.length).toBe(15);
+    expect(l1.storyboard.panels[0].artifacts.image_blob_ref).toBeUndefined();
+    expect(l1.storyboard.panels[0].artifacts.image_omitted_due_to_quota).toBe(true);
+
+    const l2 = compactJobForStorage(job, 2);
+    expect(l2.progressEvents.length).toBe(10);
+    expect(l2.panelErrors.length).toBe(10);
+    expect(l2.storyboard.panels[0].image_prompt.length).toBeLessThanOrEqual(243);
+
+    const l3 = compactJobForStorage(job, 3);
+    expect(l3.progressEvents.length).toBe(5);
+    expect(l3.storyboard.panels.length).toBe(20);
+    expect(l3.storyboard.panels_truncated_for_quota).toBe(true);
+    expect(l3.storyboard.panels[0].beat_summary.length).toBeLessThanOrEqual(163);
+  });
+
+  it('filters invalid dates during cleanup logic', () => {
+    const now = Date.now();
+    const thirtyDaysAgo = now - (30 * 24 * 60 * 60 * 1000);
+    const history = [
+      { generated_at: new Date(now - 1000).toISOString() },
+      { generated_at: new Date(now - 60 * 24 * 60 * 60 * 1000).toISOString() },
+      { generated_at: 'not-a-date' }
+    ];
+    const filtered = history.filter((item) => {
+      const ts = new Date(item && item.generated_at).getTime();
+      return Number.isFinite(ts) && ts > thirtyDaysAgo;
+    });
+    expect(filtered.length).toBe(1);
   });
 });

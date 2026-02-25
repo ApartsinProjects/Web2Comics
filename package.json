@@ -6,6 +6,12 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
+    "test:e2e:chrome-diag": "playwright test tests/e2e/chrome-extension-diagnostics.test.js",
+    "test:e2e:chrome-manual": "set RUN_MANUAL_CHROME_EXT_TEST=1&& playwright test tests/e2e/chrome-extension-manual-assisted.test.js --headed",
+    "test:e2e:comic-sites": "set RUN_WEBSITE_COMIC_E2E=1&& playwright test tests/e2e/comic-generation-sites.test.js",
+    "test:e2e:comic-sites:real": "set RUN_WEBSITE_COMIC_E2E=1&& set REAL_OPENAI_E2E=1&& playwright test tests/e2e/comic-generation-sites.test.js",
+    "probe:providers": "node scripts/provider-model-probe.js",
+    "probe:providers:recommend": "node scripts/provider-model-probe.js --recommend",
     "test:e2e:headed": "playwright test --headed",
     "test:all": "npm run test && npm run test:e2e"
   },

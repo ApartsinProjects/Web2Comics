@@ -3,18 +3,22 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Settings - Web to Comic</title>
+  <title>Settings - Web2Comics</title>
   <link rel="stylesheet" href="options.css">
 </head>
 <body>
   <div class="options-container">
     <header class="options-header">
-      <h1>Web to Comic Settings</h1>
+      <div class="title-help-row">
+        <h1>Web2Comics Settings</h1>
+        <a class="help-link-icon" href="../docs/user-manual.html#options-overview" target="_blank" rel="noopener noreferrer" title="Open user manual (options)">?</a>
+      </div>
     </header>
 
     <nav class="options-nav">
       <button class="nav-btn active" data-section="general">General</button>
       <button class="nav-btn" data-section="providers">Providers</button>
+      <button class="nav-btn" data-section="prompts">Prompts</button>
       <button class="nav-btn" data-section="storage">Storage</button>
       <button class="nav-btn" data-section="about">About</button>
     </nav>
@@ -22,7 +26,7 @@
     <main class="options-main">
       <!-- General Settings -->
       <section id="general-section" class="settings-section active">
-        <h2>General Settings</h2>
+        <div class="section-title-row"><h2>General Settings</h2><a class="help-link-icon inline" href="../docs/user-manual.html#options-general" target="_blank" rel="noopener noreferrer" title="General settings help">?</a></div>
         
         <div class="setting-group">
           <h3>Generation Defaults</h3>
@@ -96,6 +100,51 @@
             </label>
             <p class="setting-description">Maintains consistent character appearance across panels</p>
           </div>
+
+          <div class="setting-item checkbox">
+            <label>
+              <input type="checkbox" id="debug-flag">
+              <span>Debug flag: show detailed generation errors to user</span>
+            </label>
+            <p class="setting-description">Displays provider and panel error details in popup alerts when generation fails or partially fails</p>
+          </div>
+
+          <div class="setting-item">
+            <label>Image Generation → Content Filtering Handling</label>
+            <div class="radio-group" id="image-refusal-handling-group">
+              <label class="radio-option">
+                <input type="radio" name="image-refusal-handling" value="rewrite_and_retry" checked>
+                <span><strong>Rewrite and try again (keep real figure)</strong></span>
+              </label>
+              <p class="setting-description">If the provider blocks the prompt, rewrite it to a neutral editorial style and retry once.</p>
+
+              <label class="radio-option">
+                <input type="radio" name="image-refusal-handling" value="replace_people_and_triggers">
+                <span><strong>Replace people and trigger words, then retry</strong></span>
+              </label>
+              <p class="setting-description">Replace real names and sensitive trigger phrases with neutral fictional descriptors, then retry once.</p>
+
+              <label class="radio-option">
+                <input type="radio" name="image-refusal-handling" value="show_blocked">
+                <span><strong>Do nothing (show blocked panel)</strong></span>
+              </label>
+              <p class="setting-description">Don’t retry; show a blocked placeholder panel in the comic strip.</p>
+            </div>
+          </div>
+
+          <div class="setting-item checkbox">
+            <label>
+              <input type="checkbox" id="show-rewritten-badge" checked>
+              <span>Show “Rewritten” badge on retried panels</span>
+            </label>
+          </div>
+
+          <div class="setting-item checkbox">
+            <label>
+              <input type="checkbox" id="log-rewritten-prompts">
+              <span>Log original + rewritten prompt locally (for debugging)</span>
+            </label>
+          </div>
         </div>
 
         <div class="actions">
@@ -105,7 +154,7 @@
 
       <!-- Providers Settings -->
       <section id="providers-section" class="settings-section">
-        <h2>Provider Configuration</h2>
+        <div class="section-title-row"><h2>Provider Configuration</h2><a class="help-link-icon inline" href="../docs/user-manual.html#options-providers" target="_blank" rel="noopener noreferrer" title="Provider settings help">?</a></div>
         
         <div class="provider-presets">
           <h3>Provider Presets</h3>
@@ -126,6 +175,30 @@
               <input type="password" id="gemini-api-key" placeholder="Enter Gemini API key">
               <button class="btn small secondary validate-btn" data-provider="gemini">Validate</button>
             </div>
+            <div class="model-selection">
+              <div class="model-item">
+                <label>Text Model</label>
+                <select id="gemini-text-model" class="model-select">
+                  <option value="gemini-2.5-flash" selected>Gemini 2.5 Flash (State-of-the-art Flash, Preferred)</option>
+                  <option value="gemini-flash-lite-latest">Gemini Flash-Lite Latest (Free/Fast)</option>
+                  <option value="gemini-flash-latest">Gemini Flash Latest (Fast fallback)</option>
+                  <option value="gemini-2.0-flash-lite">Gemini 2.0 Flash-Lite (Legacy, may be unavailable)</option>
+                  <option value="gemini-2.0-flash">Gemini 2.0 Flash (Legacy, may be unavailable)</option>
+                </select>
+              </div>
+              <div class="model-item">
+                <label>Image Model</label>
+                <select id="gemini-image-model" class="model-select">
+                  <option value="gemini-2.0-flash-exp-image-generation" selected>Gemini 2.0 Flash Image Gen (Fast, Preferred)</option>
+                  <option value="gemini-2.5-flash-image">Gemini 2.5 Flash Image (State-of-the-art)</option>
+                  <option value="gemini-2.0-flash">Gemini 2.0 Flash (Does not support image modality on many accounts)</option>
+                </select>
+              </div>
+            </div>
+            <div class="model-test-actions">
+              <button class="btn small secondary test-model-btn" data-provider="gemini-free" data-mode="text">Test Text Model</button>
+              <button class="btn small secondary test-model-btn" data-provider="gemini-free" data-mode="image">Test Image Model</button>
+            </div>
           </div>
 
           <div class="provider-card" data-provider="cloudflare-free">
@@ -139,18 +212,93 @@
               <span class="status-indicator"></span>
               <span>Ready (no key required)</span>
             </div>
+            <div class="model-selection">
+              <div class="model-item">
+                <label>Text Model</label>
+                <select id="cloudflare-text-model" class="model-select">
+                  <option value="@cf/meta/llama-3.1-8b-instruct" selected>Llama 3.1 8B Instruct (Preferred / Balanced)</option>
+                  <option value="@cf/meta/llama-3.1-8b-instruct-fast">Llama 3.1 8B Instruct Fast (Fast)</option>
+                  <option value="@cf/meta/llama-3.3-70b-instruct-fp8-fast">Llama 3.3 70B Instruct (State-of-the-art, if available)</option>
+                  <option value="@cf/google/gemma-3-12b-it">Gemma 3 12B IT (Alt / Strong)</option>
+                </select>
+              </div>
+              <div class="model-item">
+                <label>Image Model</label>
+                <select id="cloudflare-image-model" class="model-select">
+                  <option value="@cf/black-forest-labs/flux-1-schnell" selected>FLUX.1 Schnell (Preferred / Fast)</option>
+                  <option value="@cf/bytedance/stable-diffusion-xl-lightning">SDXL Lightning (Fast)</option>
+                  <option value="@cf/black-forest-labs/flux-1-dev">FLUX.1 Dev (If available on your account)</option>
+                </select>
+              </div>
+            </div>
+            <div class="model-test-actions">
+              <button class="btn small secondary test-model-btn" data-provider="cloudflare-free" data-mode="text">Test Text Model</button>
+              <button class="btn small secondary test-model-btn" data-provider="cloudflare-free" data-mode="image">Test Image Model</button>
+            </div>
           </div>
 
-          <div class="provider-card" data-provider="chrome-summarizer">
+          <div class="provider-card" data-provider="openrouter">
             <div class="provider-header">
-              <h4>Chrome Built-in Summarization</h4>
-              <span class="badge free">Local</span>
+              <h4>OpenRouter</h4>
+              <span class="badge free">Free/Paid</span>
             </div>
-            <p>Text-only summarization using Chrome's built-in API. No data leaves your browser.</p>
-            <div class="provider-cost">Cost: Free (local processing)</div>
-            <div class="provider-status">
-              <span class="status-indicator ready"></span>
-              <span>Experimental</span>
+            <p>Text generation through OpenRouter model routing. Use with OpenAI/Gemini/Cloudflare for images.</p>
+            <div class="provider-cost">Cost: Depends on selected model (free models available)</div>
+            <div class="provider-status" id="openrouter-status">
+              <span class="status-indicator"></span>
+              <span>Not configured</span>
+            </div>
+            <div class="provider-config">
+              <label>API Key</label>
+              <input type="password" id="openrouter-api-key" placeholder="sk-or-v1-...">
+              <button class="btn small secondary validate-btn" data-provider="openrouter">Validate</button>
+            </div>
+            <div class="model-selection">
+              <div class="model-item">
+                <label>Text Model</label>
+                <select id="openrouter-text-model" class="model-select">
+                  <option value="openai/gpt-oss-20b:free" selected>GPT-OSS 20B (Free, Preferred)</option>
+                  <option value="qwen/qwen3-4b:free">Qwen3 4B (Free/Fast, provider-dependent)</option>
+                  <option value="google/gemma-3-4b-it:free">Gemma 3 4B IT (Free)</option>
+                  <option value="openrouter/auto">OpenRouter Auto (State-of-the-art routing)</option>
+                </select>
+              </div>
+            </div>
+            <div class="model-test-actions">
+              <button class="btn small secondary test-model-btn" data-provider="openrouter" data-mode="text">Test Text Model</button>
+            </div>
+          </div>
+
+          <div class="provider-card" data-provider="huggingface">
+            <div class="provider-header">
+              <h4>Hugging Face Inference API</h4>
+              <span class="badge free">Free/Paid</span>
+            </div>
+            <p>Text generation through Hugging Face Inference API. Use OpenAI, Gemini, or Cloudflare for image generation.</p>
+            <div class="provider-cost">Cost: Depends on account plan and endpoint availability</div>
+            <div class="provider-status" id="huggingface-status">
+              <span class="status-indicator"></span>
+              <span>Not configured</span>
+            </div>
+            <div class="provider-config">
+              <label>API Key</label>
+              <input type="password" id="huggingface-api-key" placeholder="hf_...">
+              <button class="btn small secondary validate-btn" data-provider="huggingface">Validate</button>
+            </div>
+            <div class="model-selection">
+              <div class="model-item">
+                <label>Text Model</label>
+                <select id="huggingface-text-model" class="model-select">
+                  <option value="mistralai/Mistral-7B-Instruct-v0.2" selected>Mistral 7B Instruct (Preferred / Fast)</option>
+                  <option value="Qwen/Qwen2.5-7B-Instruct">Qwen2.5 7B Instruct (Fast)</option>
+                  <option value="meta-llama/Llama-3.1-8B-Instruct">Llama 3.1 8B Instruct (Strong)</option>
+                  <option value="meta-llama/Llama-3.3-70B-Instruct">Llama 3.3 70B Instruct (State-of-the-art)</option>
+                  <option value="HuggingFaceH4/zephyr-7b-beta">Zephyr 7B (Legacy, often unsupported)</option>
+                </select>
+              </div>
+            </div>
+            <div class="model-test-actions">
+              <button class="btn small secondary test-model-btn" data-provider="huggingface" data-mode="text">Test Text Model</button>
             </div>
           </div>
 
@@ -174,19 +322,43 @@
               <div class="model-item">
                 <label>Text Model</label>
                 <select id="openai-text-model" class="model-select">
-                  <option value="gpt-4o">GPT-4o (Recommended)</option>
-                  <option value="gpt-4o-mini">GPT-4o Mini (Fast)</option>
-                  <option value="gpt-4-turbo">GPT-4 Turbo</option>
-                  <option value="gpt-3.5-turbo">GPT-3.5 Turbo (Cheapest)</option>
+                  <option value="gpt-4o-mini" selected>GPT-4o Mini (Fast, Preferred)</option>
+                  <option value="gpt-4.1-mini">GPT-4.1 Mini (Fast)</option>
+                  <option value="gpt-4o">GPT-4o (State-of-the-art multimodal)</option>
+                  <option value="gpt-4.1">GPT-4.1 (State-of-the-art reasoning)</option>
+                  <option value="gpt-4-turbo">GPT-4 Turbo (Legacy)</option>
+                  <option value="gpt-3.5-turbo">GPT-3.5 Turbo (Cheapest / Legacy)</option>
                 </select>
               </div>
               <div class="model-item">
                 <label>Image Model</label>
                 <select id="openai-image-model" class="model-select">
-                  <option value="dall-e-3">DALL-E 3 (Recommended)</option>
-                  <option value="dall-e-2">DALL-E 2</option>
+                  <option value="dall-e-2" selected>DALL-E 2 (Fastest/Cheapest)</option>
+                  <option value="dall-e-3">DALL-E 3 (Higher quality)</option>
                 </select>
               </div>
+              <div class="model-item">
+                <label>Image Quality (Speed)</label>
+                <select id="openai-image-quality" class="model-select">
+                  <option value="standard" selected>Standard (Faster)</option>
+                  <option value="hd">HD (Slower)</option>
+                </select>
+              </div>
+              <div class="model-item">
+                <label>Image Size (Speed)</label>
+                <select id="openai-image-size" class="model-select">
+                  <option value="256x256" selected>256x256 (Fastest)</option>
+                  <option value="512x512">512x512</option>
+                  <option value="1024x1024">1024x1024</option>
+                  <option value="1024x1792">1024x1792 (DALL-E 3 only)</option>
+                  <option value="1792x1024">1792x1024 (DALL-E 3 only)</option>
+                </select>
+              </div>
+            </div>
+            <p class="setting-description">Lower image size and standard quality reduce generation time and cost. Unsupported combinations are auto-normalized.</p>
+            <div class="model-test-actions">
+              <button class="btn small secondary test-model-btn" data-provider="openai" data-mode="text">Test Text Model</button>
+              <button class="btn small secondary test-model-btn" data-provider="openai" data-mode="image">Test Image Model</button>
             </div>
           </div>
         </div>
@@ -196,9 +368,60 @@
         </div>
       </section>
 
+      <!-- Prompt Templates -->
+      <section id="prompts-section" class="settings-section">
+        <div class="section-title-row"><h2>Prompt Templates (Phase 1)</h2><a class="help-link-icon inline" href="../docs/user-manual.html#options-prompts" target="_blank" rel="noopener noreferrer" title="Prompt template help">?</a></div>
+
+        <div class="setting-group">
+          <h3>Provider Scope</h3>
+          <div class="setting-item">
+            <label for="prompt-provider-scope">Prompt Provider Templates</label>
+            <select id="prompt-provider-scope">
+              <option value="openai" selected>OpenAI</option>
+              <option value="gemini">Google Gemini</option>
+            </select>
+            <p class="setting-description">Phase 1 scaffold: provider-specific editable templates for storyboard and image prompts.</p>
+          </div>
+        </div>
+
+        <div class="setting-group">
+          <h3>Storyboard Template</h3>
+          <div class="setting-item">
+            <label for="storyboard-template">Template Text</label>
+            <textarea id="storyboard-template" class="textarea prompt-template-textarea" rows="8"></textarea>
+            <p class="setting-description">Available placeholders: <code>{{source_title}}</code>, <code>{{source_url}}</code>, <code>{{panel_count}}</code>, <code>{{detail_level}}</code>, <code>{{style_prompt}}</code>, <code>{{content}}</code></p>
+          </div>
+          <div class="actions compact">
+            <button id="reset-storyboard-template-btn" class="btn secondary">Reset Storyboard Template</button>
+          </div>
+        </div>
+
+        <div class="setting-group">
+          <h3>Image Template</h3>
+          <div class="setting-item">
+            <label for="image-template">Template Text</label>
+            <textarea id="image-template" class="textarea prompt-template-textarea" rows="6"></textarea>
+            <p class="setting-description">Available placeholders: <code>{{panel_caption}}</code>, <code>{{panel_summary}}</code>, <code>{{style_prompt}}</code>, <code>{{panel_index}}</code>, <code>{{panel_count}}</code></p>
+          </div>
+          <div class="actions compact">
+            <button id="reset-image-template-btn" class="btn secondary">Reset Image Template</button>
+          </div>
+        </div>
+
+        <div class="setting-group">
+          <h3>Validation</h3>
+          <p class="setting-description">Phase 1 validation checks required placeholders and warns on unknown placeholders. Runtime prompt engine integration is planned in a later phase.</p>
+          <div id="prompt-template-validation" class="template-validation-box">No validation run yet.</div>
+        </div>
+
+        <div class="actions">
+          <button id="save-prompts-btn" class="btn primary">Save Prompt Templates</button>
+        </div>
+      </section>
+
       <!-- Storage Settings -->
       <section id="storage-section" class="settings-section">
-        <h2>Storage & History</h2>
+        <div class="section-title-row"><h2>Storage & History</h2><a class="help-link-icon inline" href="../docs/user-manual.html#options-storage" target="_blank" rel="noopener noreferrer" title="Storage help">?</a></div>
         
         <div class="setting-group">
           <h3>Storage Usage</h3>
@@ -236,19 +459,20 @@
             <button id="clear-history-btn" class="btn danger">Clear History</button>
             <button id="clear-cache-btn" class="btn danger">Clear Image Cache</button>
             <button id="export-data-btn" class="btn secondary">Export All Data</button>
+            <button id="export-debug-logs-btn" class="btn secondary">Export Debug Logs</button>
           </div>
         </div>
       </section>
 
       <!-- About Section -->
       <section id="about-section" class="settings-section">
-        <h2>About Web to Comic</h2>
+        <div class="section-title-row"><h2>About Web2Comics</h2><a class="help-link-icon inline" href="../docs/user-manual.html#options-about" target="_blank" rel="noopener noreferrer" title="About page help">?</a></div>
         
         <div class="about-info">
           <div class="about-logo">
-            <img src="../icons/icon48.png" alt="Web to Comic" width="64" height="64">
+            <img src="../icons/icon48.png" alt="Web2Comics" width="64" height="64">
           </div>
-          <h3>Web to Comic</h3>
+          <h3>Web2Comics</h3>
           <p class="version">Version 1.0.0</p>
           <p class="description">
             Transform any web page into an engaging comic strip summary. 
@@ -259,6 +483,7 @@
         <div class="about-links">
           <h4>Links</h4>
           <ul>
+            <li><a href="../docs/user-manual.html#options-overview" id="link-user-manual" target="_blank" rel="noopener noreferrer">User Manual</a></li>
             <li><a href="#" id="link-privacy">Privacy Policy</a></li>
             <li><a href="#" id="link-terms">Terms of Service</a></li>
             <li><a href="#" id="link-support">Support</a></li>

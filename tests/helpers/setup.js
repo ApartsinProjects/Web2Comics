@@ -1,4 +1,6 @@
 // Test setup and global mocks
+global.TEST_OPENAI_API_KEY = process.env.OPENAI_API_KEY || 'sk-test-openai-key';
+global.TEST_DEFAULT_PROVIDER = 'openai';
 
 // Mock chrome API for browser extension
 global.chrome = {
@@ -94,8 +96,8 @@ global.createMockJob = (overrides = {}) => ({
     detail_level: 'medium',
     style_id: 'default',
     caption_len: 'short',
-    provider_text: 'gemini-free',
-    provider_image: 'gemini-free'
+    provider_text: 'openai',
+    provider_image: 'openai'
   },
   storyboard: null,
   currentPanelIndex: 0,
@@ -116,8 +118,8 @@ global.createMockStoryboard = (overrides = {}) => ({
     detail_level: 'medium',
     style_id: 'default',
     caption_len: 'short',
-    provider_text: 'gemini-free',
-    provider_image: 'gemini-free'
+    provider_text: 'openai',
+    provider_image: 'openai'
   },
   panels: [
     {

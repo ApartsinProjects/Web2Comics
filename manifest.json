@@ -1,18 +1,18 @@
 {
   "manifest_version": 3,
-  "name": "Web to Comic",
+  "name": "Web2Comics",
   "version": "1.0",
   "description": "Transform any web page into an engaging comic strip summary",
   "icons": {
-    "16": "icons/icon16.svg",
-    "48": "icons/icon48.svg",
-    "128": "icons/icon128.svg"
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
   },
   "action": {
     "default_popup": "popup/popup.html",
     "default_icon": {
-      "16": "icons/icon16.svg",
-      "48": "icons/icon48.svg"
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png"
     },
     "default_title": "Generate Comic Strip"
   },
@@ -23,8 +23,10 @@
   "permissions": [
     "activeTab",
     "storage",
+    "unlimitedStorage",
     "scripting",
-    "sidePanel"
+    "sidePanel",
+    "alarms"
   ],
   "host_permissions": [
     "<all_urls>"

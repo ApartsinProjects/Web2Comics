@@ -1,190 +1,217 @@
-// E2E Tests for Web to Comic Extension
-// Note: These tests require the extension to be built and loaded
+const { test, expect, chromium } = require('@playwright/test');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
 
-const { test, expect } = require('@playwright/test');
+const EXTENSION_PATH = path.resolve(__dirname, '../..');
 
-test.describe('Web to Comic Extension E2E', () => {
-  
-  test.beforeEach(async ({ page }) => {
-    // Mock the extension storage
-    await page.route('chrome-extension://**/storage', async (route) => {
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ settings: {}, history: [] })
-      });
-    });
+function readJson(relPath) {
+  return JSON.parse(fs.readFileSync(path.join(EXTENSION_PATH, relPath), 'utf8'));
+}
+
+async function launchExtensionContext() {
+  const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'web2comics-exttest-'));
+  const context = await chromium.launchPersistentContext(userDataDir, {
+    channel: 'chromium',
+    headless: false,
+    args: [
+      `--disable-extensions-except=${EXTENSION_PATH}`,
+      `--load-extension=${EXTENSION_PATH}`,
+      '--no-sandbox'
+    ]
   });
+  return { context, userDataDir };
+}
 
+async function getExtensionId(context) {
+  let worker = context.serviceWorkers()[0];
+  if (!worker) {
+    try {
+      worker = await context.waitForEvent('serviceworker', { timeout: 30000 });
+    } catch (_) {
+      worker = context.serviceWorkers()[0];
+      if (!worker) {
+        worker = await context.waitForEvent('serviceworker', { timeout: 15000 });
+      }
+    }
+  }
+  return new URL(worker.url()).host;
+}
+
+test.describe('Web2Comics Extension E2E', () => {
   test.describe('Popup Flow', () => {
-    
-    test('should load popup with default state', async ({ page }) => {
-      // This would test the actual popup if we could load it
-      // For now, we test the HTML structure
-      await page.goto('popup/popup.html');
-      
-      // Check main elements exist
-      await expect(page.locator('.popup-container')).toBeVisible();
-      await expect(page.locator('.popup-header')).toBeVisible();
-      await expect(page.locator('#generate-btn')).toBeVisible();
+    test('should load popup with launcher state', async () => {
+      const { context, userDataDir } = await launchExtensionContext();
+      try {
+        const extensionId = await getExtensionId(context);
+        const page = await context.newPage();
+        await page.goto(`chrome-extension://${extensionId}/popup/popup.html`);
+
+        await expect(page.locator('.popup-container')).toBeVisible();
+        await expect(page.locator('.popup-header')).toBeVisible();
+        await expect(page.locator('.logo span')).toHaveText('Web2Comics');
+
+        if (await page.locator('#onboarding-start-btn').isVisible().catch(() => false)) {
+          await page.locator('#onboarding-start-btn').click();
+        }
+
+        await expect(page.locator('#create-comic-btn')).toBeVisible();
+        await expect(page.locator('#view-history-btn')).toBeVisible();
+      } finally {
+        await context.close();
+        fs.rmSync(userDataDir, { recursive: true, force: true });
+      }
     });
 
-    test('should have provider options', async ({ page }) => {
-      await page.goto('popup/popup.html');
-      
-      const providerSelect = page.locator('#provider-preset');
-      await expect(providerSelect).toBeVisible();
-      await expect(providerSelect).toHaveValue('gemini-free');
-    });
+    test('should open composer and show provider/style/panel controls', async () => {
+      const { context, userDataDir } = await launchExtensionContext();
+      try {
+        const extensionId = await getExtensionId(context);
+        const page = await context.newPage();
+        await page.goto(`chrome-extension://${extensionId}/popup/popup.html`);
 
-    test('should have panel count options', async ({ page }) => {
-      await page.goto('popup/popup.html');
-      
-      const panelSelect = page.locator('#panel-count');
-      await expect(panelSelect).toBeVisible();
-      
-      // Check options
-      const options = await panelSelect.locator('option').all();
-      expect(options.length).toBeGreaterThan(3);
-    });
+        if (await page.locator('#onboarding-start-btn').isVisible().catch(() => false)) {
+          await page.locator('#onboarding-start-btn').click();
+        }
+        await page.locator('#create-comic-btn').click();
 
-    test('should have style presets', async ({ page }) => {
-      await page.goto('popup/popup.html');
-      
-      const styleSelect = page.locator('#style-preset');
-      await expect(styleSelect).toBeVisible();
-      
-      const options = await styleSelect.locator('option').all();
-      const values = await Promise.all(options.map(o => o.getAttribute('value')));
-      
-      expect(values).toContain('default');
-      expect(values).toContain('noir');
-      expect(values).toContain('manga');
+        await expect(page.locator('#generate-btn')).toBeVisible();
+        await expect(page.locator('#style-preset')).toBeVisible();
+        await expect(page.locator('#panel-count')).toBeVisible();
+        await expect(page.locator('#wizard-readiness')).toBeVisible();
+        await page.locator('#advanced-settings-toggle').click();
+        await expect(page.locator('#provider-preset')).toBeVisible();
+      } finally {
+        await context.close();
+        fs.rmSync(userDataDir, { recursive: true, force: true });
+      }
     });
   });
 
   test.describe('Options Page', () => {
-    
-    test('should load options page', async ({ page }) => {
-      await page.goto('options/options.html');
-      
-      await expect(page.locator('.options-container')).toBeVisible();
-      await expect(page.locator('.options-header h1')).toHaveText('Web to Comic Settings');
+    test('should load options page', async () => {
+      const { context, userDataDir } = await launchExtensionContext();
+      try {
+        const extensionId = await getExtensionId(context);
+        const page = await context.newPage();
+        await page.goto(`chrome-extension://${extensionId}/options/options.html`);
+
+        await expect(page.locator('.options-container')).toBeVisible();
+        await expect(page.locator('.options-header h1')).toHaveText('Web2Comics Settings');
+      } finally {
+        await context.close();
+        fs.rmSync(userDataDir, { recursive: true, force: true });
+      }
     });
 
-    test('should have navigation tabs', async ({ page }) => {
-      await page.goto('options/options.html');
-      
-      const navButtons = page.locator('.nav-btn');
-      await expect(navButtons).toHaveCount(4);
-      
-      await expect(navButtons.nth(0)).toHaveText('General');
-      await expect(navButtons.nth(1)).toHaveText('Providers');
-      await expect(navButtons.nth(2)).toHaveText('Storage');
-      await expect(navButtons.nth(3)).toHaveText('About');
+    test('should have navigation tabs including Prompts', async () => {
+      const { context, userDataDir } = await launchExtensionContext();
+      try {
+        const extensionId = await getExtensionId(context);
+        const page = await context.newPage();
+        await page.goto(`chrome-extension://${extensionId}/options/options.html`);
+
+        const navButtons = page.locator('.nav-btn');
+        await expect(navButtons).toHaveCount(5);
+        await expect(navButtons.nth(0)).toHaveText('General');
+        await expect(navButtons.nth(1)).toHaveText('Providers');
+        await expect(navButtons.nth(2)).toHaveText('Prompts');
+        await expect(navButtons.nth(3)).toHaveText('Storage');
+        await expect(navButtons.nth(4)).toHaveText('About');
+      } finally {
+        await context.close();
+        fs.rmSync(userDataDir, { recursive: true, force: true });
+      }
     });
 
-    test('should have provider configuration', async ({ page }) => {
-      await page.goto('options/options.html');
-      
-      // Click on Providers tab
-      await page.locator('.nav-btn[data-section="providers"]').click();
-      
-      // Check provider cards exist
-      const providerCards = page.locator('.provider-card');
-      await expect(providerCards).toHaveCount(4);
-    });
+    test('should show current provider cards and OpenAI model selectors', async () => {
+      const { context, userDataDir } = await launchExtensionContext();
+      try {
+        const extensionId = await getExtensionId(context);
+        const page = await context.newPage();
+        await page.goto(`chrome-extension://${extensionId}/options/options.html`);
+        await page.locator('.nav-btn[data-section="providers"]').click();
 
-    test('should switch between sections', async ({ page }) => {
-      await page.goto('options/options.html');
-      
-      // Initially general is active
-      await expect(page.locator('#general-section')).toHaveClass(/active/);
-      
-      // Click providers
-      await page.locator('.nav-btn[data-section="providers"]').click();
-      await expect(page.locator('#providers-section')).toHaveClass(/active/);
-      await expect(page.locator('#general-section')).not.toHaveClass(/active/);
-    });
+        const providerCards = page.locator('.provider-card');
+        await expect(providerCards).toHaveCount(5);
+        await expect(page.locator('.provider-card[data-provider="openai"]')).toBeVisible();
+        await expect(page.locator('.provider-card[data-provider="gemini-free"]')).toBeVisible();
+        await expect(page.locator('.provider-card[data-provider="cloudflare-free"]')).toBeVisible();
+        await expect(page.locator('.provider-card[data-provider="openrouter"]')).toBeVisible();
+        await expect(page.locator('.provider-card[data-provider="huggingface"]')).toBeVisible();
 
-    test('should have OpenAI provider with model selection', async ({ page }) => {
-      await page.goto('options/options.html');
-      await page.locator('.nav-btn[data-section="providers"]').click();
-      
-      const openaiCard = page.locator('.provider-card[data-provider="openai"]');
-      await expect(openaiCard).toBeVisible();
-      
-      // Check model selection dropdowns
-      const textModelSelect = openaiCard.locator('#openai-text-model');
-      const imageModelSelect = openaiCard.locator('#openai-image-model');
-      
-      await expect(textModelSelect).toBeVisible();
-      await expect(imageModelSelect).toBeVisible();
+        const openaiCard = page.locator('.provider-card[data-provider="openai"]');
+        await expect(openaiCard.locator('#openai-text-model')).toBeVisible();
+        await expect(openaiCard.locator('#openai-image-model')).toBeVisible();
+        await expect(openaiCard.locator('#openai-image-quality')).toBeVisible();
+        await expect(openaiCard.locator('#openai-image-size')).toBeVisible();
+      } finally {
+        await context.close();
+        fs.rmSync(userDataDir, { recursive: true, force: true });
+      }
     });
   });
 
   test.describe('Side Panel', () => {
-    
-    test('should load side panel', async ({ page }) => {
-      await page.goto('sidepanel/sidepanel.html');
-      
-      await expect(page.locator('.viewer-container')).toBeVisible();
-      await expect(page.locator('.viewer-header h1')).toHaveText('Comic Viewer');
+    test('should load side panel and show Web2Comics header', async () => {
+      const { context, userDataDir } = await launchExtensionContext();
+      try {
+        const extensionId = await getExtensionId(context);
+        const page = await context.newPage();
+        await page.goto(`chrome-extension://${extensionId}/sidepanel/sidepanel.html`);
+
+        await expect(page.locator('.viewer-container')).toBeVisible();
+        await expect(page.locator('.viewer-header h1')).toHaveText('Web2Comics');
+      } finally {
+        await context.close();
+        fs.rmSync(userDataDir, { recursive: true, force: true });
+      }
     });
 
-    test('should have empty state', async ({ page }) => {
-      await page.goto('sidepanel/sidepanel.html');
-      
-      await expect(page.locator('#empty-state')).toBeVisible();
-      await expect(page.locator('#comic-display')).toHaveClass(/hidden/);
-    });
+    test('should have primary view tabs and history sidebar (no settings/actions sidebar sections)', async () => {
+      const { context, userDataDir } = await launchExtensionContext();
+      try {
+        const extensionId = await getExtensionId(context);
+        const page = await context.newPage();
+        await page.goto(`chrome-extension://${extensionId}/sidepanel/sidepanel.html`);
 
-    test('should have view mode toggle', async ({ page }) => {
-      await page.goto('sidepanel/sidepanel.html');
-      
-      const toggleBtns = page.locator('.toggle-btn');
-      await expect(toggleBtns).toHaveCount(2);
-      await expect(toggleBtns.first()).toHaveText('Strip View');
-      await expect(toggleBtns.nth(1)).toHaveText('Panel View');
-    });
+        await expect(page.locator('#mode-comic-btn')).toBeVisible();
+        await expect(page.locator('#mode-history-btn')).toBeVisible();
 
-    test('should have sidebar with settings', async ({ page }) => {
-      await page.goto('sidepanel/sidepanel.html');
-      
-      const sidebar = page.locator('.sidebar');
-      await expect(sidebar).toBeVisible();
-      
-      // Check sidebar sections
-      await expect(sidebar.locator('text=Settings')).toBeVisible();
-      await expect(sidebar.locator('text=Actions')).toBeVisible();
-      await expect(sidebar.locator('text=History')).toBeVisible();
+        const toggleBtns = page.locator('.toggle-btn');
+        await expect(toggleBtns).toHaveCount(3);
+        await expect(toggleBtns.nth(0)).toHaveText('Strip View');
+        await expect(toggleBtns.nth(1)).toHaveText('Carousel');
+        await expect(toggleBtns.nth(2)).toHaveText('Panel View');
+
+        const sidebar = page.locator('.sidebar');
+        await expect(sidebar).toBeVisible();
+        await expect(sidebar.locator('h3')).toHaveText('History');
+        await expect(sidebar.locator('text=Settings')).toHaveCount(0);
+        await expect(sidebar.locator('text=Actions')).toHaveCount(0);
+      } finally {
+        await context.close();
+        fs.rmSync(userDataDir, { recursive: true, force: true });
+      }
     });
   });
 });
 
 test.describe('Manifest Validation', () => {
-  
-  test('should have valid manifest structure', async ({ page }) => {
-    // Read and parse manifest
-    const manifest = require('../manifest.json');
-    
-    // Validate required fields
+  test('should have valid manifest structure', () => {
+    const manifest = readJson('manifest.json');
+
     expect(manifest.manifest_version).toBe(3);
-    expect(manifest.name).toBe('Web to Comic');
+    expect(manifest.name).toBe('Web2Comics');
     expect(manifest.version).toBe('1.0');
     expect(manifest.permissions).toContain('activeTab');
     expect(manifest.permissions).toContain('storage');
-    
-    // Validate required files exist
     expect(manifest.action.default_popup).toBe('popup/popup.html');
     expect(manifest.background.service_worker).toBe('background/service-worker.js');
   });
 });
 
 test.describe('File Structure', () => {
-  const fs = require('fs');
-  const path = require('path');
-  
   const requiredFiles = [
     'manifest.json',
     'popup/popup.html',
@@ -203,11 +230,10 @@ test.describe('File Structure', () => {
     'providers/cloudflare-provider.js',
     'shared/types.js'
   ];
-  
-  requiredFiles.forEach(file => {
+
+  for (const file of requiredFiles) {
     test(`should have ${file}`, () => {
-      const filePath = path.join(__dirname, '..', file);
-      expect(fs.existsSync(filePath)).toBe(true);
+      expect(fs.existsSync(path.join(EXTENSION_PATH, file))).toBe(true);
     });
-  });
+  }
 });

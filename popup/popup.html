@@ -3,127 +3,180 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Web to Comic</title>
+  <title>Web2Comics</title>
   <link rel="stylesheet" href="popup.css">
 </head>
 <body>
   <div class="popup-container">
     <header class="popup-header">
       <div class="logo">
-        <img src="../icons/icon48.png" alt="Web to Comic" width="24" height="24">
-        <span>Web to Comic</span>
+        <img src="../icons/icon48.png" alt="Web2Comics" width="24" height="24">
+        <span>Web2Comics</span>
       </div>
-      <button id="settings-btn" class="icon-btn" title="Settings">
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-          <path d="M8 4a1.5 1.5 0 100 3 1.5 1.5 0 000-3zM5.5 8a2.5 2.5 0 115 0 2.5 2.5 0 01-5 0z"/>
-          <path fill-rule="evenodd" d="M6.64 1.31a1 1 0 01.86-.31h1a1 1 0 01.86.31l.64.55a.5.5 0 00.42.16l.77-.15a1 1 0 01.88.36l.6.7a.5.5 0 01.18.4l-.04.77a1 1 0 01-.36.88l-.55.64a1 1 0 010 1.24l.55.64a1 1 0 01.36.88l.04.77a.5.5 0 01-.18.4l-.6.7a1 1 0 01-.88.36l-.77-.15a.5.5 0 00-.42.16l-.64.55a1 1 0 01-.86.31h-1a1 1 0 01-.86-.31l-.64-.55a.5.5 0 00-.42-.16l-.77.15a1 1 0 01-.88-.36l-.6-.7a.5.5 0 01-.18-.4l.04-.77a1 1 0 01.36-.88l.55-.64a1 1 0 010-1.24l-.55-.64a1 1 0 01-.36-.88l-.04-.77a.5.5 0 01.18-.4l.6-.7a1 1 0 01.88-.36l.77.15a.5.5 0 00.42-.16l.64-.55zM8 10a2 2 0 100-4 2 2 0 000 4z"/>
-        </svg>
-      </button>
+      <div class="header-icon-actions">
+        <a class="icon-btn help-link-icon" href="../docs/user-manual.html#popup-overview" target="_blank" rel="noopener noreferrer" title="Open user manual (popup)">?</a>
+        <button id="settings-btn" class="icon-btn" title="Settings">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+            <path d="M8 4a1.5 1.5 0 100 3 1.5 1.5 0 000-3zM5.5 8a2.5 2.5 0 115 0 2.5 2.5 0 01-5 0z"/>
+            <path fill-rule="evenodd" d="M6.64 1.31a1 1 0 01.86-.31h1a1 1 0 01.86.31l.64.55a.5.5 0 00.42.16l.77-.15a1 1 0 01.88.36l.6.7a.5.5 0 01.18.4l-.04.77a1 1 0 01-.36.88l-.55.64a1 1 0 010 1.24l.55.64a1 1 0 01.36.88l.04.77a.5.5 0 01-.18.4l-.6.7a1 1 0 01-.88.36l-.77-.15a.5.5 0 00-.42.16l-.64.55a1 1 0 01-.86.31h-1a1 1 0 01-.86-.31l-.64-.55a.5.5 0 00-.42-.16l-.77.15a1 1 0 01-.88-.36l-.6-.7a.5.5 0 01-.18-.4l.04-.77a1 1 0 01.36-.88l.55-.64a1 1 0 010-1.24l-.55-.64a1 1 0 01-.36-.88l-.04-.77a.5.5 0 01.18-.4l.6-.7a1 1 0 01.88-.36l.77.15a.5.5 0 00.42-.16l.64-.55zM8 10a2 2 0 100-4 2 2 0 000 4z"/>
+          </svg>
+        </button>
+      </div>
     </header>
 
     <main class="popup-main">
-      <section id="onboarding-section" class="section hidden">
-        <div class="onboarding">
-          <h2>Welcome to Web to Comic!</h2>
-          <p>Transform any web page into an engaging comic strip summary.</p>
-          <div class="onboarding-steps">
-            <div class="step">
-              <span class="step-number">1</span>
-              <span>Select your content source</span>
-            </div>
-            <div class="step">
-              <span class="step-number">2</span>
-              <span>Choose a provider (free options available)</span>
-            </div>
-            <div class="step">
-              <span class="step-number">3</span>
-              <span>Generate your comic!</span>
-            </div>
-          </div>
-          <button id="onboarding-start-btn" class="btn primary">Get Started</button>
+      <section id="home-section" class="section hidden">
+        <div class="home-launcher">
+          <div class="panel-title-row"><h2>What do you want to do?</h2><a class="help-link-icon inline" href="../docs/user-manual.html#popup-overview" target="_blank" rel="noopener noreferrer" title="Popup help">?</a></div>
+          <p>Choose an action for this page.</p>
+          <button id="create-comic-btn" class="launcher-btn primary">
+            <span class="launcher-title">Create Comic</span>
+            <span class="launcher-subtitle">Extract this page and generate a comic strip</span>
+          </button>
+          <button id="view-history-btn" class="launcher-btn secondary">
+            <span class="launcher-title">See History</span>
+            <span class="launcher-subtitle">Open previously created comics</span>
+          </button>
         </div>
       </section>
 
-      <section id="main-section" class="section">
-        <div class="content-source">
-          <label class="label">Content Source</label>
-          <div class="radio-group">
-            <label class="radio-label">
-              <input type="radio" name="contentSource" value="full" checked>
-              <span>Full page</span>
-            </label>
-            <label class="radio-label">
-              <input type="radio" name="contentSource" value="selection">
-              <span>Selected text</span>
-            </label>
+      <section id="main-section" class="section hidden">
+        <div class="composer-header">
+          <button id="back-home-btn" class="link-btn" type="button">← Back</button>
+          <span class="composer-title">Create Comic</span>
+          <a class="help-link-icon inline" href="../docs/user-manual.html#popup-create" target="_blank" rel="noopener noreferrer" title="Generator wizard help">?</a>
+        </div>
+        <div class="wizard-steps">
+          <div id="wizard-step-content" class="wizard-step is-active" data-step="content">
+            <span class="wizard-step-num">1</span>
+            <span class="wizard-step-label">Content</span>
+          </div>
+          <div id="wizard-step-settings" class="wizard-step is-active" data-step="settings">
+            <span class="wizard-step-num">2</span>
+            <span class="wizard-step-label">Settings</span>
+          </div>
+          <div id="wizard-step-generate" class="wizard-step" data-step="generate">
+            <span class="wizard-step-num">3</span>
+            <span class="wizard-step-label">Generate</span>
           </div>
         </div>
 
-        <div class="extracted-preview">
-          <div class="preview-header">
-            <span class="label">Extracted Content</span>
-            <button id="refresh-preview-btn" class="btn small secondary">Refresh</button>
+        <div class="wizard-card">
+          <div class="wizard-card-header">
+            <div>
+              <h3>Step 1: Select Content</h3>
+              <p>Choose what to extract from the current page.</p>
+            </div>
           </div>
-          <div id="preview-text" class="preview-text">
-            <span class="loading">Loading...</span>
+
+          <div class="content-source">
+            <label class="label">Content Source</label>
+            <div class="radio-group">
+              <label class="radio-label">
+                <input type="radio" name="contentSource" value="full" checked>
+                <span>Full page</span>
+              </label>
+              <label class="radio-label">
+                <input type="radio" name="contentSource" value="selection">
+                <span>Selected text</span>
+              </label>
+            </div>
           </div>
-          <div class="char-count">
-            <span id="char-count">0</span> characters
+
+          <div class="extracted-preview">
+            <div class="preview-header">
+              <span class="label">Extracted Content</span>
+              <button id="refresh-preview-btn" class="btn small secondary">Refresh</button>
+            </div>
+            <div id="preview-text" class="preview-text">
+              <span class="loading">Loading...</span>
+            </div>
+            <div class="char-count">
+              <span id="char-count">0</span> characters
+            </div>
           </div>
         </div>
 
-        <div class="settings-grid">
-          <div class="setting-item">
-            <label class="label">Panels</label>
-            <select id="panel-count" class="select">
-              <option value="3">3 panels</option>
-              <option value="4">4 panels</option>
-              <option value="5">5 panels</option>
-              <option value="6" selected>6 panels</option>
-              <option value="8">8 panels</option>
-              <option value="10">10 panels</option>
-              <option value="12">12 panels</option>
-            </select>
+        <div class="wizard-card">
+          <div class="wizard-card-header">
+            <div>
+              <h3>Step 2: Configure Comic</h3>
+              <p>Pick your provider and comic format. Advanced settings are optional.</p>
+            </div>
           </div>
 
-          <div class="setting-item">
-            <label class="label">Detail</label>
-            <select id="detail-level" class="select">
-              <option value="low">Low</option>
-              <option value="medium" selected>Medium</option>
-              <option value="high">High</option>
-            </select>
+          <div class="settings-grid basic-settings-grid">
+            <div class="setting-item">
+              <label class="label">Panels</label>
+              <select id="panel-count" class="select">
+                <option value="3">3 panels</option>
+                <option value="4">4 panels</option>
+                <option value="5">5 panels</option>
+                <option value="6" selected>6 panels</option>
+                <option value="8">8 panels</option>
+                <option value="10">10 panels</option>
+                <option value="12">12 panels</option>
+              </select>
+            </div>
+
+            <div class="setting-item full-width">
+              <label class="label">Provider</label>
+              <select id="provider-preset" class="select">
+                <option value="gemini-free">Google Gemini (Free tier)</option>
+                <option value="openai">OpenAI (GPT-4 + DALL-E)</option>
+                <option value="openrouter">OpenRouter (Text models)</option>
+                <option value="huggingface">Hugging Face Inference API (Text)</option>
+                <option value="cloudflare-free">Cloudflare Workers AI (Free)</option>
+              </select>
+              <span id="provider-info" class="provider-info">Free tier available</span>
+            </div>
           </div>
 
-          <div class="setting-item full-width">
-            <label class="label">Style</label>
-            <select id="style-preset" class="select">
-              <option value="default">Default (Classic Comic)</option>
-              <option value="noir">Noir (Dark & Dramatic)</option>
-              <option value="minimalist">Minimalist</option>
-              <option value="manga">Manga (Anime)</option>
-              <option value="superhero">Superhero</option>
-              <option value="watercolor">Watercolor</option>
-              <option value="pixel">Pixel Art</option>
-              <option value="custom">Custom...</option>
-            </select>
-          </div>
+          <div class="advanced-settings-shell">
+            <button id="advanced-settings-toggle" class="advanced-settings-toggle" type="button" aria-expanded="false" aria-controls="advanced-settings-panel">
+              <span class="advanced-toggle-label">Advanced Options</span>
+              <span id="advanced-settings-chevron" class="advanced-toggle-chevron">▾</span>
+            </button>
 
-          <div id="custom-style-container" class="setting-item full-width hidden">
-            <label class="label">Custom Style Description</label>
-            <textarea id="custom-style-input" class="textarea" placeholder="Describe your desired style, e.g., 'vintage 1950s comic book', 'steampunk illustration', 'watercolor landscape with soft colors'..."></textarea>
-            <span class="setting-hint">Optional: Describe the visual style, mood, or theme you want</span>
-          </div>
+            <div id="advanced-settings-panel" class="advanced-settings-panel hidden">
+              <div class="settings-grid">
+                <div class="setting-item">
+                  <label class="label">Detail</label>
+                  <select id="detail-level" class="select">
+                    <option value="low">Low</option>
+                    <option value="medium" selected>Medium</option>
+                    <option value="high">High</option>
+                  </select>
+                </div>
 
-          <div class="setting-item full-width">
-            <label class="label">Provider</label>
-            <select id="provider-preset" class="select">
-              <option value="gemini-free">Google Gemini (Free tier)</option>
-              <option value="openai">OpenAI (GPT-4 + DALL-E)</option>
-              <option value="cloudflare-free">Cloudflare Workers AI (Free)</option>
-              <option value="chrome-summarizer">Chrome Summarizer (Local)</option>
-            </select>
-            <span id="provider-info" class="provider-info">Free tier available</span>
+                <div class="setting-item full-width">
+                  <label class="label">Style</label>
+                  <select id="style-preset" class="select">
+                    <option value="default">Default (Classic Comic)</option>
+                    <option value="noir">Noir (Dark & Dramatic)</option>
+                    <option value="manga">Manga (Anime)</option>
+                    <option value="superhero">Superhero Action</option>
+                    <option value="watercolor">Watercolor Storybook</option>
+                    <option value="pixel">Pixel Art Retro</option>
+                    <option value="ligne-claire">Ligne Claire (Tintin-like)</option>
+                    <option value="newspaper-strip">Newspaper Strip</option>
+                    <option value="cyberpunk-neon">Cyberpunk Neon</option>
+                    <option value="clay-stopmotion">Clay Stop-Motion</option>
+                    <option value="woodcut-print">Woodcut Print</option>
+                    <option value="custom">Custom (One-off)</option>
+                    <option value="__create_new_style__">+ Create New Style...</option>
+                  </select>
+                </div>
+
+                <div id="custom-style-container" class="setting-item full-width hidden">
+                  <label class="label">Custom Style Name</label>
+                  <input id="custom-style-name-input" class="select custom-style-name" type="text" placeholder="e.g. Retro Pulp Adventure">
+                  <label class="label">Custom Style Description</label>
+                  <textarea id="custom-style-input" class="textarea" placeholder="Describe your desired style, e.g., 'vintage 1950s comic book, halftone printing, bold captions, warm paper texture'"></textarea>
+                  <span class="setting-hint">Optional: Describe the visual style, mood, or theme you want</span>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -135,13 +188,17 @@
           <span>API key required. <a href="#" id="configure-key-link">Configure</a></span>
         </div>
 
-        <div class="action-buttons">
+        <div id="wizard-readiness" class="wizard-readiness" aria-live="polite">
+          <div id="wizard-readiness-text" class="wizard-readiness-text">Checking page content and provider readiness...</div>
+        </div>
+
+        <div class="action-buttons wizard-actions">
           <button id="generate-btn" class="btn primary full-width">
             <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
               <path d="M11.28 3.22a.75.75 0 00-1.06 1.06l2.25 2.25a.75.75 0 001.06 0l2.25-2.25a.75.75 0 00-1.06-1.06l-1.72 1.72-1.72-1.72z"/>
               <path fill-rule="evenodd" d="M14 8A6 6 0 102 8a6 6 0 0012 0zM1.5 8a12 12 0 1123.18-3.22.75.75 0 10-1.06-1.06A10.5 10.5 0 008 1.5a10.5 10.5 0 00-8.72 4.22.75.75 0 001.06 1.06A12 12 0 011.5 8z"/>
             </svg>
-            Generate Comic
+            Step 3: Generate Comic
           </button>
           <button id="open-viewer-btn" class="btn secondary full-width" disabled>
             <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
@@ -155,8 +212,10 @@
 
       <section id="progress-section" class="section hidden">
         <div class="progress-container">
-          <h3>Generating Comic</h3>
+          <div class="panel-title-row"><h3>Generating Comic</h3><a class="help-link-icon inline" href="../docs/user-manual.html#popup-progress" target="_blank" rel="noopener noreferrer" title="Progress view help">?</a></div>
           <div id="progress-status" class="progress-status">Preparing...</div>
+          <div id="progress-status-detail" class="progress-status-detail">Elapsed 0s | Waiting for updates...</div>
+          <div id="progress-debug-log" class="progress-debug-log hidden"></div>
           
           <div class="progress-bar-container">
             <div id="progress-bar" class="progress-bar"></div>
@@ -173,6 +232,7 @@
 
     <footer class="popup-footer">
       <button id="history-btn" class="link-btn">History</button>
+      <a id="footer-help-link" class="link-btn" href="../docs/user-manual.html#popup-overview" target="_blank" rel="noopener noreferrer" title="Open User Manual">Help</a>
       <span class="version">v1.0</span>
     </footer>
   </div>
@@ -180,7 +240,7 @@
   <div id="history-modal" class="modal hidden">
     <div class="modal-content">
       <div class="modal-header">
-        <h3>Generation History</h3>
+        <div class="panel-title-row"><h3>Generation History</h3><a class="help-link-icon inline" href="../docs/user-manual.html#popup-history" target="_blank" rel="noopener noreferrer" title="History help">?</a></div>
         <button class="close-btn" id="close-history-btn">&times;</button>
       </div>
       <div id="history-list" class="history-list">
@@ -188,6 +248,27 @@
       </div>
       <div class="modal-footer">
         <button id="clear-history-btn" class="btn danger small">Clear All</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="style-modal" class="modal hidden">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3>Create Custom Style</h3>
+        <button class="close-btn" id="close-style-modal-btn">&times;</button>
+      </div>
+      <div class="style-modal-body">
+        <label class="label" for="new-style-name-input">Style Name</label>
+        <input id="new-style-name-input" class="select" type="text" placeholder="e.g. Retro Pulp Adventure">
+
+        <label class="label" for="new-style-description-input">Style Description</label>
+        <textarea id="new-style-description-input" class="textarea" placeholder="Describe the look, mood, color palette, line style, texture, etc."></textarea>
+        <span class="setting-hint">This style will be saved and available in future comic generations.</span>
+      </div>
+      <div class="modal-footer">
+        <button id="cancel-style-modal-btn" class="btn secondary small">Cancel</button>
+        <button id="save-style-modal-btn" class="btn primary small">Save Style</button>
       </div>
     </div>
   </div>

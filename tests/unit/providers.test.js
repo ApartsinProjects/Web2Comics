@@ -256,26 +256,52 @@ describe('CloudflareProvider', () => {
     provider = {
       baseUrl: 'https://workers.ai',
       capabilities: {
-        supportsImages: false,
-        maxPromptLength: 4000,
+        supportsImages: true,
+        maxPromptLength: 12000,
         rateLimitBehavior: 'graceful',
-        costTag: 'free'
+        costTag: 'free-ish'
       }
     };
   });
 
   describe('capabilities', () => {
-    it('should NOT support images', () => {
-      expect(provider.capabilities.supportsImages).toBe(false);
+    it('should support images', () => {
+      expect(provider.capabilities.supportsImages).toBe(true);
     });
 
-    it('should have free cost tag', () => {
-      expect(provider.capabilities.costTag).toBe('free');
+    it('should have low-cost tag', () => {
+      expect(provider.capabilities.costTag).toBe('free-ish');
     });
 
     it('should have graceful rate limit behavior', () => {
       expect(provider.capabilities.rateLimitBehavior).toBe('graceful');
     });
+  });
+});
+
+describe('OpenRouterProvider', () => {
+  it('is text-only in the extension architecture', () => {
+    const provider = {
+      capabilities: {
+        supportsImages: false,
+        rateLimitBehavior: 'strict'
+      }
+    };
+    expect(provider.capabilities.supportsImages).toBe(false);
+    expect(provider.capabilities.rateLimitBehavior).toBe('strict');
+  });
+});
+
+describe('HuggingFaceProvider', () => {
+  it('is text-only in the extension architecture', () => {
+    const provider = {
+      capabilities: {
+        supportsImages: false,
+        rateLimitBehavior: 'strict'
+      }
+    };
+    expect(provider.capabilities.supportsImages).toBe(false);
+    expect(provider.capabilities.rateLimitBehavior).toBe('strict');
   });
 });
 

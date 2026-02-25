@@ -1,17 +1,56 @@
-const { test, expect } = require('@playwright/test');
+const { test, expect, chromium } = require('@playwright/test');
 const path = require('path');
 const fs = require('fs');
+const os = require('os');
 
 const EXTENSION_PATH = path.resolve(__dirname, '../..');
 
 test.describe('Web to Comic Extension - Registration & Installation', () => {
+  test('REG-00: Chrome registers unpacked extension service worker', async () => {
+    const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'web2comics-ext-'));
+    let context;
+
+    try {
+      context = await chromium.launchPersistentContext(userDataDir, {
+        channel: 'chromium',
+        headless: false,
+        args: [
+          `--disable-extensions-except=${EXTENSION_PATH}`,
+          `--load-extension=${EXTENSION_PATH}`,
+          '--no-sandbox'
+        ]
+      });
+
+      const serviceWorker =
+        context.serviceWorkers()[0] ||
+        await context.waitForEvent('serviceworker', { timeout: 15000 });
+
+      const workerUrl = serviceWorker.url();
+      expect(workerUrl).toMatch(/^chrome-extension:\/\/[a-z]{32}\//);
+      expect(workerUrl.endsWith('/background/service-worker.js')).toBe(true);
+
+      const extensionId = new URL(workerUrl).host;
+      const page = await context.newPage();
+      await page.goto(`chrome-extension://${extensionId}/popup/popup.html`);
+      await expect(page.locator('body')).toBeVisible();
+      await expect(page.locator('#create-comic-btn')).toBeVisible();
+      await expect(page.locator('#view-history-btn')).toBeVisible();
+      await page.locator('#create-comic-btn').click();
+      await expect(page.locator('#generate-btn')).toBeVisible();
+    } finally {
+      if (context) {
+        await context.close();
+      }
+      fs.rmSync(userDataDir, { recursive: true, force: true });
+    }
+  });
   
   test('REG-01: Manifest V3 validation', async () => {
     const manifestPath = path.join(EXTENSION_PATH, 'manifest.json');
     const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
     
     expect(manifest.manifest_version).toBe(3);
-    expect(manifest.name).toBe('Web to Comic');
+    expect(manifest.name).toBe('Web2Comics');
     expect(manifest.version).toBe('1.0');
     expect(manifest.permissions).toContain('activeTab');
     expect(manifest.permissions).toContain('storage');
@@ -70,15 +109,16 @@ test.describe('Web to Comic Extension - Registration & Installation', () => {
   });
 });
 
-test.describe('Web to Comic - Onboarding Flow', () => {
+test.describe('Web to Comic - Popup Launcher Flow', () => {
   
-  test('REG-05: Onboarding UI elements in popup', async () => {
+  test('REG-05: Popup opens to launcher UI (no welcome panel)', async () => {
     const popupPath = path.join(EXTENSION_PATH, 'popup', 'popup.html');
     const popupHtml = fs.readFileSync(popupPath, 'utf8');
     
-    expect(popupHtml).toContain('onboarding-section');
-    expect(popupHtml).toContain('onboarding-start-btn');
-    expect(popupHtml).toContain('Get Started');
+    expect(popupHtml).not.toContain('onboarding-start-btn');
+    expect(popupHtml).toContain('home-section');
+    expect(popupHtml).toContain('create-comic-btn');
+    expect(popupHtml).toContain('view-history-btn');
   });
 
   test('REG-06: Main generation UI elements exist', async () => {
@@ -91,13 +131,13 @@ test.describe('Web to Comic - Onboarding Flow', () => {
     expect(popupHtml).toContain('generate-btn');
   });
 
-  test('REG-07: Settings persistence code exists', async () => {
+  test('REG-07: Popup settings persistence code exists', async () => {
     const popupJsPath = path.join(EXTENSION_PATH, 'popup', 'popup.js');
     const popupJs = fs.readFileSync(popupJsPath, 'utf8');
     
     expect(popupJs).toContain('chrome.storage.local.get');
     expect(popupJs).toContain('chrome.storage.local.set');
-    expect(popupJs).toContain('onboardingComplete');
+    expect(popupJs).toContain('loadSettings');
   });
 });
 
@@ -111,6 +151,8 @@ test.describe('Web to Comic - Provider Registration', () => {
     expect(optionsHtml).toContain('gemini-free');
     expect(optionsHtml).toContain('openai');
     expect(optionsHtml).toContain('cloudflare-free');
+    expect(optionsHtml).toContain('openrouter');
+    expect(optionsHtml).toContain('huggingface');
   });
 
   test('REG-09: OpenAI model selection exists', async () => {
@@ -251,9 +293,9 @@ test.describe('Web to Comic - Icons & Structure', () => {
     const iconFiles = fs.readdirSync(iconsDir);
     
     expect(iconFiles.length).toBeGreaterThan(0);
-    expect(iconFiles).toContain('icon16.svg');
-    expect(iconFiles).toContain('icon48.svg');
-    expect(iconFiles).toContain('icon128.svg');
+    expect(iconFiles).toContain('icon16.png');
+    expect(iconFiles).toContain('icon48.png');
+    expect(iconFiles).toContain('icon128.png');
   });
 });
 
@@ -269,6 +311,8 @@ test.describe('Web to Comic - Summary', () => {
     console.log('✓ Gemini provider');
     console.log('✓ OpenAI provider (GPT + DALL-E)');
     console.log('✓ Cloudflare Workers AI provider');
+    console.log('✓ OpenRouter provider');
+    console.log('✓ Hugging Face Inference provider');
     console.log('✓ Chrome Summarizer provider');
     console.log('✓ Custom style/theme feature');
     console.log('✓ Model selection (GPT, DALL-E)');
