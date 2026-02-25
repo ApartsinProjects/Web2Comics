@@ -806,6 +806,16 @@ class ComicViewer {
     return `Elapsed ${this.formatDurationShort(elapsedMs)} | ${phaseText} | ${etaText}`;
   }
 
+  buildCaptionQualitySummary(job) {
+    const score = job && (job.captionQuality || job?.storyboard?.caption_quality);
+    if (!score || typeof score !== 'object') return '';
+    const storyLike = Math.max(0, Number(score.storyLikeCaptions || 0));
+    const promptLike = Math.max(0, Number(score.promptLikeCaptions || 0));
+    const repaired = Math.max(0, Number(score.promptLikeCaptionRepairs || 0));
+    if (storyLike === 0 && promptLike === 0 && repaired === 0) return '';
+    return `Caption quality: ${storyLike} story-like / ${promptLike} prompt-like${repaired > 0 ? ` (repaired ${repaired})` : ''}`;
+  }
+
   updateGenerationUI(job) {
     const statusTitles = {
       pending: 'Preparing...',
@@ -834,6 +844,7 @@ class ComicViewer {
       cancelBtn.disabled = !['pending', 'generating_text', 'generating_images'].includes(String(job.status || ''));
     }
     const detailEl = document.getElementById('gen-status-detail');
+    const captionQualityEl = document.getElementById('gen-caption-quality');
     
     const panelsContainer = document.getElementById('gen-panels');
     if (!panelsContainer) return;
@@ -846,6 +857,12 @@ class ComicViewer {
     );
     if (detailEl) {
       detailEl.textContent = this.buildGenerationStatusDetail(job, totalPanels);
+    }
+    if (captionQualityEl) {
+      const debugEnabled = !!(job?.storyboard?.settings?.debug_flag || job?.settings?.debug_flag);
+      const captionSummary = debugEnabled ? this.buildCaptionQualitySummary(job) : '';
+      captionQualityEl.textContent = captionSummary;
+      captionQualityEl.classList.toggle('hidden', !captionSummary);
     }
 
     const normalizedPanels = Array.from({ length: totalPanels || 0 }, (_, index) => {

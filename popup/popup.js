@@ -1093,6 +1093,10 @@ class PopupController {
     if (document.getElementById('progress-status-detail')) {
       document.getElementById('progress-status-detail').textContent = 'Elapsed 0s | Waiting for updates...';
     }
+    if (document.getElementById('progress-caption-quality')) {
+      document.getElementById('progress-caption-quality').textContent = '';
+      document.getElementById('progress-caption-quality').classList.add('hidden');
+    }
     this.progressStartedAtMs = Date.now();
     this.progressFirstPanelAtMs = 0;
     this.cancelRequestedByUser = false;
@@ -1193,6 +1197,16 @@ class PopupController {
     }
 
     return `Elapsed ${this.formatDurationShort(elapsedMs)} | ${phaseText} | ${etaText}`;
+  }
+
+  buildCaptionQualitySummary(job) {
+    const score = job && (job.captionQuality || job?.storyboard?.caption_quality);
+    if (!score || typeof score !== 'object') return '';
+    const storyLike = Math.max(0, Number(score.storyLikeCaptions || 0));
+    const promptLike = Math.max(0, Number(score.promptLikeCaptions || 0));
+    const repaired = Math.max(0, Number(score.promptLikeCaptionRepairs || 0));
+    if (storyLike === 0 && promptLike === 0 && repaired === 0) return '';
+    return `Caption quality: ${storyLike} story-like / ${promptLike} prompt-like${repaired > 0 ? ` (repaired ${repaired})` : ''}`;
   }
 
   startProgressPolling() {
@@ -1299,6 +1313,7 @@ class PopupController {
   updateProgressUI(job) {
     const statusEl = document.getElementById('progress-status');
     const statusDetailEl = document.getElementById('progress-status-detail');
+    const captionQualityEl = document.getElementById('progress-caption-quality');
     const progressBar = document.getElementById('progress-bar');
     const panelProgress = document.getElementById('panel-progress');
     const debugLogEl = document.getElementById('progress-debug-log');
@@ -1339,6 +1354,11 @@ class PopupController {
     const panelCount = panels ? panels.length : (job?.settings?.panel_count || 0);
     if (statusDetailEl) {
       statusDetailEl.textContent = this.buildProgressTimingDetail(job, panelCount);
+    }
+    if (captionQualityEl) {
+      const captionSummary = this.settings.debugFlag ? this.buildCaptionQualitySummary(job) : '';
+      captionQualityEl.textContent = captionSummary;
+      captionQualityEl.classList.toggle('hidden', !captionSummary);
     }
     if (panels) {
       const totalPanels = panels.length;

@@ -46,15 +46,17 @@ function getStyleSpec(options) {
 
 var DEFAULT_PROVIDER_PROMPT_TEMPLATES = {
   openai: {
-    storyboard: 'Create a comic storyboard as strict JSON.\nJSON only, no markdown.\nSchema: {"panels":[{"caption":string,"image_prompt":string}]}\nPanels: {{panel_count}}\nStyle: {{style_prompt}}\nContent:\n{{content}}',
+    storyboard: 'Create a comic storyboard as strict JSON.\nJSON only, no markdown.\nSchema: {"panels":[{"caption":string,"image_prompt":string}]}\ncaption must be a short story beat for a reader (graphic-novel narration), not a visual prompt. image_prompt must be visual-generation instructions only.\nPanels: {{panel_count}}\nStyle: {{style_prompt}}\nContent:\n{{content}}',
     image: 'Comic panel {{panel_index}}/{{panel_count}}.\nCaption: {{panel_caption}}\nSummary: {{panel_summary}}\nStyle: {{style_prompt}}\nReturn a single image matching the comic style.'
   },
   gemini: {
-    storyboard: 'Generate a comic storyboard in strict JSON.\nJSON only, no markdown.\nSchema: {"panels":[{"caption":string,"image_prompt":string}]}\nPanel count: {{panel_count}}\nStyle guidance: {{style_prompt}}\nContent:\n{{content}}',
+    storyboard: 'Generate a comic storyboard in strict JSON.\nJSON only, no markdown.\nSchema: {"panels":[{"caption":string,"image_prompt":string}]}\ncaption must be a short story beat for a reader (graphic-novel narration), not a visual prompt. image_prompt must be visual-generation instructions only.\nPanel count: {{panel_count}}\nStyle guidance: {{style_prompt}}\nContent:\n{{content}}',
     image: 'Create comic panel artwork {{panel_index}}/{{panel_count}}.\nPanel caption: {{panel_caption}}\nPanel summary: {{panel_summary}}\nStyle guidance: {{style_prompt}}'
   }
 };
 var STORYBOARD_RETRY_JSON_ONLY_PROMPT = 'Return ONLY valid JSON object with top-level "panels" array. No markdown fences.';
+var STORYBOARD_CAPTION_IMAGE_PROMPT_RULE =
+  'caption must be a short story beat for a reader (graphic-novel narration), not a visual prompt. image_prompt must be visual-generation instructions only.';
 
 var DEFAULT_FETCH_TIMEOUT_MS = 45000;
 var STORYBOARD_TIMEOUT_MS = 90000;
@@ -388,12 +390,80 @@ function summarizeRawOutputForRetry(error) {
   return 'Previous malformed output snippet: "' + snippet + '"';
 }
 
+function looksLikeImagePromptText(value) {
+  var s = normalizeLooseTextValue(value).trim();
+  if (!s) return false;
+  var lower = s.toLowerCase();
+  if (s.length > 220) return true;
+  var promptPhrases = [
+    'comic panel illustration',
+    'illustration of',
+    'digital art',
+    'cinematic lighting',
+    'highly detailed',
+    'camera angle',
+    'art style',
+    'dramatic lighting',
+    'ultra detailed'
+  ];
+  for (var i = 0; i < promptPhrases.length; i++) {
+    if (lower.indexOf(promptPhrases[i]) >= 0) return true;
+  }
+  var commaCount = (s.match(/,/g) || []).length;
+  if (commaCount >= 6) return true;
+  return false;
+}
+
+function rewritePromptLikeCaptionToStoryBeat(captionText, panel, index) {
+  var storyCandidates = [
+    panel && panel.beat_summary,
+    panel && panel.summary,
+    panel && panel.beat,
+    panel && panel.narration,
+    panel && panel.description,
+    panel && panel.title,
+    panel && panel.text,
+    panel && panel.text_content,
+    panel && panel.caption_text,
+    panel && panel.dialogue
+  ];
+  for (var i = 0; i < storyCandidates.length; i++) {
+    var candidate = normalizeLooseTextValue(storyCandidates[i]);
+    if (candidate && !looksLikeImagePromptText(candidate)) return candidate;
+  }
+
+  // Heuristic fallback: strip common prompt-style boilerplate and visual jargon.
+  var src = normalizeLooseTextValue(captionText);
+  if (!src) return 'Panel ' + (index + 1);
+  var out = src
+    .replace(/^comic panel illustration of:\s*/i, '')
+    .replace(/^illustration of:\s*/i, '')
+    .replace(/\b(digital art|cinematic lighting|highly detailed|ultra detailed|dramatic lighting|camera angle[^,.;]*|art style[^,.;]*)\b/gi, '')
+    .replace(/\s+/g, ' ')
+    .replace(/\s*,\s*,+/g, ', ')
+    .replace(/^[,.\s-]+|[,.\s-]+$/g, '');
+  // Prefer first natural clause/sentence fragment as story beat.
+  var split = out.split(/[.;]|, and /i).map(function(part) { return part.trim(); }).filter(Boolean);
+  var candidateBeat = split[0] || out;
+  if (!candidateBeat) return 'Panel ' + (index + 1);
+  if (!/[.!?]$/.test(candidateBeat)) candidateBeat += '.';
+  return candidateBeat.substring(0, 180);
+}
+
 function validateStoryboardContract(storyboard, requestedPanelCount) {
   var normalized = (storyboard && typeof storyboard === 'object') ? storyboard : {};
   if (!Array.isArray(normalized.panels)) normalized.panels = [];
 
   var beforeMissingCaption = 0;
   var beforeMissingImagePrompt = 0;
+  var promptLikeCaptionRepairs = 0;
+  var captionQuality = {
+    totalPanels: 0,
+    nonEmptyCaptions: 0,
+    storyLikeCaptions: 0,
+    promptLikeCaptions: 0,
+    fallbackPanelLabelCaptions: 0
+  };
 
   normalized.panels = normalized.panels
     .map(function(panel, index) {
@@ -406,10 +476,27 @@ function validateStoryboardContract(storyboard, requestedPanelCount) {
       if (!caption) beforeMissingCaption += 1;
       if (!imagePrompt) beforeMissingImagePrompt += 1;
 
+      if (caption && (looksLikeImagePromptText(caption) || (imagePrompt && caption === imagePrompt))) {
+        var repairedCaption = rewritePromptLikeCaptionToStoryBeat(caption, p, index);
+        if (repairedCaption && repairedCaption !== caption) {
+          caption = repairedCaption;
+          promptLikeCaptionRepairs += 1;
+        }
+      }
+
       p.beat_summary = p.beat_summary || beat || '';
       p.caption = caption || beat || ('Panel ' + (index + 1));
       p.image_prompt = imagePrompt || ('Comic panel illustration of: ' + p.caption + (beat ? ('. ' + beat) : ''));
       if (!p.panel_id) p.panel_id = 'panel_' + (index + 1);
+
+      captionQuality.totalPanels += 1;
+      var finalCaption = normalizeLooseTextValue(p.caption);
+      if (finalCaption) {
+        captionQuality.nonEmptyCaptions += 1;
+        if (looksLikeImagePromptText(finalCaption)) captionQuality.promptLikeCaptions += 1;
+        else captionQuality.storyLikeCaptions += 1;
+        if (/^Panel\s+\d+\.?$/i.test(finalCaption)) captionQuality.fallbackPanelLabelCaptions += 1;
+      }
       return p;
     })
     .filter(function(panel) { return !!panel; });
@@ -424,7 +511,9 @@ function validateStoryboardContract(storyboard, requestedPanelCount) {
       hasPanelsArray: Array.isArray((storyboard && storyboard.panels)) || Array.isArray(normalized.panels),
       panelCount: normalized.panels.length,
       missingCaptionBeforeSynthesis: beforeMissingCaption,
-      missingImagePromptBeforeSynthesis: beforeMissingImagePrompt
+      missingImagePromptBeforeSynthesis: beforeMissingImagePrompt,
+      promptLikeCaptionRepairs: promptLikeCaptionRepairs,
+      captionQuality: captionQuality
     }
   };
 }
@@ -558,6 +647,7 @@ class GeminiProvider {
     var prompt = 'Create a ' + panelCount + '-panel comic storyboard.\n' +
       'JSON only, no markdown.\n' +
       'Schema: {"panels":[{"caption":string,"image_prompt":string}]}\n' +
+      STORYBOARD_CAPTION_IMAGE_PROMPT_RULE + '\n' +
       'Visual style requirement: ' + styleSpec.directive + '\n' +
       'Keep the style consistent across all panels.\n' +
       'Text: ' + text.substring(0, 4000);
@@ -687,6 +777,7 @@ class OpenAIProvider {
         'Create a ' + (options.panelCount || 6) + '-panel comic storyboard. ' +
         'JSON only, no markdown. ' +
         'Schema: {"panels":[{"caption":string,"image_prompt":string}]}. ' +
+        STORYBOARD_CAPTION_IMAGE_PROMPT_RULE + ' ' +
         'Style requirement: ' + styleSpec.directive + '. ' +
         'Content: ' + text.substring(0, 8000);
       if (options && options.storyboardTemplate) {
@@ -723,6 +814,7 @@ class OpenAIProvider {
               content:
                 'You are a comic storyboard generator. Respond with JSON only, no markdown fences. ' +
                 'Schema: {"panels":[{"caption":string,"image_prompt":string}]}. ' +
+                STORYBOARD_CAPTION_IMAGE_PROMPT_RULE + ' ' +
                 'Include the requested art style in each panel image_prompt.'
             },
             {
@@ -909,6 +1001,7 @@ class OpenRouterProvider {
       'Create a comic storyboard from the content below.',
       'JSON only, no markdown.',
       'Schema: {"panels":[{"caption":string,"image_prompt":string}]}',
+      STORYBOARD_CAPTION_IMAGE_PROMPT_RULE,
       'Panel count: ' + panelCount,
       'Style requirement: ' + styleSpec.directive,
       'Keep the style consistent across all panels.',
@@ -1193,6 +1286,7 @@ class HuggingFaceProvider {
     var prompt = [
       'JSON only, no markdown.',
       'Schema: {"panels":[{"caption":string,"image_prompt":string}]}',
+      STORYBOARD_CAPTION_IMAGE_PROMPT_RULE,
       'Create a ' + panelCount + '-panel comic storyboard.',
       'Style requirement: ' + styleSpec.directive,
       'Content:',
@@ -1513,6 +1607,7 @@ class CloudflareProvider {
       'Create a comic storyboard from the content below.',
       'JSON only, no markdown.',
       'Schema: {"panels":[{"caption":string,"image_prompt":string}]}',
+      STORYBOARD_CAPTION_IMAGE_PROMPT_RULE,
       'Panel count: ' + panelCount,
       'Style requirement: ' + styleSpec.directive,
       'Keep image prompts concise but descriptive and safe for image generation.',
@@ -1546,6 +1641,7 @@ class CloudflareProvider {
         var data = await this.callModel(model, {
           messages: [
             { role: 'system', content: 'You generate comic storyboards as strict JSON only.' },
+            { role: 'system', content: STORYBOARD_CAPTION_IMAGE_PROMPT_RULE },
             { role: 'user', content: prompt }
           ],
           max_tokens: 2048,
@@ -2391,6 +2487,22 @@ var ServiceWorker = function() {
         noPanelsErr.providerId = (storyboard && storyboard.settings && storyboard.settings.provider_text) || settings.provider_text;
         throw noPanelsErr;
       }
+      if (contract.meta.promptLikeCaptionRepairs > 0) {
+        self.appendDebugLog('unexpected_output.storyboard.prompt_like_captions_repaired', {
+          count: contract.meta.promptLikeCaptionRepairs,
+          sourceUrl: job.sourceUrl || null,
+          provider: (storyboard && storyboard.settings && storyboard.settings.provider_text) || settings.provider_text
+        });
+      }
+      job.captionQuality = {
+        ...(contract.meta.captionQuality || {}),
+        promptLikeCaptionRepairs: contract.meta.promptLikeCaptionRepairs || 0
+      };
+      self.appendDebugLog('caption_quality.score', {
+        provider: (storyboard && storyboard.settings && storyboard.settings.provider_text) || settings.provider_text,
+        sourceUrl: job.sourceUrl || null,
+        score: job.captionQuality || null
+      });
       storyboard.source = { url: job.sourceUrl, title: job.sourceTitle, extracted_at: new Date().toISOString() };
       storyboard.panels = (Array.isArray(storyboard.panels) ? storyboard.panels : []).map(function(panel, idx) {
         var p = panel || {};
@@ -2405,6 +2517,7 @@ var ServiceWorker = function() {
         show_rewritten_badge: settings.show_rewritten_badge !== false,
         log_rewritten_prompts: !!settings.log_rewritten_prompts
       };
+      storyboard.caption_quality = job.captionQuality || null;
       job.storyboard = storyboard;
       job.status = 'generating_images';
       job.currentPanelIndex = 0;

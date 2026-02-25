@@ -376,6 +376,43 @@ describe('Sidepanel Page UX', () => {
     expect(text).toContain('ETA:');
   });
 
+  it('shows debug-only caption quality summary in generation view', async () => {
+    chrome.storage.local.get.mockImplementation(async (key) => {
+      if (key === 'currentJob') {
+        return {
+          currentJob: {
+            status: 'generating_images',
+            completedPanels: 1,
+            currentPanelIndex: 1,
+            captionQuality: {
+              storyLikeCaptions: 5,
+              promptLikeCaptions: 1,
+              promptLikeCaptionRepairs: 1
+            },
+            settings: { panel_count: 3, debug_flag: true },
+            storyboard: {
+              settings: { debug_flag: true },
+              panels: [{}, {}, {}]
+            }
+          }
+        };
+      }
+      if (key === 'history') return { history: [] };
+      if (key === 'sidepanelPrefs') return { sidepanelPrefs: {} };
+      return {};
+    });
+
+    await import('../../sidepanel/sidepanel.js');
+    document.dispatchEvent(new Event('DOMContentLoaded'));
+    await flush();
+    await flush();
+
+    const line = document.getElementById('gen-caption-quality');
+    expect(line).toBeTruthy();
+    expect(line.classList.contains('hidden')).toBe(false);
+    expect(String(line.textContent || '')).toContain('Caption quality: 5 story-like / 1 prompt-like (repaired 1)');
+  });
+
   it('renders generation panel caption text using fallback fields when caption is missing', async () => {
     chrome.storage.local.get.mockImplementation(async (key) => {
       if (key === 'currentJob') {

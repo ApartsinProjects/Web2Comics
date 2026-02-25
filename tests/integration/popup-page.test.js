@@ -835,6 +835,64 @@ describe('Popup Page Startup', () => {
     expect(text).toMatch(/Rendering panels|Completed/);
   });
 
+  it('shows debug-only caption quality summary in popup progress view', async () => {
+    chrome.storage.local.get.mockImplementation(async (keys) => {
+      if (Array.isArray(keys)) {
+        const result = {
+          settings: { activeTextProvider: 'openai', activeImageProvider: 'openai', debugFlag: true },
+          providers: {}
+        };
+        if (keys.includes('apiKeys')) result.apiKeys = { openai: global.TEST_OPENAI_API_KEY };
+        if (keys.includes('providerValidation')) result.providerValidation = { openai: { valid: true } };
+        return result;
+      }
+      if (keys === 'history') return { history: [] };
+      if (keys === 'apiKeys') return { apiKeys: { openai: global.TEST_OPENAI_API_KEY } };
+      if (keys === 'providerValidation') return { providerValidation: { openai: { valid: true } } };
+      if (keys === 'debugLogs') return { debugLogs: [] };
+      if (keys === 'currentJob') {
+        return {
+          currentJob: {
+            id: 'job-caption-quality',
+            status: 'generating_images',
+            completedPanels: 1,
+            currentPanelIndex: 1,
+            captionQuality: {
+              storyLikeCaptions: 5,
+              promptLikeCaptions: 1,
+              promptLikeCaptionRepairs: 1
+            },
+            settings: { panel_count: 3, debug_flag: true },
+            storyboard: { settings: { debug_flag: true }, panels: [{}, {}, {}] }
+          }
+        };
+      }
+      return {};
+    });
+
+    chrome.tabs.sendMessage.mockImplementation(async (_tabId, msg) => {
+      if (msg.type === 'EXTRACT_CONTENT') return { success: true, text: 'x'.repeat(400) };
+      if (msg.type === 'START_GENERATION') return { success: true, jobId: 'job-caption-quality' };
+      return { success: false };
+    });
+
+    await import('../../popup/popup.js');
+    document.dispatchEvent(new Event('DOMContentLoaded'));
+    await flush();
+    await flush();
+
+    document.getElementById('create-comic-btn').click();
+    await flush();
+    await flush();
+    document.getElementById('generate-btn').click();
+    await new Promise((resolve) => setTimeout(resolve, 550));
+
+    const line = document.getElementById('progress-caption-quality');
+    expect(line).toBeTruthy();
+    expect(line.classList.contains('hidden')).toBe(false);
+    expect(String(line.textContent || '')).toContain('Caption quality: 5 story-like / 1 prompt-like (repaired 1)');
+  });
+
   it('shows rate-limit retry countdown in popup progress detail when retryState is present', async () => {
     chrome.storage.local.get.mockImplementation(async (keys) => {
       if (Array.isArray(keys)) {

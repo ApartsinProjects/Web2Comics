@@ -667,6 +667,108 @@ describe('Service Worker Resilience Logic (helper semantics)', () => {
     expect(result.panels[2].image_prompt).toContain('Titled panel');
   });
 
+  it('repairs prompt-like captions into story-beat captions during central storyboard validation', () => {
+    function normalizeLooseTextValue(value) {
+      if (value == null) return '';
+      if (typeof value === 'string') return value.trim();
+      if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+      if (Array.isArray(value)) return value.map(normalizeLooseTextValue).filter(Boolean).join(' ').trim();
+      if (typeof value === 'object') {
+        return normalizeLooseTextValue(value.text || value.title || value.summary || value.description || value.value || '');
+      }
+      return '';
+    }
+    function looksLikeImagePromptText(value) {
+      const s = normalizeLooseTextValue(value);
+      if (!s) return false;
+      const lower = s.toLowerCase();
+      return s.length > 220 || lower.includes('comic panel illustration') || lower.includes('cinematic lighting');
+    }
+    function rewritePromptLikeCaptionToStoryBeat(captionText, panel, index) {
+      const storyCandidate = normalizeLooseTextValue(panel.beat_summary || panel.summary || panel.description || panel.text);
+      if (storyCandidate && !looksLikeImagePromptText(storyCandidate)) return storyCandidate;
+      return `Panel ${index + 1}`;
+    }
+    function validateStoryboardContract(storyboard) {
+      const normalized = (storyboard && typeof storyboard === 'object') ? storyboard : {};
+      if (!Array.isArray(normalized.panels)) normalized.panels = [];
+      let promptLikeCaptionRepairs = 0;
+      normalized.panels = normalized.panels.map((panel, index) => {
+        const p = panel && typeof panel === 'object' ? { ...panel } : {};
+        let caption = normalizeLooseTextValue(p.caption || p.title || p.text);
+        const imagePrompt = normalizeLooseTextValue(p.image_prompt || p.prompt || p.visual);
+        if (caption && (looksLikeImagePromptText(caption) || (imagePrompt && caption === imagePrompt))) {
+          const repaired = rewritePromptLikeCaptionToStoryBeat(caption, p, index);
+          if (repaired && repaired !== caption) {
+            caption = repaired;
+            promptLikeCaptionRepairs += 1;
+          }
+        }
+        p.caption = caption || `Panel ${index + 1}`;
+        p.image_prompt = imagePrompt || `Comic panel illustration of: ${p.caption}`;
+        return p;
+      });
+      return { storyboard: normalized, meta: { promptLikeCaptionRepairs } };
+    }
+
+    const contract = validateStoryboardContract({
+      panels: [{
+        caption: 'Comic panel illustration of a bustling newsroom, cinematic lighting, digital art, highly detailed, camera angle from above',
+        beat_summary: 'Journalists scramble as breaking news arrives.',
+        image_prompt: 'Comic panel illustration of a bustling newsroom, cinematic lighting, digital art, highly detailed, camera angle from above'
+      }]
+    });
+
+    expect(contract.storyboard.panels[0].caption).toBe('Journalists scramble as breaking news arrives.');
+    expect(contract.meta.promptLikeCaptionRepairs).toBe(1);
+  });
+
+  it('computes a caption-quality score after central storyboard validation', () => {
+    function normalizeLooseTextValue(value) {
+      if (value == null) return '';
+      if (typeof value === 'string') return value.trim();
+      if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+      if (Array.isArray(value)) return value.map(normalizeLooseTextValue).filter(Boolean).join(' ').trim();
+      if (typeof value === 'object') return normalizeLooseTextValue(value.text || value.title || value.summary || '');
+      return '';
+    }
+    function looksLikeImagePromptText(value) {
+      const s = normalizeLooseTextValue(value).toLowerCase();
+      return !!s && (s.includes('comic panel illustration') || s.includes('cinematic lighting'));
+    }
+    function validateStoryboardContract(storyboard) {
+      const normalized = (storyboard && typeof storyboard === 'object') ? storyboard : {};
+      if (!Array.isArray(normalized.panels)) normalized.panels = [];
+      const captionQuality = { totalPanels: 0, nonEmptyCaptions: 0, storyLikeCaptions: 0, promptLikeCaptions: 0, fallbackPanelLabelCaptions: 0 };
+      normalized.panels = normalized.panels.map((panel, index) => {
+        const p = panel && typeof panel === 'object' ? { ...panel } : {};
+        p.caption = normalizeLooseTextValue(p.caption) || `Panel ${index + 1}`;
+        captionQuality.totalPanels += 1;
+        if (p.caption) {
+          captionQuality.nonEmptyCaptions += 1;
+          if (looksLikeImagePromptText(p.caption)) captionQuality.promptLikeCaptions += 1;
+          else captionQuality.storyLikeCaptions += 1;
+          if (/^Panel\s+\d+$/i.test(p.caption)) captionQuality.fallbackPanelLabelCaptions += 1;
+        }
+        return p;
+      });
+      return { storyboard: normalized, meta: { captionQuality } };
+    }
+
+    const contract = validateStoryboardContract({
+      panels: [
+        { caption: 'A hero notices smoke in the distance.' },
+        { caption: 'Comic panel illustration of a city skyline, cinematic lighting, digital art' },
+        {}
+      ]
+    });
+    expect(contract.meta.captionQuality.totalPanels).toBe(3);
+    expect(contract.meta.captionQuality.nonEmptyCaptions).toBe(3);
+    expect(contract.meta.captionQuality.storyLikeCaptions).toBe(2);
+    expect(contract.meta.captionQuality.promptLikeCaptions).toBe(1);
+    expect(contract.meta.captionQuality.fallbackPanelLabelCaptions).toBe(1);
+  });
+
   it('treats empty storyboard panels as terminal validation failure (pre-image phase)', () => {
     function validateStoryboardContract(storyboard) {
       const normalized = (storyboard && typeof storyboard === 'object') ? storyboard : {};
