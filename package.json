@@ -12,6 +12,7 @@
     "test:e2e:comic-sites:real": "set RUN_WEBSITE_COMIC_E2E=1&& set REAL_OPENAI_E2E=1&& playwright test tests/e2e/comic-generation-sites.test.js",
     "probe:providers": "node scripts/provider-model-probe.js",
     "probe:providers:recommend": "node scripts/provider-model-probe.js --recommend",
+    "probe:providers:extension": "node scripts/provider-model-probe-extension.js",
     "test:e2e:headed": "playwright test --headed",
     "test:all": "npm run test && npm run test:e2e"
   },

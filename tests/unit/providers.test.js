@@ -280,27 +280,27 @@ describe('CloudflareProvider', () => {
 });
 
 describe('OpenRouterProvider', () => {
-  it('is text-only in the extension architecture', () => {
+  it('supports images via OpenRouter chat completions image modality', () => {
     const provider = {
       capabilities: {
-        supportsImages: false,
+        supportsImages: true,
         rateLimitBehavior: 'strict'
       }
     };
-    expect(provider.capabilities.supportsImages).toBe(false);
+    expect(provider.capabilities.supportsImages).toBe(true);
     expect(provider.capabilities.rateLimitBehavior).toBe('strict');
   });
 });
 
 describe('HuggingFaceProvider', () => {
-  it('is text-only in the extension architecture', () => {
+  it('supports images via HF inference image endpoint', () => {
     const provider = {
       capabilities: {
-        supportsImages: false,
+        supportsImages: true,
         rateLimitBehavior: 'strict'
       }
     };
-    expect(provider.capabilities.supportsImages).toBe(false);
+    expect(provider.capabilities.supportsImages).toBe(true);
     expect(provider.capabilities.rateLimitBehavior).toBe('strict');
   });
 });

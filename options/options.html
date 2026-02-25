@@ -242,7 +242,7 @@
               <h4>OpenRouter</h4>
               <span class="badge free">Free/Paid</span>
             </div>
-            <p>Text generation through OpenRouter model routing. Use with OpenAI/Gemini/Cloudflare for images.</p>
+            <p>Text and image generation through OpenRouter model routing (image support is model/account dependent and may require paid access).</p>
             <div class="provider-cost">Cost: Depends on selected model (free models available)</div>
             <div class="provider-status" id="openrouter-status">
               <span class="status-indicator"></span>
@@ -263,9 +263,18 @@
                   <option value="openrouter/auto">OpenRouter Auto (State-of-the-art routing)</option>
                 </select>
               </div>
+              <div class="model-item">
+                <label>Image Model</label>
+                <select id="openrouter-image-model" class="model-select">
+                  <option value="google/gemini-2.5-flash-image-preview" selected>Gemini 2.5 Flash Image Preview (Preferred, if available)</option>
+                  <option value="google/gemini-2.5-flash-image">Gemini 2.5 Flash Image (If available)</option>
+                  <option value="openai/gpt-image-1">OpenAI GPT-Image-1 (If enabled on OpenRouter)</option>
+                </select>
+              </div>
             </div>
             <div class="model-test-actions">
               <button class="btn small secondary test-model-btn" data-provider="openrouter" data-mode="text">Test Text Model</button>
+              <button class="btn small secondary test-model-btn" data-provider="openrouter" data-mode="image">Test Image Model</button>
             </div>
           </div>
 
@@ -274,7 +283,7 @@
               <h4>Hugging Face Inference API</h4>
               <span class="badge free">Free/Paid</span>
             </div>
-            <p>Text generation through Hugging Face Inference API. Use OpenAI, Gemini, or Cloudflare for image generation.</p>
+            <p>Text and image generation through Hugging Face Inference API (chat + hf-inference image tasks).</p>
             <div class="provider-cost">Cost: Depends on account plan and endpoint availability</div>
             <div class="provider-status" id="huggingface-status">
               <span class="status-indicator"></span>
@@ -296,9 +305,18 @@
                   <option value="HuggingFaceH4/zephyr-7b-beta">Zephyr 7B (Legacy, often unsupported)</option>
                 </select>
               </div>
+              <div class="model-item">
+                <label>Image Model</label>
+                <select id="huggingface-image-model" class="model-select">
+                  <option value="black-forest-labs/FLUX.1-schnell" selected>FLUX.1 Schnell (Preferred / Fast)</option>
+                  <option value="stabilityai/stable-diffusion-xl-base-1.0">SDXL Base 1.0 (Classic / Broad support)</option>
+                  <option value="black-forest-labs/FLUX.1-dev">FLUX.1 Dev (Deprecated on many HF endpoints)</option>
+                </select>
+              </div>
             </div>
             <div class="model-test-actions">
               <button class="btn small secondary test-model-btn" data-provider="huggingface" data-mode="text">Test Text Model</button>
+              <button class="btn small secondary test-model-btn" data-provider="huggingface" data-mode="image">Test Image Model</button>
             </div>
           </div>
 
@@ -493,7 +511,7 @@
         <div class="about-credits">
           <h4>Credits</h4>
           <p>Built with Chrome Extensions Manifest V3</p>
-          <p>Powered by Google Gemini & Cloudflare Workers AI</p>
+          <p>Powered by OpenAI, Google Gemini, Cloudflare Workers AI, OpenRouter, and Hugging Face</p>
         </div>
       </section>
     </main>

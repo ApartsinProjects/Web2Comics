@@ -199,14 +199,16 @@ describe('Provider Routing', () => {
     'cloudflare-free': { name: 'Cloudflare', supportsImages: true },
     'chrome-summarizer': { name: 'Chrome', supportsImages: false },
     'openai': { name: 'OpenAI', supportsImages: true },
-    'openrouter': { name: 'OpenRouter', supportsImages: false },
-    'huggingface': { name: 'HuggingFace', supportsImages: false }
+    'openrouter': { name: 'OpenRouter', supportsImages: true },
+    'huggingface': { name: 'HuggingFace', supportsImages: true }
   };
 
   const IMAGE_PROVIDERS = {
     'gemini-free': { name: 'Gemini' },
     'cloudflare-free': { name: 'Cloudflare' },
-    'openai': { name: 'OpenAI' }
+    'openai': { name: 'OpenAI' },
+    'openrouter': { name: 'OpenRouter' },
+    'huggingface': { name: 'HuggingFace' }
   };
 
   describe('getTextProvider', () => {
@@ -235,9 +237,16 @@ describe('Provider Routing', () => {
       expect(openai).toBeDefined();
     });
 
-    it('should return undefined for text-only providers', () => {
+    it('should return OpenRouter as image-capable provider', () => {
       const provider = IMAGE_PROVIDERS['openrouter'];
-      expect(provider).toBeUndefined();
+      expect(provider).toBeDefined();
+      expect(provider.name).toBe('OpenRouter');
+    });
+
+    it('should return Hugging Face as image-capable provider', () => {
+      const provider = IMAGE_PROVIDERS['huggingface'];
+      expect(provider).toBeDefined();
+      expect(provider.name).toBe('HuggingFace');
     });
   });
 
@@ -254,7 +263,7 @@ describe('Provider Routing', () => {
       const textProvider = 'openrouter';
       const imageProvider = 'openai';
       
-      expect(TEXT_PROVIDERS[textProvider].supportsImages).toBe(false);
+      expect(TEXT_PROVIDERS[textProvider].supportsImages).toBe(true);
       expect(IMAGE_PROVIDERS[imageProvider]).toBeDefined();
     });
 
@@ -265,6 +274,46 @@ describe('Provider Routing', () => {
       expect(TEXT_PROVIDERS[textProvider].supportsImages).toBe(true);
       expect(IMAGE_PROVIDERS[imageProvider]).toBeDefined();
     });
+  });
+});
+
+describe('Budget Fallback Policy', () => {
+  const isBudgetProviderErrorMessage = (message) => {
+    const text = String(message || '').toLowerCase();
+    return /insufficient_quota|quota|budget|billing|payment required|402|exceeded your current quota|free[_ -]?tier|limit:\s*0|resource_exhausted|credits?\b/i.test(text);
+  };
+
+  const getBudgetFallbackTextProviderOrder = (currentProviderId) => {
+    const preferred = ['gemini-free', 'cloudflare-free', 'openrouter', 'huggingface', 'openai'];
+    return preferred.filter((id, index, arr) => id !== currentProviderId && arr.indexOf(id) === index);
+  };
+
+  const getBudgetFallbackImageProviderOrder = (currentProviderId) => {
+    const preferred = ['gemini-free', 'cloudflare-free', 'huggingface', 'openrouter', 'openai'];
+    return preferred.filter((id, index, arr) => id !== currentProviderId && arr.indexOf(id) === index);
+  };
+
+  it('detects quota/budget/billing errors for cross-provider fallback', () => {
+    expect(isBudgetProviderErrorMessage('You exceeded your current quota')).toBe(true);
+    expect(isBudgetProviderErrorMessage('Quota exceeded: generate_content_free_tier_requests, limit: 0')).toBe(true);
+    expect(isBudgetProviderErrorMessage('Payment required for this model')).toBe(true);
+    expect(isBudgetProviderErrorMessage('Request timed out')).toBe(false);
+    expect(isBudgetProviderErrorMessage('Failed to parse storyboard')).toBe(false);
+  });
+
+  it('uses free-tier-first fallback ordering for text and image providers', () => {
+    expect(getBudgetFallbackTextProviderOrder('openai')).toEqual([
+      'gemini-free',
+      'cloudflare-free',
+      'openrouter',
+      'huggingface'
+    ]);
+    expect(getBudgetFallbackImageProviderOrder('openai')).toEqual([
+      'gemini-free',
+      'cloudflare-free',
+      'huggingface',
+      'openrouter'
+    ]);
   });
 });
 

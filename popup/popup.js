@@ -1,8 +1,8 @@
 // Keep runtime defaults local to avoid importing shared/types.js, which currently contains
 // TypeScript-only declarations and is not executable as a browser module.
 const DEFAULT_SETTINGS = {
-  panelCount: 6,
-  detailLevel: 'medium',
+  panelCount: 3,
+  detailLevel: 'low',
   styleId: 'default',
   customStyleTheme: '',
   customStyleName: '',
@@ -16,7 +16,9 @@ const DEFAULT_SETTINGS = {
   cloudflareTextModel: '@cf/meta/llama-3.1-8b-instruct',
   cloudflareImageModel: '@cf/black-forest-labs/flux-1-schnell',
   openrouterTextModel: 'openai/gpt-oss-20b:free',
+  openrouterImageModel: 'google/gemini-2.5-flash-image-preview',
   huggingfaceTextModel: 'mistralai/Mistral-7B-Instruct-v0.2',
+  huggingfaceImageModel: 'black-forest-labs/FLUX.1-schnell',
   openaiImageQuality: 'standard',
   openaiImageSize: '256x256',
   characterConsistency: false,
@@ -30,7 +32,7 @@ const DEFAULT_SETTINGS = {
 
 const CREATE_NEW_STYLE_VALUE = '__create_new_style__';
 const USER_STYLE_PREFIX = 'user:';
-const IMAGE_CAPABLE_PROVIDERS = new Set(['openai', 'gemini-free', 'cloudflare-free']);
+const IMAGE_CAPABLE_PROVIDERS = new Set(['openai', 'gemini-free', 'cloudflare-free', 'huggingface', 'openrouter']);
 
 function mapRecommendedSettingsPayload(payload) {
   if (!payload || typeof payload !== 'object') return {};
@@ -44,7 +46,9 @@ function mapRecommendedSettingsPayload(payload) {
     cloudflareTextModel: providers.cloudflare?.text,
     cloudflareImageModel: providers.cloudflare?.image,
     openrouterTextModel: providers.openrouter?.text,
-    huggingfaceTextModel: providers.huggingface?.text
+    openrouterImageModel: providers.openrouter?.image,
+    huggingfaceTextModel: providers.huggingface?.text,
+    huggingfaceImageModel: providers.huggingface?.image
   };
 }
 
@@ -885,6 +889,10 @@ class PopupController {
         return this.settings.geminiImageModel || 'gemini-2.0-flash-exp-image-generation';
       case 'cloudflare-free':
         return this.settings.cloudflareImageModel || '@cf/black-forest-labs/flux-1-schnell';
+      case 'openrouter':
+        return this.settings.openrouterImageModel || 'google/gemini-2.5-flash-image-preview';
+      case 'huggingface':
+        return this.settings.huggingfaceImageModel || 'black-forest-labs/FLUX.1-schnell';
       default:
         return this.settings.imageModel || '';
     }

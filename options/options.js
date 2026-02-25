@@ -1,8 +1,8 @@
 // Keep runtime defaults local to avoid importing shared/types.js, which currently contains
 // TypeScript-only declarations and is not executable as a browser module.
 const DEFAULT_SETTINGS = {
-  panelCount: 6,
-  detailLevel: 'medium',
+  panelCount: 3,
+  detailLevel: 'low',
   styleId: 'default',
   customStyleTheme: '',
   captionLength: 'short',
@@ -15,7 +15,9 @@ const DEFAULT_SETTINGS = {
   cloudflareTextModel: '@cf/meta/llama-3.1-8b-instruct',
   cloudflareImageModel: '@cf/black-forest-labs/flux-1-schnell',
   openrouterTextModel: 'openai/gpt-oss-20b:free',
+  openrouterImageModel: 'google/gemini-2.5-flash-image-preview',
   huggingfaceTextModel: 'mistralai/Mistral-7B-Instruct-v0.2',
+  huggingfaceImageModel: 'black-forest-labs/FLUX.1-schnell',
   openaiImageQuality: 'standard',
   openaiImageSize: '256x256',
   characterConsistency: false,
@@ -54,7 +56,9 @@ function mapRecommendedSettingsPayload(payload) {
     cloudflareTextModel: providers.cloudflare?.text,
     cloudflareImageModel: providers.cloudflare?.image,
     openrouterTextModel: providers.openrouter?.text,
-    huggingfaceTextModel: providers.huggingface?.text
+    openrouterImageModel: providers.openrouter?.image,
+    huggingfaceTextModel: providers.huggingface?.text,
+    huggingfaceImageModel: providers.huggingface?.image
   };
 }
 
@@ -204,7 +208,13 @@ class OptionsController {
       document.getElementById('cloudflare-text-model').value = this.settings.cloudflareTextModel || '@cf/meta/llama-3.1-8b-instruct';
       document.getElementById('cloudflare-image-model').value = this.settings.cloudflareImageModel || '@cf/black-forest-labs/flux-1-schnell';
       document.getElementById('openrouter-text-model').value = this.settings.openrouterTextModel || 'openai/gpt-oss-20b:free';
+      if (document.getElementById('openrouter-image-model')) {
+        document.getElementById('openrouter-image-model').value = this.settings.openrouterImageModel || 'google/gemini-2.5-flash-image-preview';
+      }
       document.getElementById('huggingface-text-model').value = this.settings.huggingfaceTextModel || 'mistralai/Mistral-7B-Instruct-v0.2';
+      if (document.getElementById('huggingface-image-model')) {
+        document.getElementById('huggingface-image-model').value = this.settings.huggingfaceImageModel || 'black-forest-labs/FLUX.1-schnell';
+      }
     }
 
     // Check for stored API keys
@@ -278,8 +288,14 @@ class OptionsController {
     if (settings?.openrouterTextModel && document.getElementById('openrouter-text-model')) {
       document.getElementById('openrouter-text-model').value = settings.openrouterTextModel;
     }
+    if (settings?.openrouterImageModel && document.getElementById('openrouter-image-model')) {
+      document.getElementById('openrouter-image-model').value = settings.openrouterImageModel;
+    }
     if (settings?.huggingfaceTextModel && document.getElementById('huggingface-text-model')) {
       document.getElementById('huggingface-text-model').value = settings.huggingfaceTextModel;
+    }
+    if (settings?.huggingfaceImageModel && document.getElementById('huggingface-image-model')) {
+      document.getElementById('huggingface-image-model').value = settings.huggingfaceImageModel;
     }
 
     if (apiKeys?.openrouter) {
@@ -494,9 +510,15 @@ class OptionsController {
         : (document.getElementById('cloudflare-image-model')?.value || this.settings.cloudflareImageModel);
     }
     if (providerId === 'openrouter') {
+      if (mode === 'image') {
+        return document.getElementById('openrouter-image-model')?.value || this.settings.openrouterImageModel;
+      }
       return document.getElementById('openrouter-text-model')?.value || this.settings.openrouterTextModel;
     }
     if (providerId === 'huggingface') {
+      if (mode === 'image') {
+        return document.getElementById('huggingface-image-model')?.value || this.settings.huggingfaceImageModel;
+      }
       return document.getElementById('huggingface-text-model')?.value || this.settings.huggingfaceTextModel;
     }
     return '';
@@ -565,7 +587,9 @@ class OptionsController {
       cloudflareTextModel: document.getElementById('cloudflare-text-model')?.value || this.settings.cloudflareTextModel,
       cloudflareImageModel: document.getElementById('cloudflare-image-model')?.value || this.settings.cloudflareImageModel,
       openrouterTextModel: document.getElementById('openrouter-text-model')?.value || this.settings.openrouterTextModel,
+      openrouterImageModel: document.getElementById('openrouter-image-model')?.value || this.settings.openrouterImageModel,
       huggingfaceTextModel: document.getElementById('huggingface-text-model')?.value || this.settings.huggingfaceTextModel,
+      huggingfaceImageModel: document.getElementById('huggingface-image-model')?.value || this.settings.huggingfaceImageModel,
       openaiImageSize: this.normalizeOpenAIImageSize(imageModel, openaiImageSize),
       openaiImageQuality: this.normalizeOpenAIImageQuality(imageModel, openaiImageQuality)
     };

@@ -41,7 +41,7 @@ const USE_REAL_PROVIDER = REAL_OPENAI_E2E || REAL_GEMINI_E2E || REAL_CLOUDFLARE_
 const REAL_PROVIDER_ID = REAL_HUGGINGFACE_E2E
   ? 'huggingface'
   : (REAL_OPENROUTER_E2E ? 'openrouter' : (REAL_CLOUDFLARE_E2E ? 'cloudflare-free' : (REAL_GEMINI_E2E ? 'gemini-free' : 'openai')));
-const REAL_IMAGE_PROVIDER_ID = (REAL_OPENROUTER_E2E || REAL_HUGGINGFACE_E2E) ? 'cloudflare-free' : REAL_PROVIDER_ID;
+const REAL_IMAGE_PROVIDER_ID = REAL_OPENROUTER_E2E ? 'cloudflare-free' : REAL_PROVIDER_ID;
 const EXTENSION_PATH = path.resolve(__dirname, '../..');
 
 const WEBSITES = [
@@ -221,6 +221,7 @@ async function preflightHuggingFace() {
     'HuggingFaceH4/zephyr-7b-beta'
   ];
   let lastError = null;
+  let textOk = false;
   for (const model of models) {
     const response = await fetch('https://router.huggingface.co/v1/chat/completions', {
       method: 'POST',
@@ -238,7 +239,10 @@ async function preflightHuggingFace() {
     if (response.ok) {
       const payload = await response.json();
       const generated = payload?.choices?.[0]?.message?.content || '';
-      if (generated) return;
+      if (generated) {
+        textOk = true;
+        break;
+      }
       lastError = new Error(`Hugging Face preflight returned unexpected payload for ${model}: ${JSON.stringify(payload).slice(0, 500)}`);
       continue;
     }
@@ -256,7 +260,49 @@ async function preflightHuggingFace() {
     }
     throw lastError;
   }
-  throw lastError || new Error('Hugging Face preflight failed: no candidate model succeeded');
+  if (!textOk) {
+    throw lastError;
+  }
+
+  const imageModels = [
+    'black-forest-labs/FLUX.1-schnell',
+    'stabilityai/stable-diffusion-xl-base-1.0',
+    'black-forest-labs/FLUX.1-dev'
+  ];
+  let imageError = null;
+  for (const model of imageModels) {
+    const response = await fetch(`https://router.huggingface.co/hf-inference/models/${encodeURIComponent(model)}`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${HUGGINGFACE_API_KEY}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        inputs: 'Tiny comic icon of a smiling robot head, no text',
+        parameters: { width: 256, height: 256, num_inference_steps: 2 }
+      })
+    });
+    if (response.ok) {
+      const contentType = response.headers.get('content-type') || '';
+      if (/^image\//i.test(contentType)) return;
+      try {
+        const payload = await response.json();
+        if (payload?.image || payload?.images?.[0]) return;
+      } catch (_) {}
+      imageError = new Error(`Hugging Face image preflight returned non-image payload for ${model}`);
+      continue;
+    }
+    let details = '';
+    try {
+      details = await response.text();
+    } catch (_) {}
+    imageError = new Error(`Hugging Face image preflight failed (${response.status}) using ${model}: ${details}`);
+    if (/loading|too many requests|rate limit|not found|unsupported|deprecated|temporar/i.test(details) || response.status === 429 || response.status === 503) {
+      continue;
+    }
+    throw imageError;
+  }
+  throw imageError || new Error('Hugging Face image preflight failed: no candidate model succeeded');
 }
 
 async function getExtensionId(context) {
@@ -682,7 +728,6 @@ test.describe('Comic generation across real websites (mocked/real providers)', (
         throw new Error('REAL_HUGGINGFACE_E2E=1 requires HUGGINGFACE_API_KEY or HUGGINGFACE_INFERENCE_API_TOKEN in env or .env.e2e.local');
       }
       await preflightHuggingFace();
-      await preflightCloudflare();
     });
   }
 
@@ -1709,7 +1754,7 @@ test.describe('Comic generation across real websites (mocked/real providers)', (
       exportCases.push({ id: 'openrouter', textProvider: 'openrouter', imageProvider: 'cloudflare-free' });
     }
     if (REAL_HUGGINGFACE_E2E) {
-      exportCases.push({ id: 'huggingface', textProvider: 'huggingface', imageProvider: 'cloudflare-free' });
+      exportCases.push({ id: 'huggingface', textProvider: 'huggingface', imageProvider: 'huggingface' });
     }
 
     test.skip(exportCases.length === 0, 'Enable REAL_*_E2E flags for providers to run.');
@@ -1912,7 +1957,7 @@ test.describe('Comic generation across real websites (mocked/real providers)', (
     }
   });
 
-  test('creates comic output using Hugging Face text provider + Cloudflare image provider (real APIs)', async ({}, testInfo) => {
+  test('creates comic output using Hugging Face text + image providers (real APIs)', async ({}, testInfo) => {
     test.skip(!REAL_HUGGINGFACE_E2E, 'Set REAL_HUGGINGFACE_E2E=1 to run real Hugging Face E2E.');
     test.setTimeout(10 * 60 * 1000);
 
@@ -1921,7 +1966,7 @@ test.describe('Comic generation across real websites (mocked/real providers)', (
       const extensionId = await getExtensionId(context);
       await setupExtensionStorage(context, extensionId, {
         providerId: 'huggingface',
-        imageProviderId: 'cloudflare-free'
+        imageProviderId: 'huggingface'
       });
 
       const page = await context.newPage();
@@ -1929,7 +1974,7 @@ test.describe('Comic generation across real websites (mocked/real providers)', (
 
       const job = await startGenerationAndWait(context, extensionId, page, {
         providerId: 'huggingface',
-        imageProviderId: 'cloudflare-free'
+        imageProviderId: 'huggingface'
       });
       if (!job || job.status !== 'completed') {
         const diagnostics = await collectExtensionDiagnostics(context, extensionId);
@@ -1947,7 +1992,7 @@ test.describe('Comic generation across real websites (mocked/real providers)', (
       }
 
       expect(job.settings.provider_text).toBe('huggingface');
-      expect(job.settings.provider_image).toBe('cloudflare-free');
+      expect(job.settings.provider_image).toBe('huggingface');
       expect((job.panelErrors || []).length).toBe(0);
       expect(Array.isArray(job.storyboard?.panels)).toBe(true);
       expect(job.storyboard.panels.length).toBeGreaterThanOrEqual(3);
@@ -1973,7 +2018,7 @@ test.describe('Comic generation across real websites (mocked/real providers)', (
     if (REAL_GEMINI_E2E) enabledCases.push({ id: 'gemini', textProvider: 'gemini-free', imageProvider: 'gemini-free' });
     if (REAL_CLOUDFLARE_E2E) enabledCases.push({ id: 'cloudflare', textProvider: 'cloudflare-free', imageProvider: 'cloudflare-free' });
     if (REAL_OPENROUTER_E2E) enabledCases.push({ id: 'openrouter', textProvider: 'openrouter', imageProvider: 'cloudflare-free' });
-    if (REAL_HUGGINGFACE_E2E) enabledCases.push({ id: 'huggingface', textProvider: 'huggingface', imageProvider: 'cloudflare-free' });
+    if (REAL_HUGGINGFACE_E2E) enabledCases.push({ id: 'huggingface', textProvider: 'huggingface', imageProvider: 'huggingface' });
 
     test.skip(enabledCases.length === 0, 'Enable at least one REAL_*_E2E flag.');
 

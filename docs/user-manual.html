@@ -269,6 +269,7 @@
           <li><strong>Custom Style Description</strong>: default custom style description when <code>Custom</code> is selected.</li>
           <li><strong>Caption Length</strong>: preferred caption length for generated panels.</li>
         </ul>
+        <p><strong>Free-tier-first default setup:</strong> Web2Comics starts with <strong>Google Gemini</strong> selected for both text and image generation (when eligible/configured), plus a low-cost default generation profile (fewer panels and lower detail) to maximize the chance that a first run succeeds on free-tier limits.</p>
 
         <h3>Behavior</h3>
         <ul>
@@ -293,13 +294,13 @@
 
       <section>
         <h2 id="options-providers">Options: Providers</h2>
-        <p>Configure and validate provider credentials. Web2Comics supports mixed-provider setups (for example text from OpenRouter and images from Cloudflare/OpenAI/Gemini).</p>
+        <p>Configure and validate provider credentials. Web2Comics supports mixed-provider setups and provider-specific model selection for both text and image generation where available.</p>
         <h3>Provider Cards</h3>
         <ul>
           <li><strong>Google Gemini</strong>: text + image generation.</li>
           <li><strong>Cloudflare Workers AI</strong>: text + image generation (account-scoped auth).</li>
-          <li><strong>OpenRouter</strong>: text generation only (pair with an image-capable provider).</li>
-          <li><strong>Hugging Face Inference API</strong>: text generation only (pair with an image-capable provider).</li>
+          <li><strong>OpenRouter</strong>: text + image generation (image support depends on your OpenRouter account/model availability and may route/fallback to a different backend model).</li>
+          <li><strong>Hugging Face Inference API</strong>: text + image generation (chat for text, <code>hf-inference</code> image tasks for images).</li>
           <li><strong>OpenAI</strong>: text + image generation (GPT + DALL-E).</li>
         </ul>
 
@@ -307,6 +308,8 @@
         <ul>
           <li>Use each provider card’s <strong>Validate</strong> button after entering credentials.</li>
           <li>Web2Comics persists provider validation state in local storage and uses it to gate popup provider visibility/readiness.</li>
+          <li>If a selected provider fails due to quota/budget/billing limits during generation, Web2Comics can automatically fall back to other configured providers (free-tier-first) for text and/or image generation.</li>
+          <li>Google Gemini is the default first-run provider because it can cover both text and image generation with one key, but free-tier availability depends on Google account/project eligibility and region.</li>
         </ul>
 
         <h3>OpenAI Model / Speed Controls</h3>
@@ -479,7 +482,7 @@
           <li>Create a new API key.</li>
           <li>Copy the key and paste into Web2Comics Options → Providers → OpenRouter.</li>
           <li>Click <strong>Validate</strong>.</li>
-          <li>Select an image-capable provider (OpenAI/Gemini/Cloudflare) for panel images.</li>
+          <li>Optional but recommended: test OpenRouter text and image models from the provider card using <strong>Test Text Model</strong> / <strong>Test Image Model</strong> because model availability varies by account and route.</li>
         </ol>
         <p>Reference: <a href="https://openrouter.ai/docs/quickstart" target="_blank" rel="noopener noreferrer">OpenRouter Quickstart</a></p>
       </section>
@@ -492,7 +495,7 @@
           <li>Create a token with appropriate inference permissions.</li>
           <li>Copy the token and paste into Web2Comics Options → Providers → Hugging Face.</li>
           <li>Click <strong>Validate</strong>.</li>
-          <li>Pair with an image-capable provider (Cloudflare/OpenAI/Gemini) for image generation.</li>
+          <li>Select Hugging Face text and image models in the provider card (image generation uses Hugging Face <code>hf-inference</code> image endpoints).</li>
         </ol>
         <p>Reference: <a href="https://huggingface.co/docs/api-inference/index" target="_blank" rel="noopener noreferrer">Hugging Face Inference documentation</a></p>
       </section>

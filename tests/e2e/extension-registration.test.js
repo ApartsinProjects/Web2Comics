@@ -313,12 +313,12 @@ test.describe('Web to Comic - Summary', () => {
     console.log('✓ Cloudflare Workers AI provider');
     console.log('✓ OpenRouter provider');
     console.log('✓ Hugging Face Inference provider');
-    console.log('✓ Chrome Summarizer provider');
     console.log('✓ Custom style/theme feature');
-    console.log('✓ Model selection (GPT, DALL-E)');
+    console.log('✓ Multi-provider model selection (text + image)');
     console.log('✓ Progressive rendering');
     console.log('✓ Cancel generation');
-    console.log('✓ Onboarding flow');
+    console.log('✓ Popup launcher flow (no welcome panel)');
+    console.log('✓ Automatic budget/quota fallback across providers');
     console.log('✓ Settings persistence');
     console.log('=== All Features Verified ===\n');
     

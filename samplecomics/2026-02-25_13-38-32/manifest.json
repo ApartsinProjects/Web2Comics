@@ -1,0 +1,54 @@
+{
+  "generatedAt": "2026-02-25T11:38:26.178Z",
+  "runStartedAt": "2026-02-25T11:35:19.714Z",
+  "site": "https://www.cnn.com",
+  "real": true,
+  "outputDir": "E:\\Projects\\Web2Comics\\test-results\\provider-export-comics-real\\2026-02-25T11-35-19-714Z",
+  "cases": [
+    {
+      "provider": "openai",
+      "textProvider": "openai",
+      "imageProvider": "openai",
+      "file": "E:\\Projects\\Web2Comics\\test-results\\provider-export-comics-real\\2026-02-25T11-35-19-714Z\\openai-cnn-comic-sheet.png",
+      "bytes": 476182,
+      "panels": 3,
+      "elapsedMs": 90859
+    },
+    {
+      "provider": "gemini",
+      "textProvider": "gemini-free",
+      "imageProvider": "gemini-free",
+      "file": "E:\\Projects\\Web2Comics\\test-results\\provider-export-comics-real\\2026-02-25T11-35-19-714Z\\gemini-cnn-comic-sheet.png",
+      "bytes": 473943,
+      "panels": 3,
+      "elapsedMs": 33408
+    },
+    {
+      "provider": "cloudflare",
+      "textProvider": "cloudflare-free",
+      "imageProvider": "cloudflare-free",
+      "file": "E:\\Projects\\Web2Comics\\test-results\\provider-export-comics-real\\2026-02-25T11-35-19-714Z\\cloudflare-cnn-comic-sheet.png",
+      "bytes": 403774,
+      "panels": 3,
+      "elapsedMs": 9306
+    },
+    {
+      "provider": "openrouter",
+      "textProvider": "openrouter",
+      "imageProvider": "cloudflare-free",
+      "file": "E:\\Projects\\Web2Comics\\test-results\\provider-export-comics-real\\2026-02-25T11-35-19-714Z\\openrouter-cnn-comic-sheet.png",
+      "bytes": 361072,
+      "panels": 3,
+      "elapsedMs": 13743
+    },
+    {
+      "provider": "huggingface",
+      "textProvider": "huggingface",
+      "imageProvider": "huggingface",
+      "file": "E:\\Projects\\Web2Comics\\test-results\\provider-export-comics-real\\2026-02-25T11-35-19-714Z\\huggingface-cnn-comic-sheet.png",
+      "bytes": 411065,
+      "panels": 3,
+      "elapsedMs": 20187
+    }
+  ]
+}

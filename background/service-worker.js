@@ -98,6 +98,11 @@ function isTransientProviderErrorMessage(message) {
   return /timeout|timed out|failed to fetch|fetch failed|temporar|overload|503|502|504|rate limit|too many requests|429|connection reset|econnreset|socket/i.test(text);
 }
 
+function isBudgetProviderErrorMessage(message) {
+  var text = String(message || '').toLowerCase();
+  return /insufficient_quota|quota|budget|billing|payment required|402|exceeded your current quota|free[_ -]?tier|limit:\s*0|resource_exhausted|credits?\b/i.test(text);
+}
+
 function renderPromptTemplate(template, values) {
   return String(template || '').replace(/\{\{([^}]+)\}\}/g, function(match, key) {
     var token = String(key || '').trim();
@@ -724,9 +729,14 @@ class OpenRouterProvider {
       'google/gemma-3-4b-it:free',
       'openrouter/auto'
     ];
+    this.imageModelCandidates = [
+      'google/gemini-2.5-flash-image-preview',
+      'google/gemini-2.5-flash-image',
+      'openai/gpt-image-1'
+    ];
   }
   get capabilities() {
-    return { supportsImages: false, maxPromptLength: 64000, rateLimitBehavior: 'strict', costTag: 'free/paid-router' };
+    return { supportsImages: true, maxPromptLength: 64000, rateLimitBehavior: 'strict', costTag: 'free/paid-router' };
   }
   async getApiKey() {
     var result = await chrome.storage.local.get('apiKeys');
@@ -819,23 +829,157 @@ class OpenRouterProvider {
     }
     throw (lastError || new Error('Failed to generate storyboard with OpenRouter'));
   }
-  async generateImage() {
-    throw new Error('OpenRouter provider does not support image generation in this extension. Choose OpenAI, Gemini, or Cloudflare for images.');
+  extractImageFromOpenRouterMessage(message) {
+    var msg = message || {};
+    var images = Array.isArray(msg.images) ? msg.images : [];
+    for (var i = 0; i < images.length; i++) {
+      var entry = images[i] || {};
+      var b64 = entry.b64_json || entry.image_base64 || '';
+      if (b64) return { type: 'b64', data: b64 };
+      var url = entry.image_url?.url || entry.url || '';
+      if (url) return { type: 'url', data: url };
+    }
+
+    var content = msg.content;
+    if (Array.isArray(content)) {
+      for (var j = 0; j < content.length; j++) {
+        var part = content[j] || {};
+        var partB64 = part.b64_json || part.image_base64 || '';
+        if (partB64) return { type: 'b64', data: partB64 };
+        var partUrl = part.image_url?.url || part.image_url || '';
+        if (partUrl) return { type: 'url', data: partUrl };
+      }
+    }
+    return null;
+  }
+
+  async urlToDataUrl(url) {
+    var response = await fetchWithTimeout(url, undefined, IMAGE_TIMEOUT_MS, 'OpenRouter image download');
+    if (!response.ok) {
+      throw new Error('Failed to download OpenRouter image');
+    }
+    var blob = await response.blob();
+    return new Promise(function(resolve, reject) {
+      var reader = new FileReader();
+      reader.onload = function() { resolve(reader.result); };
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    });
+  }
+
+  async generateImage(prompt, options) {
+    var apiKey = await this.getApiKey();
+    if (!apiKey) throw new Error('OpenRouter API key not configured');
+
+    var styleSpec = getStyleSpec(options);
+    var styledPrompt = String(prompt || '') + '. Style direction: ' + styleSpec.directive + '. Keep consistent comic panel aesthetics.';
+    if (options && options.imageTemplate) {
+      var renderedImageTemplate = renderPromptTemplate(options.imageTemplate, {
+        panel_index: options.panelIndex != null ? (options.panelIndex + 1) : '',
+        panel_count: options.panelCount || '',
+        panel_caption: options.panelCaption || '',
+        panel_summary: options.panelSummary || '',
+        style_prompt: styleSpec.directive
+      });
+      if (renderedImageTemplate && renderedImageTemplate.trim()) {
+        styledPrompt = renderedImageTemplate;
+      }
+    }
+
+    var imageCandidates = orderedCandidates(options && options.imageModel, this.imageModelCandidates);
+    var lastError = null;
+    for (var i = 0; i < imageCandidates.length; i++) {
+      var model = imageCandidates[i];
+      try {
+        var response = await fetchWithTimeout(this.baseUrl + '/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Authorization': 'Bearer ' + apiKey,
+            'Content-Type': 'application/json',
+            'HTTP-Referer': 'https://web2comics.local',
+            'X-Title': 'Web2Comics'
+          },
+          body: JSON.stringify({
+            model: model,
+            messages: [{ role: 'user', content: styledPrompt }],
+            modalities: ['image', 'text'],
+            image_config: {
+              aspect_ratio: '1:1',
+              image_size: '1K'
+            },
+            max_tokens: 256
+          })
+        }, IMAGE_TIMEOUT_MS, 'OpenRouter image');
+
+        if (!response.ok) {
+          var errMessage = 'OpenRouter image request failed';
+          try {
+            var err = await response.json();
+            errMessage =
+              err.error?.message ||
+              err.message ||
+              err.error?.metadata?.raw ||
+              (Array.isArray(err.errors) ? err.errors.map(function(e) { return e.message || JSON.stringify(e); }).join('; ') : '') ||
+              JSON.stringify(err);
+          } catch (_) {}
+          lastError = new Error(errMessage);
+          if (/not found|unsupported|model.*not available|no endpoints found|provider returned error|overloaded|temporar|payment required|402/i.test(errMessage)) {
+            continue;
+          }
+          throw lastError;
+        }
+
+        var data = await response.json();
+        var message = data && data.choices && data.choices[0] && data.choices[0].message ? data.choices[0].message : {};
+        var imageResult = this.extractImageFromOpenRouterMessage(message);
+        if (!imageResult) {
+          lastError = new Error('OpenRouter image response did not include image output');
+          continue;
+        }
+
+        var imageData = '';
+        if (imageResult.type === 'b64') {
+          imageData = String(imageResult.data).startsWith('data:image/')
+            ? imageResult.data
+            : ('data:image/png;base64,' + imageResult.data);
+        } else {
+          imageData = await this.urlToDataUrl(imageResult.data);
+        }
+        return {
+          imageData: imageData,
+          providerMetadata: {
+            model: model,
+            endpoint: 'chat/completions',
+            modalities: ['image', 'text'],
+            image_transport: imageResult.type
+          }
+        };
+      } catch (error) {
+        lastError = error instanceof Error ? error : new Error(String(error));
+      }
+    }
+    throw (lastError || new Error('Failed to generate image with OpenRouter'));
   }
 }
 
 class HuggingFaceProvider {
   constructor() {
     this.baseUrl = 'https://router.huggingface.co/v1';
+    this.imageBaseUrl = 'https://router.huggingface.co/hf-inference/models';
     this.modelCandidates = [
       'mistralai/Mistral-7B-Instruct-v0.2',
       'Qwen/Qwen2.5-7B-Instruct',
       'meta-llama/Llama-3.1-8B-Instruct',
       'meta-llama/Llama-3.3-70B-Instruct'
     ];
+    this.imageModelCandidates = [
+      'black-forest-labs/FLUX.1-schnell',
+      'stabilityai/stable-diffusion-xl-base-1.0',
+      'black-forest-labs/FLUX.1-dev'
+    ];
   }
   get capabilities() {
-    return { supportsImages: false, maxPromptLength: 12000, rateLimitBehavior: 'strict', costTag: 'free/paid' };
+    return { supportsImages: true, maxPromptLength: 12000, rateLimitBehavior: 'strict', costTag: 'free/paid' };
   }
   async getApiKey() {
     var result = await chrome.storage.local.get('apiKeys');
@@ -922,8 +1066,104 @@ class HuggingFaceProvider {
 
     throw (lastError || new Error('Failed to generate storyboard with Hugging Face Inference API'));
   }
-  async generateImage() {
-    throw new Error('Hugging Face provider does not support image generation in this extension. Choose OpenAI, Gemini, or Cloudflare for images.');
+  async generateImage(prompt, options) {
+    var apiKey = await this.getApiKey();
+    if (!apiKey) throw new Error('Hugging Face API key not configured');
+
+    var styleSpec = getStyleSpec(options);
+    var styledPrompt = String(prompt || '') + '. Style direction: ' + styleSpec.directive + '. Keep consistent comic panel aesthetics.';
+    if (options && options.imageTemplate) {
+      var renderedImageTemplate = renderPromptTemplate(options.imageTemplate, {
+        panel_index: options.panelIndex != null ? (options.panelIndex + 1) : '',
+        panel_count: options.panelCount || '',
+        panel_caption: options.panelCaption || '',
+        panel_summary: options.panelSummary || '',
+        style_prompt: styleSpec.directive
+      });
+      if (renderedImageTemplate && renderedImageTemplate.trim()) {
+        styledPrompt = renderedImageTemplate;
+      }
+    }
+
+    var hfImageCandidates = orderedCandidates(options && options.imageModel, this.imageModelCandidates);
+    var lastError = null;
+    for (var i = 0; i < hfImageCandidates.length; i++) {
+      var model = hfImageCandidates[i];
+      try {
+        var response = await fetchWithTimeout(this.imageBaseUrl + '/' + encodeURIComponent(model), {
+          method: 'POST',
+          headers: {
+            'Authorization': 'Bearer ' + apiKey,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            inputs: styledPrompt,
+            parameters: {
+              width: 1024,
+              height: 1024,
+              num_inference_steps: 4
+            }
+          })
+        }, IMAGE_TIMEOUT_MS, 'HuggingFace image');
+
+        if (!response.ok) {
+          var errMessage = 'Hugging Face image request failed';
+          try {
+            var errText = await response.text();
+            try {
+              var errJson = errText ? JSON.parse(errText) : null;
+              if (typeof errJson?.error === 'string') errMessage = errJson.error;
+              else if (typeof errJson?.message === 'string') errMessage = errJson.message;
+              else errMessage = JSON.stringify(errJson || {});
+            } catch (_) {
+              errMessage = errText || errMessage;
+            }
+          } catch (_) {}
+          lastError = new Error(errMessage);
+          if (/deprecated|unsupported|not supported|not found|provider returned error|temporar|loading|rate limit|too many requests/i.test(errMessage)) {
+            continue;
+          }
+          throw lastError;
+        }
+
+        var contentType = response.headers.get('content-type') || '';
+        if (/^image\//i.test(contentType)) {
+          var blob = await response.blob();
+          var imageData = await new Promise(function(resolve, reject) {
+            var reader = new FileReader();
+            reader.onload = function() { resolve(reader.result); };
+            reader.onerror = reject;
+            reader.readAsDataURL(blob);
+          });
+          return {
+            imageData: imageData,
+            providerMetadata: { model: model, endpoint: 'hf-inference', contentType: contentType }
+          };
+        }
+
+        var payload = null;
+        try {
+          payload = await response.json();
+        } catch (_) {
+          payload = null;
+        }
+        var base64Image = payload && (payload.image || (Array.isArray(payload.images) ? payload.images[0] : null));
+        if (base64Image) {
+          return {
+            imageData: String(base64Image).startsWith('data:image/')
+              ? base64Image
+              : ('data:image/png;base64,' + base64Image),
+            providerMetadata: { model: model, endpoint: 'hf-inference', contentType: contentType || 'application/json' }
+          };
+        }
+
+        lastError = new Error('Invalid response from Hugging Face image endpoint');
+      } catch (error) {
+        lastError = error instanceof Error ? error : new Error(String(error));
+      }
+    }
+
+    throw (lastError || new Error('Failed to generate image with Hugging Face Inference API'));
   }
 }
 
@@ -1197,7 +1437,9 @@ var TEXT_PROVIDERS = {
 var IMAGE_PROVIDERS = {
   'gemini-free': GeminiProvider,
   'cloudflare-free': CloudflareProvider,
-  'openai': OpenAIProvider
+  'openai': OpenAIProvider,
+  'openrouter': OpenRouterProvider,
+  'huggingface': HuggingFaceProvider
 };
 
 // ============ SERVICE WORKER ============
@@ -1373,11 +1615,44 @@ var ServiceWorker = function() {
     }
 
     function generateImageAttempt(promptToUse, label) {
-      return withTimeout(
-        imageProvider.generateImage(promptToUse, baseOptions),
-        IMAGE_TIMEOUT_MS,
-        label || ('Image generation panel ' + (panelIndex + 1))
-      );
+      var selectedProviderId = settings.provider_image;
+      var providerIds = [selectedProviderId].concat(self.getBudgetFallbackImageProviderOrder(selectedProviderId));
+
+      function attemptProvider(idx, previousError) {
+        if (idx >= providerIds.length) throw (previousError || new Error('Image generation failed'));
+        if (idx > 0 && !self.isBudgetProviderError(previousError)) throw previousError;
+        var providerId = providerIds[idx];
+        var providerInstance = idx === 0 ? imageProvider : self.getImageProvider(providerId);
+        if (idx > 0) {
+          self.pushProgressEvent('provider.fallback', 'Switching image provider after budget/quota error', 'Panel ' + (panelIndex + 1) + ': ' + selectedProviderId + ' -> ' + providerId);
+          self.appendDebugLog('provider.image.fallback', {
+            panelIndex: panelIndex,
+            from: selectedProviderId,
+            to: providerId,
+            reason: (previousError && previousError.message) || String(previousError || '')
+          });
+        }
+        return withTimeout(
+          providerInstance.generateImage(promptToUse, baseOptions),
+          IMAGE_TIMEOUT_MS,
+          label || ('Image generation panel ' + (panelIndex + 1))
+        ).then(function(result) {
+          var enriched = result || {};
+          enriched.providerMetadata = {
+            ...(enriched.providerMetadata || {}),
+            provider_id: providerId
+          };
+          if (providerId !== selectedProviderId) {
+            enriched.providerMetadata.fallback_from_provider = selectedProviderId;
+            settings.provider_image_effective = providerId;
+          }
+          return enriched;
+        }).catch(function(error) {
+          return attemptProvider(idx + 1, error);
+        });
+      }
+
+      return attemptProvider(0, null);
     }
 
     return generateImageAttempt(prompt, 'Image generation panel ' + (panelIndex + 1)).then(function(result) {
@@ -1548,6 +1823,76 @@ var ServiceWorker = function() {
     if (!ProviderClass) throw new Error('Unknown image provider: ' + providerId + '. Image generation not supported.');
     return new ProviderClass();
   };
+
+  this.isBudgetProviderError = function(error) {
+    return isBudgetProviderErrorMessage((error && error.message) || error);
+  };
+
+  this.getBudgetFallbackTextProviderOrder = function(currentProviderId) {
+    var preferred = ['gemini-free', 'cloudflare-free', 'openrouter', 'huggingface', 'openai'];
+    return preferred.filter(function(id, index, arr) {
+      return id !== currentProviderId && arr.indexOf(id) === index;
+    });
+  };
+
+  this.getBudgetFallbackImageProviderOrder = function(currentProviderId) {
+    var preferred = ['gemini-free', 'cloudflare-free', 'huggingface', 'openrouter', 'openai'];
+    return preferred.filter(function(id, index, arr) {
+      return id !== currentProviderId && arr.indexOf(id) === index;
+    });
+  };
+
+  this.generateStoryboardWithBudgetFallback = function(job, resolvedPromptTemplates) {
+    var settings = job.settings || {};
+    var providerIds = [settings.provider_text].concat(self.getBudgetFallbackTextProviderOrder(settings.provider_text));
+    var attempted = [];
+
+    function buildTextOptions() {
+      return {
+        panelCount: settings.panel_count,
+        detailLevel: settings.detail_level,
+        styleId: settings.style_id,
+        captionLength: settings.caption_len,
+        textModel: settings.text_model,
+        characterConsistency: settings.character_consistency,
+        customStyleTheme: settings.custom_style_theme,
+        customStyleName: settings.custom_style_name,
+        sourceTitle: job.sourceTitle,
+        sourceUrl: job.sourceUrl,
+        storyboardTemplate: resolvedPromptTemplates.text && resolvedPromptTemplates.text.storyboard,
+        providerImage: settings.provider_image
+      };
+    }
+
+    function attempt(idx, previousError) {
+      if (idx >= providerIds.length) throw (previousError || new Error('Storyboard generation failed'));
+      if (idx > 0 && !self.isBudgetProviderError(previousError)) throw previousError;
+      var providerId = providerIds[idx];
+      if (idx > 0) {
+        self.pushProgressEvent('provider.fallback', 'Switching text provider after budget/quota error', (settings.provider_text || '') + ' -> ' + providerId);
+        self.appendDebugLog('provider.text.fallback', {
+          from: settings.provider_text,
+          to: providerId,
+          reason: (previousError && previousError.message) || String(previousError || '')
+        });
+      }
+      attempted.push(providerId);
+      var provider = self.getTextProvider(providerId);
+      return withTimeout(provider.generateStoryboard(job.extractedText, buildTextOptions()), STORYBOARD_TIMEOUT_MS, 'Storyboard generation')
+        .catch(function(error) { return attempt(idx + 1, error); });
+    }
+
+    return attempt(0, null).then(function(storyboard) {
+      var actualProviderId = attempted[attempted.length - 1] || settings.provider_text;
+      if (storyboard && storyboard.settings) {
+        storyboard.settings.provider_text = actualProviderId;
+      }
+      if (actualProviderId !== settings.provider_text) {
+        settings.provider_text_effective = actualProviderId;
+      }
+      return storyboard;
+    });
+  };
   
   this.handleStartGeneration = function(message) {
     var payload = message.payload;
@@ -1621,7 +1966,6 @@ var ServiceWorker = function() {
     self.notifyProgress();
     self.appendDebugLog('job.generating_text');
 
-    var textProvider = self.getTextProvider(settings.provider_text);
     var imageProvider = self.getImageProvider(settings.provider_image);
 
     return chrome.storage.local.get('promptTemplates')
@@ -1631,19 +1975,7 @@ var ServiceWorker = function() {
         settings.provider_text,
         settings.provider_image
       );
-      return withTimeout(textProvider.generateStoryboard(job.extractedText, {
-        panelCount: settings.panel_count,
-        detailLevel: settings.detail_level,
-        styleId: settings.style_id,
-        captionLength: settings.caption_len,
-        textModel: settings.text_model,
-        characterConsistency: settings.character_consistency,
-        customStyleTheme: settings.custom_style_theme,
-        customStyleName: settings.custom_style_name,
-        sourceTitle: job.sourceTitle,
-        sourceUrl: job.sourceUrl,
-        storyboardTemplate: resolvedPromptTemplates.text && resolvedPromptTemplates.text.storyboard
-      }), STORYBOARD_TIMEOUT_MS, 'Storyboard generation')
+      return self.generateStoryboardWithBudgetFallback(job, resolvedPromptTemplates)
       .then(function(storyboard) {
         return { storyboard: storyboard, resolvedPromptTemplates: resolvedPromptTemplates };
       });

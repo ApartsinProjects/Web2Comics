@@ -272,6 +272,66 @@ async function probeOpenRouterText(model) {
   }
 }
 
+function extractOpenRouterImageSignals(json) {
+  const msg = json?.choices?.[0]?.message || {};
+  const imagesArray = Array.isArray(msg.images) ? msg.images : [];
+  const contentArray = Array.isArray(msg.content) ? msg.content : [];
+  const imageContent = contentArray.find((part) =>
+    part && typeof part === 'object' && (part.type === 'image' || part.type === 'output_image' || part.image_url || part.b64_json)
+  );
+  const imageUrl =
+    imagesArray?.[0]?.image_url?.url ||
+    imagesArray?.[0]?.url ||
+    imageContent?.image_url?.url ||
+    imageContent?.image_url ||
+    null;
+  const b64 =
+    imagesArray?.[0]?.b64_json ||
+    imageContent?.b64_json ||
+    imageContent?.image_base64 ||
+    null;
+  return {
+    hasImageUrl: !!imageUrl,
+    hasB64: !!b64,
+    imageUrl: imageUrl || '',
+    contentTypes: contentArray.map((p) => p?.type).filter(Boolean)
+  };
+}
+
+async function probeOpenRouterImage(model) {
+  if (!OPENROUTER_API_KEY) return resultFail({ skipped: true, reason: 'OPENROUTER_API_KEY missing' });
+  try {
+    const { res, json, bodyText } = await fetchJsonWithTimeout('https://openrouter.ai/api/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${OPENROUTER_API_KEY}`,
+        'Content-Type': 'application/json',
+        'HTTP-Referer': 'https://web2comics.local',
+        'X-Title': 'Web2Comics'
+      },
+      body: JSON.stringify({
+        model,
+        modalities: ['image', 'text'],
+        messages: [{ role: 'user', content: 'Create a tiny comic icon of a smiling robot head, simple line art, no text' }],
+        max_tokens: 64
+      })
+    }, `OpenRouter image ${model}`);
+    if (!res.ok) {
+      return resultFail({
+        status: res.status,
+        error: json?.error?.message || json?.error?.metadata?.raw || json?.message || bodyText.slice(0, 500)
+      });
+    }
+    const signals = extractOpenRouterImageSignals(json);
+    return resultOk({
+      status: res.status,
+      ...signals
+    });
+  } catch (error) {
+    return resultFail({ error: safeError(error).message });
+  }
+}
+
 async function probeHuggingFaceText(model) {
   if (!HUGGINGFACE_API_KEY) return resultFail({ skipped: true, reason: 'HUGGINGFACE_API_KEY missing' });
   try {
@@ -294,6 +354,64 @@ async function probeHuggingFaceText(model) {
       });
     }
     return resultOk({ status: res.status, output: json?.choices?.[0]?.message?.content || '' });
+  } catch (error) {
+    return resultFail({ error: safeError(error).message });
+  }
+}
+
+async function probeHuggingFaceImage(model) {
+  if (!HUGGINGFACE_API_KEY) return resultFail({ skipped: true, reason: 'HUGGINGFACE_API_KEY missing' });
+  try {
+    const res = await withTimeout(fetch(`https://router.huggingface.co/hf-inference/models/${encodeURIComponent(model)}`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${HUGGINGFACE_API_KEY}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        inputs: 'Tiny comic icon of a smiling robot head, simple line art, cyan accents, white background, no text',
+        parameters: {
+          width: 512,
+          height: 512,
+          num_inference_steps: 4
+        }
+      })
+    }), TIMEOUT_MS, `HuggingFace image ${model}`);
+
+    const contentType = res.headers.get('content-type') || '';
+    if (!res.ok) {
+      let errorText = '';
+      try {
+        errorText = await res.text();
+      } catch (_) {}
+      let parsed;
+      try { parsed = errorText ? JSON.parse(errorText) : null; } catch (_) {}
+      return resultFail({
+        status: res.status,
+        error: (typeof parsed?.error === 'string' ? parsed.error : parsed?.message || errorText.slice(0, 500))
+      });
+    }
+
+    if (/^image\//i.test(contentType)) {
+      const buf = Buffer.from(await res.arrayBuffer());
+      return resultOk({
+        status: res.status,
+        contentType,
+        bytes: buf.length,
+        hasImageBinary: buf.length > 0
+      });
+    }
+
+    const text = await res.text();
+    let json = null;
+    try { json = text ? JSON.parse(text) : null; } catch (_) {}
+    const hasBase64 = !!(json?.image || json?.images?.[0]);
+    return resultOk({
+      status: res.status,
+      contentType,
+      hasBase64,
+      bodyPreview: text.slice(0, 300)
+    });
   } catch (error) {
     return resultFail({ error: safeError(error).message });
   }
@@ -353,10 +471,12 @@ function buildRecommendedModelSet(report, outDir) {
         image: firstSupported((providers.cloudflare?.image || []).filter((e) => !String(e.model || '').includes('flux-1-dev')), '@cf/black-forest-labs/flux-1-schnell')
       },
       openrouter: {
-        text: firstSupported((providers.openrouter?.text || []).filter((e) => e.model !== 'qwen/qwen3-4b:free'), 'openai/gpt-oss-20b:free')
+        text: firstSupported((providers.openrouter?.text || []).filter((e) => e.model !== 'qwen/qwen3-4b:free'), 'openai/gpt-oss-20b:free'),
+        image: firstSupported((providers.openrouter?.image || []), 'google/gemini-2.5-flash-image-preview')
       },
       huggingface: {
-        text: firstSupported((providers.huggingface?.text || []).filter((e) => e.model !== 'HuggingFaceH4/zephyr-7b-beta'), 'mistralai/Mistral-7B-Instruct-v0.2')
+        text: firstSupported((providers.huggingface?.text || []).filter((e) => e.model !== 'HuggingFaceH4/zephyr-7b-beta'), 'mistralai/Mistral-7B-Instruct-v0.2'),
+        image: firstSupported((providers.huggingface?.image || []).filter((e) => !String(e.model || '').includes('FLUX.1-dev')), 'black-forest-labs/FLUX.1-schnell')
       }
     }
   };
@@ -369,7 +489,9 @@ function buildRecommendedModelSet(report, outDir) {
     cloudflareTextModel: recommended.providers.cloudflare.text,
     cloudflareImageModel: recommended.providers.cloudflare.image,
     openrouterTextModel: recommended.providers.openrouter.text,
-    huggingfaceTextModel: recommended.providers.huggingface.text
+    openrouterImageModel: recommended.providers.openrouter.image,
+    huggingfaceTextModel: recommended.providers.huggingface.text,
+    huggingfaceImageModel: recommended.providers.huggingface.image
   };
   return recommended;
 }
@@ -405,7 +527,12 @@ async function main() {
       ]
     },
     openrouter: {
-      text: ['openai/gpt-oss-20b:free', 'qwen/qwen3-4b:free', 'google/gemma-3-4b-it:free', 'openrouter/auto']
+      text: ['openai/gpt-oss-20b:free', 'qwen/qwen3-4b:free', 'google/gemma-3-4b-it:free', 'openrouter/auto'],
+      image: [
+        'google/gemini-2.5-flash-image-preview',
+        'openai/gpt-image-1',
+        'stability/stable-image-ultra'
+      ]
     },
     huggingface: {
       text: [
@@ -414,6 +541,11 @@ async function main() {
         'meta-llama/Llama-3.1-8B-Instruct',
         'HuggingFaceH4/zephyr-7b-beta',
         'meta-llama/Llama-3.3-70B-Instruct'
+      ],
+      image: [
+        'black-forest-labs/FLUX.1-schnell',
+        'stabilityai/stable-diffusion-xl-base-1.0',
+        'black-forest-labs/FLUX.1-dev'
       ]
     }
   };
@@ -451,10 +583,12 @@ async function main() {
       probeCloudflareModel(m, { prompt: 'Tiny comic icon robot head, simple line art, no text' }, 'image'))
   };
   report.providers.openrouter = {
-    text: await runProbeGroup('openrouter', 'text', modelMatrix.openrouter.text, probeOpenRouterText)
+    text: await runProbeGroup('openrouter', 'text', modelMatrix.openrouter.text, probeOpenRouterText),
+    image: await runProbeGroup('openrouter', 'image', modelMatrix.openrouter.image, probeOpenRouterImage)
   };
   report.providers.huggingface = {
-    text: await runProbeGroup('huggingface', 'text', modelMatrix.huggingface.text, probeHuggingFaceText)
+    text: await runProbeGroup('huggingface', 'text', modelMatrix.huggingface.text, probeHuggingFaceText),
+    image: await runProbeGroup('huggingface', 'image', modelMatrix.huggingface.image, probeHuggingFaceImage)
   };
 
   report.summary = summarizeSupport(report);
