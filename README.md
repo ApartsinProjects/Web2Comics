@@ -20,7 +20,8 @@ Web2Comics is a Chrome extension that:
 5. Turn on `Developer mode` (top-right).
 6. Click `Load unpacked`.
 7. Select the extracted `Web2Comics` folder (the folder containing `manifest.json`).
-8. (Optional) Pin the extension from Chrome’s extensions menu.
+8. Web2Comics will open the Options page on first install so you can configure providers.
+9. (Optional) Pin the extension from Chrome’s extensions menu (Chrome does not allow extensions to pin themselves automatically).
 
 ### Option B: Clone the repo (developer workflow)
 
@@ -115,7 +116,7 @@ For step-by-step key/token instructions, see:
 2. Click the Web2Comics extension icon.
 3. Click `Create Comic`.
 4. Choose provider/style (advanced settings optional).
-5. Click `Generate`.
+5. If no providers are configured yet, use `Configure Model Providers` in the popup (or the Options page opened on install), then return and click `Generate`.
 6. Watch live progress in popup/sidepanel.
 7. Review the comic in the side panel.
 8. Click `Download` to export a single comic sheet PNG.
@@ -171,6 +172,9 @@ HUGGINGFACE_INFERENCE_API_TOKEN=...
 - Provider not visible in popup:
   - Configure credentials in `Options -> Providers`
   - Click `Validate`
+- OpenAI key validates but model test fails:
+  - The key may belong to a different OpenAI project or have different model access/billing
+  - Re-paste the key and use `Test Text Model` / `Test Image Model`
 - Gemini free tier says quota/limit `0`:
   - Check AI Studio project eligibility/region and active limits
 - Generation fails on one provider:

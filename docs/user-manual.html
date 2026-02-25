@@ -180,7 +180,7 @@
 
       <section>
         <h2 id="popup-overview">Popup / Generator Wizard Overview</h2>
-        <p>The popup is the main entry point from the extension toolbar icon. It contains onboarding, the action launcher, the comic generator wizard, progress view, and a lightweight history modal.</p>
+        <p>The popup is the main entry point from the extension toolbar icon. It contains the action launcher, the comic generator wizard, progress view, and a lightweight history modal.</p>
         <div class="grid-2">
           <div class="card">
             <h3>Launcher</h3>
@@ -217,8 +217,8 @@
           <tr><td>Advanced Options</td><td>Shows detail level, style presets, and custom style creation/selection.</td></tr>
           <tr><td>Detail</td><td>Controls storyboard richness (low/medium/high).</td></tr>
           <tr><td>Style</td><td>Preset art direction or a custom saved style.</td></tr>
-          <tr><td>Custom Style (One-off)</td><td>Enter a temporary style name and description for the current generation.</td></tr>
-          <tr><td>Create New Style…</td><td>Saves a reusable custom style to extension storage for future sessions.</td></tr>
+          <tr><td>Custom (One-off)</td><td>Uses current custom-style defaults without creating a saved style entry.</td></tr>
+          <tr><td>Create New Style…</td><td>Opens a modal to enter style name + description, saves it, and adds it to the style list for future sessions.</td></tr>
         </table>
 
         <h3>Readiness and Generate</h3>
@@ -231,7 +231,7 @@
 
       <section>
         <h2 id="popup-progress">Popup Progress View</h2>
-        <p>After generation starts, Web2Comics can automatically open the side panel while the popup shows progress.</p>
+        <p>After generation starts, Web2Comics can attempt to open the side panel while the popup shows progress (Chrome may block auto-open unless it is triggered by a direct user gesture).</p>
         <ul>
           <li><strong>Status text</strong>: current phase (storyboard or image rendering).</li>
           <li><strong>Progress bar</strong>: panel-level completion progress.</li>
@@ -246,6 +246,7 @@
         <p>The popup history modal is a quick-access list of previously generated comics.</p>
         <ul>
           <li>Shows recent items with thumbnails and source metadata.</li>
+          <li>Each item has an individual <strong>Delete</strong> action (with confirmation).</li>
           <li>Useful when you want to reopen a comic quickly without opening the side panel browser.</li>
           <li>The full history browsing experience is available in the side panel <em>History Browser</em>.</li>
         </ul>
@@ -265,15 +266,16 @@
         <ul>
           <li><strong>Default Panel Count</strong>: starting value used in popup.</li>
           <li><strong>Detail Level</strong>: default storyboard detail level.</li>
-          <li><strong>Default Style</strong>: default art style preset for new generations.</li>
-          <li><strong>Custom Style Description</strong>: default custom style description when <code>Custom</code> is selected.</li>
+          <li><strong>Default Style</strong>: default art style preset or saved custom style for new generations.</li>
+          <li><strong>Custom Style Name / Description</strong>: shown when creating a new reusable custom style entry from Options.</li>
           <li><strong>Caption Length</strong>: preferred caption length for generated panels.</li>
         </ul>
+        <p>If you choose <code>Custom...</code> in <strong>Default Style</strong>, the inline custom-style editor appears with a <strong>Create Style</strong> button. After creating a style, it is selected in the list and the inline editor is hidden again.</p>
         <p><strong>Free-tier-first default setup:</strong> Web2Comics starts with <strong>Google Gemini</strong> selected for both text and image generation (when eligible/configured), plus a low-cost default generation profile (fewer panels and lower detail) to maximize the chance that a first run succeeds on free-tier limits.</p>
 
         <h3>Behavior</h3>
         <ul>
-          <li><strong>Automatically open comic viewer after generation</strong>: opens side panel on completion (and optionally progress start behavior may also open it).</li>
+          <li><strong>Automatically open comic viewer after generation</strong>: attempts to open the side panel on completion (Chrome may block auto-open without a user gesture).</li>
           <li><strong>Enable character consistency mode</strong>: provider hint to keep characters visually consistent across panels.</li>
           <li><strong>Debug flag</strong>: shows detailed provider/panel errors and enables richer local debugging behavior.</li>
         </ul>
@@ -306,7 +308,7 @@
 
         <h3>Validation</h3>
         <ul>
-          <li>Use each provider card’s <strong>Validate</strong> button after entering credentials.</li>
+          <li>Use each provider card’s <strong>Validate</strong> button after entering credentials (buttons show a spinner while waiting).</li>
           <li>Web2Comics persists provider validation state in local storage and uses it to gate popup provider visibility/readiness.</li>
           <li>If a selected provider fails due to quota/budget/billing limits during generation, Web2Comics can automatically fall back to other configured providers (free-tier-first) for text and/or image generation.</li>
           <li>Google Gemini is the default first-run provider because it can cover both text and image generation with one key, but free-tier availability depends on Google account/project eligibility and region.</li>
@@ -324,10 +326,11 @@
 
       <section>
         <h2 id="options-prompts">Options: Prompts</h2>
-        <p>Prompt templates let you customize storyboard and image prompts for supported providers.</p>
+        <p>Prompt templates let you customize storyboard and image prompts per provider scope.</p>
         <h3>Current support</h3>
         <ul>
-          <li>Provider scopes: <strong>OpenAI</strong> and <strong>Google Gemini</strong>.</li>
+          <li>Provider scopes in the UI: <strong>OpenAI</strong>, <strong>Google Gemini</strong>, <strong>Cloudflare Workers AI</strong>, <strong>OpenRouter</strong>, and <strong>Hugging Face</strong>.</li>
+          <li>Runtime template consumption (current build): <strong>OpenAI</strong> and <strong>Google Gemini</strong>.</li>
           <li>Template types: <strong>Storyboard</strong> and <strong>Image</strong>.</li>
         </ul>
         <h3>Validation behavior</h3>
@@ -391,10 +394,10 @@
           <li><strong>Panel View</strong>: grid/list view of all panels.</li>
         </ul>
         <h3>Layout Presets</h3>
-        <p>Phase-1 layout presets visually restyle existing strip/grid/carousel engines (for example <em>Classic Strip</em>, <em>Cinema Carousel</em>, <em>Contact Sheet</em>).</p>
+        <p>Web2Comics includes a broad layout preset library (for example <em>Single panel</em>, <em>4-panel grid</em>, <em>Classic comic page</em>, <em>Manga page</em>, <em>Webtoon scroll</em>, <em>Masonry</em>, <em>Guided path</em>, and <em>Carousel</em>). In the current implementation, presets are fully functional layout/view variants built on the side panel render engines and preset-specific styling rules.</p>
         <h3>Download Export</h3>
         <ul>
-          <li>Exports a single composite PNG contact sheet image.</li>
+          <li>Exports a single composite PNG image using the currently selected layout preset.</li>
           <li>Includes source title, source URL, source short-name (for example <code>cnn</code>), panel thumbnails, and captions.</li>
         </ul>
         <h3>Policy handling indicators</h3>
@@ -411,7 +414,7 @@
           <li>Shows a comic-like placeholder shell during generation.</li>
           <li>Uses live panel statuses: <code>Pending</code>, <code>Sent</code>, <code>Receiving</code>, <code>Rendering</code>, <code>Completed</code>, <code>Error</code>.</li>
           <li>Matches the currently selected view mode/layout preset for continuity.</li>
-          <li><strong>Cancel</strong> stops the active job.</li>
+          <li><strong>Cancel</strong> stops the active job and shows a <code>Canceling...</code> state while cancellation is being processed.</li>
         </ul>
       </section>
 

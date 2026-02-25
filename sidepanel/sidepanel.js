@@ -116,7 +116,65 @@ class ComicViewer {
     return labels[String(providerId || '')] || String(providerId || 'provider');
   }
 
-  getPanelCaptionText(panel, index) {
+  isCaptionPlaceholderPanel(panel) {
+    if (!panel) return true;
+    if (typeof panel !== 'object') return false;
+    const keys = Object.keys(panel);
+    if (!keys.length) return true;
+    // Placeholder panel objects can contain runtime status only while the storyboard fills in.
+    if (keys.length === 1 && keys[0] === 'runtime_status') return true;
+    return false;
+  }
+
+  looksLikeImagePromptText(text) {
+    const s = String(text || '').trim();
+    if (!s) return false;
+    const lower = s.toLowerCase();
+    if (s.length > 220) return true;
+    const promptPhrases = [
+      'comic panel illustration',
+      'illustration of',
+      'digital art',
+      'cinematic lighting',
+      'highly detailed',
+      'camera angle',
+      'art style',
+      'dramatic lighting',
+      'ultra detailed'
+    ];
+    if (promptPhrases.some((p) => lower.includes(p))) return true;
+    const commaCount = (s.match(/,/g) || []).length;
+    if (commaCount >= 6) return true;
+    return false;
+  }
+
+  getStoryLikeFallbackCaption(panel) {
+    if (!panel || typeof panel !== 'object') return '';
+    const candidates = [
+      panel.beat_summary,
+      panel.summary,
+      panel.beat,
+      panel.narration,
+      panel.description,
+      panel.title,
+      panel.text,
+      panel.text_content,
+      panel.caption_text,
+      panel.dialogue
+    ];
+    for (const candidate of candidates) {
+      const normalized = this.normalizeCaptionValue(candidate);
+      if (normalized && !this.looksLikeImagePromptText(normalized)) return normalized;
+    }
+    return '';
+  }
+
+  getPanelCaptionText(panel, index, options = {}) {
+    const suppressMissingLog = !!options.suppressMissingLog;
+    const fallbackLabel = options.fallbackLabel || ('Panel ' + ((Number(index) || 0) + 1));
+    if (this.isCaptionPlaceholderPanel(panel)) {
+      return fallbackLabel;
+    }
     var caption =
       (panel && (
         panel.caption ||
@@ -131,9 +189,21 @@ class ComicViewer {
         panel.dialogue
       )) || '';
     caption = this.normalizeCaptionValue(caption);
-    if (caption) return caption;
-    this.logMissingCaption(panel, index);
-    return 'Panel ' + ((Number(index) || 0) + 1);
+    if (caption) {
+      const imagePrompt = this.normalizeCaptionValue(
+        panel && (panel.image_prompt || panel.prompt || panel.imagePrompt || panel.visual_prompt || panel.scene_prompt)
+      );
+      if (this.looksLikeImagePromptText(caption) || (imagePrompt && caption === imagePrompt)) {
+        const storyLike = this.getStoryLikeFallbackCaption(panel);
+        if (storyLike && storyLike !== caption) {
+          this.logPromptLikeCaptionSubstitution(panel, index, caption, storyLike);
+          return storyLike;
+        }
+      }
+      return caption;
+    }
+    if (!suppressMissingLog) this.logMissingCaption(panel, index);
+    return fallbackLabel;
   }
 
   normalizeCaptionValue(value) {
@@ -181,6 +251,22 @@ class ComicViewer {
         panelId: panel?.panel_id || null,
         availableKeys: panel && typeof panel === 'object' ? Object.keys(panel).slice(0, 30) : [],
         sample
+      });
+    } catch (_) {}
+  }
+
+  logPromptLikeCaptionSubstitution(panel, index, originalCaption, replacementCaption) {
+    try {
+      const sourceUrl = String(this.currentComic?.source?.url || '');
+      const panelId = String(panel?.panel_id || index || 0);
+      const key = `${sourceUrl}|${panelId}|prompt-like`;
+      if (this.missingCaptionNoticeKeys.has(key)) return;
+      this.missingCaptionNoticeKeys.add(key);
+      void this.appendDebugLog('caption.prompt_like_substituted', {
+        panelIndex: Number(index) || 0,
+        panelId: panel?.panel_id || null,
+        originalPreview: String(originalCaption || '').slice(0, 200),
+        replacementPreview: String(replacementCaption || '').slice(0, 200)
       });
     } catch (_) {}
   }
@@ -788,7 +874,10 @@ class ComicViewer {
           : '';
       const isCurrent = displayStatus === 'sent' || displayStatus === 'receiving' || displayStatus === 'rendering';
 
-      const safeCaption = this.escapeHtml(this.getPanelCaptionText(panel, index));
+      const safeCaption = this.escapeHtml(this.getPanelCaptionText(panel, index, {
+        suppressMissingLog: true,
+        fallbackLabel: 'Panel ' + (index + 1)
+      }));
       return `
         <div class="gen-panel ${isCurrent ? 'is-current' : ''}">
           <div class="gen-panel-thumb">

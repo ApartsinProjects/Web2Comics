@@ -878,6 +878,46 @@ describe('Sidepanel Page UX', () => {
     expect(String(carouselCaption.textContent)).not.toContain('[object Object]');
   });
 
+  it('prefers story-like caption text when caption looks like an image prompt', async () => {
+    const item = makeHistoryItem(1);
+    item.storyboard.panels = [
+      {
+        panel_id: 'panel_prompty',
+        caption: 'Comic panel illustration of: A dramatic newsroom scene, cinematic lighting, digital art, highly detailed, camera angle from above, ultra detailed editorial style',
+        beat_summary: 'Newsroom reacts to a major breaking update.',
+        image_prompt: 'Comic panel illustration of: A dramatic newsroom scene, cinematic lighting, digital art, highly detailed, camera angle from above, ultra detailed editorial style',
+        artifacts: {
+          image_blob_ref:
+            'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMB/axlF8UAAAAASUVORK5CYII='
+        }
+      }
+    ];
+    const setCalls = [];
+    chrome.storage.local.set.mockImplementation(async (payload) => {
+      setCalls.push(payload);
+    });
+    chrome.storage.local.get.mockImplementation(async (key) => {
+      if (key === 'currentJob') return { currentJob: { status: 'completed', storyboard: item.storyboard } };
+      if (key === 'history') return { history: [item] };
+      if (key === 'sidepanelPrefs') return { sidepanelPrefs: {} };
+      if (key === 'debugLogs') return { debugLogs: [] };
+      return {};
+    });
+
+    await import('../../sidepanel/sidepanel.js');
+    document.dispatchEvent(new Event('DOMContentLoaded'));
+    await flush();
+    await flush();
+
+    const panelCaption = document.querySelector('.comic-strip .panel-caption');
+    expect(String(panelCaption.textContent)).toContain('Newsroom reacts to a major breaking update.');
+    expect(String(panelCaption.textContent)).not.toContain('cinematic lighting');
+
+    const debugSet = setCalls.find((p) => Array.isArray(p.debugLogs));
+    expect(debugSet).toBeTruthy();
+    expect(debugSet.debugLogs.some((e) => e.event === 'caption.prompt_like_substituted')).toBe(true);
+  });
+
   it('logs caption.missing when a panel has no usable caption fields', async () => {
     const item = makeHistoryItem(1);
     item.storyboard.panels = [
@@ -911,6 +951,50 @@ describe('Sidepanel Page UX', () => {
     const last = debugSet.debugLogs.at(-1);
     expect(last.event).toBe('caption.missing');
     expect(last.data.panelId).toBe('panel_x');
+  });
+
+  it('does not log caption.missing for expected generation placeholders', async () => {
+    const setCalls = [];
+    chrome.storage.local.set.mockImplementation(async (payload) => {
+      setCalls.push(payload);
+    });
+    chrome.storage.local.get.mockImplementation(async (key) => {
+      if (key === 'currentJob') {
+        return {
+          currentJob: {
+            status: 'generating_images',
+            settings: { panel_count: 6 },
+            storyboard: {
+              source: { url: 'https://example.com/article', title: 'Example' },
+              panels: Array.from({ length: 5 }, (_, i) => ({
+                caption: 'Panel caption ' + (i + 1),
+                runtime_status: i < 2 ? 'completed' : 'rendering',
+                artifacts: i < 2 ? {
+                  image_blob_ref:
+                    'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMB/axlF8UAAAAASUVORK5CYII='
+                } : {}
+              }))
+            }
+          }
+        };
+      }
+      if (key === 'history') return { history: [] };
+      if (key === 'sidepanelPrefs') return { sidepanelPrefs: {} };
+      if (key === 'debugLogs') return { debugLogs: [] };
+      return {};
+    });
+
+    await import('../../sidepanel/sidepanel.js');
+    document.dispatchEvent(new Event('DOMContentLoaded'));
+    await flush();
+    await flush();
+
+    const captions = Array.from(document.querySelectorAll('#gen-panels .gen-panel-caption')).map((el) => String(el.textContent || ''));
+    expect(captions).toContain('Panel 6');
+
+    const debugSets = setCalls.filter((p) => Array.isArray(p.debugLogs));
+    const captionMissingLogs = debugSets.flatMap((p) => p.debugLogs).filter((e) => e && e.event === 'caption.missing');
+    expect(captionMissingLogs.length).toBe(0);
   });
 
   it('escapes history/comic text and sanitizes unsafe source links', async () => {
