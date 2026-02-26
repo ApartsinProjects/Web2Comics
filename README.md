@@ -26,7 +26,7 @@ Release links:
 7. Select the extracted folder that contains `manifest.json` (for example `Web2Comics-v1.0.1`).
 8. In `chrome://extensions`, confirm the `Web2Comics` card is enabled (toggle ON).
 9. Open the Chrome Extensions menu (puzzle icon), find `Web2Comics`, and click the pin icon to show it in the toolbar.
-10. Open the extension and configure a `Google Gemini` API key (free tier) in `Options -> Providers` (recommended first-run setup).
+10. Open the extension and configure a [`Google Gemini` API key (free tier)](docs/Gemini_key.md) in `Options -> Providers` (recommended first-run setup).
 11. Open any article, click `Create Comic`, and generate a 3-panel summary.
 
 Note: `Code -> Download ZIP` downloads the full source repository. Use the release asset ZIP for installation.
