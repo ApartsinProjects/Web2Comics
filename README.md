@@ -9,17 +9,13 @@ Web2Comics is a Chrome extension that:
 - shows the result in a comic viewer side panel
 - saves history and exports a single composite comic image
 
-## Quick Try (60 Seconds)
+## Visual Abstract
 
-1. Download the latest release ZIP from the `Releases` page.
-2. Load it in Chrome via `chrome://extensions` -> `Load unpacked`.
-3. Enable and pin `Web2Comics` from the Extensions (puzzle) menu.
-4. Open the extension, configure a `Google Gemini` API key in `Options -> Providers`.
-5. Open any article, click `Create Comic`, and generate a 3-panel summary.
+![Web2Comics visual abstract](docs/visual-abstract-gemini.png)
 
 ## Install (Easy ZIP Method)
 
-### Option A: Download Release ZIP (recommended for non-developers)
+### Install From Release ZIP (recommended)
 
 Release links:
 - Releases page: https://github.com/ApartsinProjects/Web2Comics/releases
@@ -34,19 +30,10 @@ Release links:
 7. Select the extracted folder that contains `manifest.json` (for example `Web2Comics-v1.0.1`).
 8. In `chrome://extensions`, confirm the `Web2Comics` card is enabled (toggle ON).
 9. Open the Chrome Extensions menu (puzzle icon), find `Web2Comics`, and click the pin icon to show it in the toolbar.
-10. Web2Comics will open the Options page on first install so you can configure providers.
+10. Open the extension and configure a `Google Gemini` API key in `Options -> Providers` (recommended first-run setup).
+11. Open any article, click `Create Comic`, and generate a 3-panel summary.
 
 Note: `Code -> Download ZIP` downloads the full source repository (tests/scripts/docs included). Use the release asset ZIP for installation.
-
-### Option B: Clone the repo (developer workflow)
-
-```powershell
-git clone https://github.com/ApartsinProjects/Web2Comics.git
-cd Web2Comics
-```
-
-Then load it in Chrome using the same `chrome://extensions` -> `Load unpacked` steps above.
-After loading, confirm the extension is enabled and pin `Web2Comics` from the Extensions (puzzle) menu so the toolbar icon is visible.
 
 ## What You Can Do
 
