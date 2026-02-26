@@ -9,21 +9,29 @@ Web2Comics is a Chrome extension that:
 - shows the result in a comic viewer side panel
 - saves history and exports a single composite comic image
 
+## Quick Try (60 Seconds)
+
+1. Download the latest release ZIP from the `Releases` page.
+2. Load it in Chrome via `chrome://extensions` -> `Load unpacked`.
+3. Enable and pin `Web2Comics` from the Extensions (puzzle) menu.
+4. Open the extension, configure a `Google Gemini` API key in `Options -> Providers`.
+5. Open any article, click `Create Comic`, and generate a 3-panel summary.
+
 ## Install (Easy ZIP Method)
 
 ### Option A: Download Release ZIP (recommended for non-developers)
 
 Release links:
 - Releases page: https://github.com/ApartsinProjects/Web2Comics/releases
-- Current release (`v1.0`) ZIP: https://github.com/ApartsinProjects/Web2Comics/releases/download/v1.0/Web2Comics-v1.0-extension.zip
+- Current release (`v1.0.1`) ZIP: https://github.com/ApartsinProjects/Web2Comics/releases/download/v1.0.1/Web2Comics-v1.0.1-extension.zip
 
 1. Open the repository `Releases` page on GitHub (link above).
-2. Download the latest release asset ZIP (for example `Web2Comics-v1.0-extension.zip`).
+2. Download the latest release asset ZIP (for example `Web2Comics-v1.0.1-extension.zip`).
 3. Extract the ZIP to a folder (for example `C:\Web2Comics`).
 4. Open Chrome and go to `chrome://extensions`.
 5. Turn on `Developer mode` (top-right).
 6. Click `Load unpacked`.
-7. Select the extracted folder that contains `manifest.json` (for example `Web2Comics-v1.0`).
+7. Select the extracted folder that contains `manifest.json` (for example `Web2Comics-v1.0.1`).
 8. In `chrome://extensions`, confirm the `Web2Comics` card is enabled (toggle ON).
 9. Open the Chrome Extensions menu (puzzle icon), find `Web2Comics`, and click the pin icon to show it in the toolbar.
 10. Web2Comics will open the Options page on first install so you can configure providers.
@@ -33,7 +41,7 @@ Note: `Code -> Download ZIP` downloads the full source repository (tests/scripts
 ### Option B: Clone the repo (developer workflow)
 
 ```powershell
-git clone <your-repo-url>
+git clone https://github.com/ApartsinProjects/Web2Comics.git
 cd Web2Comics
 ```
 
@@ -51,10 +59,10 @@ After loading, confirm the extension is enabled and pin `Web2Comics` from the Ex
 
 ## Supported Providers
 
-Text + image support (current implementation):
+Current provider support:
 - OpenAI
 - Google Gemini
-- Cloudflare Workers AI
+- Cloudflare Workers AI (text only in current extension build)
 - OpenRouter (model/account dependent)
 - Hugging Face Inference API
 
@@ -82,6 +90,7 @@ Web2Comics also supports automatic fallback to other configured providers when a
 ## Sample Comics (Real Provider Runs)
 
 These examples were generated from the same `cnn.com` page using different providers and exported from Web2Comics as single PNG comic sheets.
+Some sample outputs may come from earlier probe/test runs and may not exactly match the current default provider capability matrix in the extension UI.
 
 ### OpenAI
 
@@ -92,6 +101,8 @@ These examples were generated from the same `cnn.com` page using different provi
 ![Gemini CNN comic sample](samplecomics/2026-02-25_13-38-32/gemini-cnn-comic-sheet.png)
 
 ### Cloudflare Workers AI
+
+Cloudflare support in the current extension is text generation only. This sample is kept as a reference artifact from prior provider testing/output workflows.
 
 ![Cloudflare CNN comic sample](samplecomics/2026-02-25_13-38-32/cloudflare-cnn-comic-sheet.png)
 
@@ -117,6 +128,21 @@ The extension includes:
 
 For step-by-step key/token instructions, see:
 - `docs/user-manual.html` (appendix)
+
+## Requirements / Compatibility
+
+- Chrome / Chromium-based browser with Manifest V3 extension support
+- Chrome Side Panel support (used for the comic viewer)
+- Internet access to your selected AI provider APIs
+- At least one configured provider credential (`Options -> Providers`)
+
+## Privacy / Data Handling
+
+- Web2Comics runs locally in your browser extension (no project-hosted backend server).
+- To generate comics, the extension sends extracted page text, prompts, and generation requests to the AI provider(s) you configure.
+- API keys/tokens are stored in your browser extension storage on your machine.
+- Generated comics/history are stored locally unless you export/share them.
+- Review provider terms/privacy policies (OpenAI, Google Gemini, Cloudflare, OpenRouter, Hugging Face) before use on sensitive content.
 
 ## How To Use
 

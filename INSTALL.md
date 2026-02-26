@@ -22,7 +22,7 @@ Simple step-by-step instructions to install and use the Web2Comics Chrome extens
    ```
 
 4. **Select the extracted Web2Comics release folder**
-   - Navigate to the extracted folder (for example `Web2Comics-v1.0`)
+   - Navigate to the extracted folder (for example `Web2Comics-v1.0.1`)
    - Select the folder that contains `manifest.json`
    - Click "Select Folder" or "Open"
 
@@ -176,7 +176,7 @@ Check chrome://extensions > Service worker for logs.
 ## What's Included
 
 ```
-Web2Comics-v1.0/
+Web2Comics-v1.0.1/
 ├── manifest.json           # Extension config
 ├── popup/                 # Main popup UI
 ├── sidepanel/            # Comic viewer
@@ -200,4 +200,4 @@ Web2Comics-v1.0/
 
 ---
 
-*Version 1.0 | Last Updated: 2026-02-26*
+*Version 1.0.1 | Last Updated: 2026-02-26*
