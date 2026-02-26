@@ -13,7 +13,11 @@ Web2Comics is a Chrome extension that:
 
 ### Option A: Download Release ZIP (recommended for non-developers)
 
-1. Open the repository `Releases` page on GitHub.
+Release links:
+- Releases page: https://github.com/ApartsinProjects/Web2Comics/releases
+- Current release (`v1.0`) ZIP: https://github.com/ApartsinProjects/Web2Comics/releases/download/v1.0/Web2Comics-v1.0-extension.zip
+
+1. Open the repository `Releases` page on GitHub (link above).
 2. Download the latest release asset ZIP (for example `Web2Comics-v1.0-extension.zip`).
 3. Extract the ZIP to a folder (for example `C:\Web2Comics`).
 4. Open Chrome and go to `chrome://extensions`.
