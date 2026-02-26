@@ -1,6 +1,8 @@
-# Web2Comics
+# Web2Comics: AI-Powered Chrome Extension That Turns Any Web Page Into a Comic-Strip Summary
 
-Turn any web page into a comic-strip summary using AI text + image models.
+<p align="center">
+  <img src="docs/visual-abstract-gemini.png" alt="Web2Comics visual abstract" width="760">
+</p>
 
 Web2Comics is a Chrome extension that:
 - extracts content from the current page
@@ -9,17 +11,11 @@ Web2Comics is a Chrome extension that:
 - shows the result in a comic viewer side panel
 - saves history and exports a single composite comic image
 
-## Visual Abstract
-
-![Web2Comics visual abstract](docs/visual-abstract-gemini.png)
-
-## Install (Easy ZIP Method)
-
-### Install From Release ZIP (recommended)
+## Install (Release ZIP)
 
 Release links:
-- Releases page: https://github.com/ApartsinProjects/Web2Comics/releases
-- Current release (`v1.0.1`) ZIP: https://github.com/ApartsinProjects/Web2Comics/releases/download/v1.0.1/Web2Comics-v1.0.1-extension.zip
+- [Releases page](https://github.com/ApartsinProjects/Web2Comics/releases)
+- [Current release (`v1.0.1`) ZIP](https://github.com/ApartsinProjects/Web2Comics/releases/download/v1.0.1/Web2Comics-v1.0.1-extension.zip)
 
 1. Open the repository `Releases` page on GitHub (link above).
 2. Download the latest release asset ZIP (for example `Web2Comics-v1.0.1-extension.zip`).
@@ -33,7 +29,7 @@ Release links:
 10. Open the extension and configure a `Google Gemini` API key in `Options -> Providers` (recommended first-run setup).
 11. Open any article, click `Create Comic`, and generate a 3-panel summary.
 
-Note: `Code -> Download ZIP` downloads the full source repository (tests/scripts/docs included). Use the release asset ZIP for installation.
+Note: `Code -> Download ZIP` downloads the full source repository. Use the release asset ZIP for installation.
 
 ## What You Can Do
 
