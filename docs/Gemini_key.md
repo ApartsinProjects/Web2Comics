@@ -12,6 +12,17 @@ Step-by-step instructions to obtain a Google Gemini API key for Web2Comics using
 - Access to Google AI Studio in your region
 - Gemini free tier availability for your account/region (AI Studio limits vary)
 
+## Do You Need To Enable a Google API Service First?
+
+Usually, **no** for the Gemini free-tier flow in **Google AI Studio**.
+
+- If you can open AI Studio and create a Gemini API key there, you typically do **not** need a separate manual API enable step.
+- Google AI Studio handles the common key creation flow for Gemini API access.
+
+You may need extra setup only if:
+- your Google Workspace admin restricts AI Studio access, or
+- you are using/importing a specific Google Cloud project with restricted APIs/permissions.
+
 ## Steps
 
 1. Open Google AI Studio:
@@ -44,6 +55,14 @@ Step-by-step instructions to obtain a Google Gemini API key for Web2Comics using
 - AI Studio page does not open or key creation is unavailable:
   - Check region/account eligibility in Google AI Studio
   - Try a different Google account
+  - If you use a managed Google Workspace account, ask your admin to enable **Google AI Studio** access for your org/unit
+
+- API key page opens, but API calls fail due to project/API access errors:
+  - Open Google Cloud Console API Library for your project:
+    - https://console.cloud.google.com/apis/library
+  - Search for and enable **Generative Language API** (if it is disabled)
+  - Retry key creation/use from AI Studio
+  - If your org restricts API usage, ask an admin for project/API access permissions
 
 - Key validates but generation fails:
   - Check quota/usage limits in AI Studio
