@@ -11,17 +11,19 @@ Web2Comics is a Chrome extension that:
 
 ## Install (Easy ZIP Method)
 
-### Option A: Download ZIP (recommended for non-developers)
+### Option A: Download Release ZIP (recommended for non-developers)
 
-1. Open this repository on GitHub.
-2. Click `Code` -> `Download ZIP`.
+1. Open the repository `Releases` page on GitHub.
+2. Download the latest release asset ZIP (for example `Web2Comics-v1.0-extension.zip`).
 3. Extract the ZIP to a folder (for example `C:\Web2Comics`).
 4. Open Chrome and go to `chrome://extensions`.
 5. Turn on `Developer mode` (top-right).
 6. Click `Load unpacked`.
-7. Select the extracted `Web2Comics` folder (the folder containing `manifest.json`).
+7. Select the extracted folder that contains `manifest.json` (for example `Web2Comics-v1.0`).
 8. Web2Comics will open the Options page on first install so you can configure providers.
 9. (Optional) Pin the extension from Chrome’s extensions menu (Chrome does not allow extensions to pin themselves automatically).
+
+Note: `Code -> Download ZIP` downloads the full source repository (tests/scripts/docs included). Use the release asset ZIP for installation.
 
 ### Option B: Clone the repo (developer workflow)
 
