@@ -1,56 +1,49 @@
-# Web to Comic - Installation Guide
+# Web2Comics - Installation Guide
 
-Simple step-by-step instructions to the Web install and use to Comic Chrome extension.
+Simple step-by-step instructions to install and use the Web2Comics Chrome extension.
 
 ---
 
 ## Quick Start (5 minutes)
 
-### Step 1: Prepare Icons (If Needed)
-
-The extension includes SVG icons. If Chrome shows warnings, create simple PNG icons:
-
-1. Open https://svgtopng.com
-2. Upload each SVG file from the `icons/` folder
-3. Download the PNG versions (16x16, 48x48, 128x128)
-4. Replace the SVG files with PNG files
-
-**Or use the included SVG icons directly** (works in most modern Chrome versions)
-
----
-
-### Step 2: Load Extension in Chrome
+### Step 1: Load Extension in Chrome
 
 1. **Open Chrome** and go to:
    ```
    chrome://extensions/
    ```
 
-2. **Enable Developer Mode** (top-right corner)
-   - Toggle the switch to ON
+2. **Enable Developer mode** (top-right corner)
+   - Toggle the switch ON
 
 3. **Click "Load unpacked"**
    ```
    [+ Load unpacked]
    ```
 
-4. **Select the WebToComin folder**
-   - Navigate to where you extracted the files
+4. **Select the extracted Web2Comics release folder**
+   - Navigate to the extracted folder (for example `Web2Comics-v1.0`)
+   - Select the folder that contains `manifest.json`
    - Click "Select Folder" or "Open"
 
-5. **Done!** The extension should now appear in your extensions list
+5. **Confirm the extension is enabled**
+   - In `chrome://extensions`, make sure the `Web2Comics` card toggle is ON
+
+6. **Done!** The extension should now appear in your extensions list
 
 ---
 
-### Step 3: Pin to Chrome Toolbar
+### Step 2: Show the Extension Icon in the Toolbar (Enable + Pin)
 
-1. Click the puzzle piece icon (🧩) in Chrome's toolbar
-2. Find "Web to Comic"
-3. Click the **pin icon** to keep it visible
+1. Click the puzzle piece (Extensions) icon in Chrome's toolbar
+2. Find **Web2Comics**
+3. If it does not appear, confirm it is enabled in `chrome://extensions`
+4. Click the **pin** icon next to **Web2Comics** to keep it visible in the toolbar
+5. Click the Web2Comics toolbar icon to open the popup
 
 ---
 
-### Step 4: Configure API Keys (Important!)
+### Step 3: Configure API Keys / Tokens (Important!)
 
 The extension needs AI providers to generate comics. You must configure at least one:
 
@@ -82,11 +75,24 @@ The extension needs AI providers to generate comics. You must configure at least
    - Same as above, but enter OpenAI key
    - Select your preferred models (GPT-4o, DALL-E 3)
 
-#### Option C: Cloudflare Workers AI (Free)
+#### Option C: Cloudflare Workers AI (Account ID + API Token)
 
-1. No API key needed for basic use
-2. Just select "Cloudflare Workers AI" as provider
-3. Note: Only supports text generation (no images)
+1. **Get your Cloudflare Account ID**
+   - Open Cloudflare dashboard
+   - Copy your Account ID from the account overview
+
+2. **Create an API token**
+   - Create a token with Workers AI / AI inference access for your account
+
+3. **Configure in extension:**
+   - Open **Options -> Providers**
+   - Enter Cloudflare Account ID and API Token
+   - Click `Validate`
+   - Click `Save Providers`
+
+4. **Note**
+   - Cloudflare Workers AI is currently supported for text generation in this extension
+   - Use another provider for image generation
 
 ---
 
@@ -95,7 +101,7 @@ The extension needs AI providers to generate comics. You must configure at least
 ### Generate Your First Comic
 
 1. **Navigate to any article** (news, blog, etc.)
-2. **Click the extension icon** in toolbar
+2. **Click the Web2Comics extension icon** in the toolbar
 3. You'll see:
    - Extracted content preview
    - Panel count selector (3-12 panels)
@@ -118,6 +124,13 @@ The extension needs AI providers to generate comics. You must configure at least
 ### Extension won't load
 ```
 Solution: Make sure Developer mode is ON in chrome://extensions/
+```
+
+### Extension icon not visible in toolbar
+```
+Solutions:
+- Open the Extensions (puzzle) menu and pin Web2Comics
+- Confirm Web2Comics is enabled in chrome://extensions
 ```
 
 ### "API key not configured" error
@@ -154,7 +167,7 @@ Check chrome://extensions > Service worker for logs.
 ## Uninstalling
 
 1. Go to `chrome://extensions/`
-2. Find "Web to Comic"
+2. Find "Web2Comics"
 3. Click "Remove"
 4. Confirm
 
@@ -163,7 +176,7 @@ Check chrome://extensions > Service worker for logs.
 ## What's Included
 
 ```
-WebToComin/
+Web2Comics-v1.0/
 ├── manifest.json           # Extension config
 ├── popup/                 # Main popup UI
 ├── sidepanel/            # Comic viewer
@@ -173,7 +186,8 @@ WebToComin/
 ├── providers/            # AI providers
 ├── shared/               # Shared code
 ├── icons/                # Extension icons
-├── SPEC.md               # Full specification
+├── docs/
+│   └── user-manual.html  # User manual / help file
 └── INSTALL.md            # This file
 ```
 
@@ -181,9 +195,9 @@ WebToComin/
 
 ## Need Help?
 
-- **GitHub Issues:** Report bugs at https://github.com/anomalyco/opencode/issues
-- **Documentation:** See `SPEC.md` for technical details
+- **GitHub Issues:** Report bugs at https://github.com/ApartsinProjects/Web2Comics/issues
+- **Documentation:** See `docs/user-manual.html` for setup and usage details
 
 ---
 
-*Version 1.0 | Last Updated: 2026-02-24*
+*Version 1.0 | Last Updated: 2026-02-26*

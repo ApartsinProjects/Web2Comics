@@ -24,8 +24,9 @@ Release links:
 5. Turn on `Developer mode` (top-right).
 6. Click `Load unpacked`.
 7. Select the extracted folder that contains `manifest.json` (for example `Web2Comics-v1.0`).
-8. Web2Comics will open the Options page on first install so you can configure providers.
-9. (Optional) Pin the extension from Chrome’s extensions menu (Chrome does not allow extensions to pin themselves automatically).
+8. In `chrome://extensions`, confirm the `Web2Comics` card is enabled (toggle ON).
+9. Open the Chrome Extensions menu (puzzle icon), find `Web2Comics`, and click the pin icon to show it in the toolbar.
+10. Web2Comics will open the Options page on first install so you can configure providers.
 
 Note: `Code -> Download ZIP` downloads the full source repository (tests/scripts/docs included). Use the release asset ZIP for installation.
 
@@ -37,6 +38,7 @@ cd Web2Comics
 ```
 
 Then load it in Chrome using the same `chrome://extensions` -> `Load unpacked` steps above.
+After loading, confirm the extension is enabled and pin `Web2Comics` from the Extensions (puzzle) menu so the toolbar icon is visible.
 
 ## What You Can Do
 
@@ -175,6 +177,9 @@ HUGGINGFACE_INFERENCE_API_TOKEN=...
 
 ## Troubleshooting
 
+- Extension icon not visible in toolbar:
+  - Open the Chrome Extensions (puzzle) menu and pin `Web2Comics`
+  - Confirm the extension is enabled in `chrome://extensions`
 - Provider not visible in popup:
   - Configure credentials in `Options -> Providers`
   - Click `Validate`
