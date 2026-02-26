@@ -26,7 +26,7 @@ Release links:
 7. Select the extracted folder that contains `manifest.json` (for example `Web2Comics-v1.0.1`).
 8. In `chrome://extensions`, confirm the `Web2Comics` card is enabled (toggle ON).
 9. Open the Chrome Extensions menu (puzzle icon), find `Web2Comics`, and click the pin icon to show it in the toolbar.
-10. Open the extension and configure a `Google Gemini` API key in `Options -> Providers` (recommended first-run setup).
+10. Open the extension and configure a `Google Gemini` API key (free tier) in `Options -> Providers` (recommended first-run setup).
 11. Open any article, click `Create Comic`, and generate a 3-panel summary.
 
 Note: `Code -> Download ZIP` downloads the full source repository. Use the release asset ZIP for installation.
@@ -100,6 +100,8 @@ Why: this reduces token/image usage and improves chances of success on free-tier
 
 If Gemini free tier is unavailable for your account/region, configure another provider (Cloudflare, OpenRouter, Hugging Face, OpenAI). Web2Comics can fall back automatically to other configured providers on quota/budget failures.
 
+Need a Gemini key for the free tier? See `docs/Gemini_key.md`.
+
 ## Provider Keys / Tokens
 
 Configure providers in:
@@ -111,6 +113,7 @@ The extension includes:
 
 For step-by-step key/token instructions, see:
 - `docs/user-manual.html` (appendix)
+- `docs/Gemini_key.md` (quick Gemini API key setup for free tier access)
 
 ## Requirements / Compatibility
 
