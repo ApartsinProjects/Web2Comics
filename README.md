@@ -206,4 +206,4 @@ HUGGINGFACE_INFERENCE_API_TOKEN=...
 ## Documentation
 
 - User manual: `docs/user-manual.html`
-- Additional specs: `SPEC.md`, `INSTALL.md`
+- Additional specs: `docs/initial_specs.md`, `INSTALL.md`
