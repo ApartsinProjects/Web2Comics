@@ -991,9 +991,19 @@
     return sentence.slice(0, 160) + (sentence.length > 160 ? '...' : '');
   }
 
+  function stableHash(input) {
+    const text = String(input || '');
+    let hash = 2166136261;
+    for (let i = 0; i < text.length; i++) {
+      hash ^= text.charCodeAt(i);
+      hash = Math.imul(hash, 16777619);
+    }
+    return (hash >>> 0).toString(36);
+  }
+
   async function summarizeCandidateText(text) {
     const sample = String(text || '').slice(0, 2200);
-    if (!sample) return 'No summary available';
+    if (!sample) return { text: 'No summary available', method: 'fallback' };
     try {
       const ai = globalThis.ai;
       if (ai && ai.summarizer && typeof ai.summarizer.create === 'function') {
@@ -1006,33 +1016,79 @@
         const summary = await withTimeout(summarizer.summarize(sample));
         if (summarizer && typeof summarizer.destroy === 'function') summarizer.destroy();
         const out = String(summary || '').replace(/\s+/g, ' ').trim();
-        if (out) return out.slice(0, 180);
+        if (out) return { text: out.slice(0, 180), method: 'chrome-summarizer' };
       }
     } catch (_) {}
-    return fallbackSummary(sample);
+    return { text: fallbackSummary(sample), method: 'fallback' };
   }
 
   async function buildCandidateOptions(candidates) {
     const top = (candidates || []).slice(0, MAX_CANDIDATE_OPTIONS);
     const options = [];
+    const usedIds = new Set();
     for (let i = 0; i < top.length; i++) {
       const c = top[i];
       const stripped = stripBoilerplateLines(c.text || '');
       // Keep extraction responsive: always have a local summary immediately.
       let summary = fallbackSummary(stripped);
+      let summaryMethod = 'fallback';
       // Use built-in summarizer only for the first few options.
       if (i < 3) {
         const aiSummary = await summarizeCandidateText(stripped);
-        if (aiSummary) summary = aiSummary;
+        if (aiSummary && aiSummary.text) {
+          summary = aiSummary.text;
+          summaryMethod = aiSummary.method || 'fallback';
+        }
       }
+      const idBase = 'candidate_' + stableHash(
+        [
+          stripped.slice(0, 800).toLowerCase(),
+          String(c.sourceType || ''),
+          String(c.adapterId || ''),
+          String(c.metrics?.chars || 0)
+        ].join('|')
+      );
+      let id = idBase;
+      let suffix = 2;
+      while (usedIds.has(id)) {
+        id = `${idBase}_${suffix++}`;
+      }
+      usedIds.add(id);
       options.push({
-        id: 'candidate_' + i,
+        id: id,
         summary: summary,
+        summaryMethod: summaryMethod,
         chars: c.metrics && c.metrics.chars ? c.metrics.chars : 0,
         score: Number.isFinite(c.score) ? Number(c.score.toFixed(2)) : 0
       });
     }
     return options;
+  }
+
+  function chooseAutoCandidateIndex(candidates, candidateOptions) {
+    const max = Math.min(
+      Array.isArray(candidates) ? candidates.length : 0,
+      Array.isArray(candidateOptions) ? candidateOptions.length : 0
+    );
+    if (max <= 0) return 0;
+    let bestIndex = 0;
+    let bestScore = -Infinity;
+    for (let i = 0; i < max; i++) {
+      const candidate = candidates[i] || {};
+      const option = candidateOptions[i] || {};
+      const base = Number(candidate.score || option.score || 0);
+      const summary = String(option.summary || '').trim();
+      const summaryMethod = String(option.summaryMethod || '').trim();
+      const summaryPenalty = (!summary || /no summary available/i.test(summary)) ? 14 : 0;
+      const summaryBonus = summaryMethod === 'chrome-summarizer' ? 10 : 0;
+      const leadBonus = i === 0 ? 4 : 0;
+      const total = base + summaryBonus + leadBonus - summaryPenalty;
+      if (total > bestScore) {
+        bestScore = total;
+        bestIndex = i;
+      }
+    }
+    return bestIndex;
   }
 
   // Simple readability parser
@@ -1077,6 +1133,7 @@
       // Mode B: Full page extraction
       const candidates = pickContentCandidates();
       const candidateOptions = await buildCandidateOptions(candidates);
+      const selectableCandidates = candidates.slice(0, candidateOptions.length);
       testLog('extract.candidates.built', {
         candidateCount: candidates.length,
         optionCount: candidateOptions.length
@@ -1084,10 +1141,14 @@
       const requestedCandidateId = selection && typeof selection.selectedCandidateId === 'string'
         ? selection.selectedCandidateId
         : '';
-      const requestedIndex = requestedCandidateId ? Number(String(requestedCandidateId).replace('candidate_', '')) : -1;
-      let best = Number.isInteger(requestedIndex) && requestedIndex >= 0 && requestedIndex < candidates.length
-        ? candidates[requestedIndex]
-        : (candidates[0] || null);
+      const requestedIndex = requestedCandidateId
+        ? candidateOptions.findIndex((option) => String(option && option.id ? option.id : '') === requestedCandidateId)
+        : -1;
+      const autoIndex = chooseAutoCandidateIndex(selectableCandidates, candidateOptions);
+      const hasRequestedCandidate = Number.isInteger(requestedIndex) && requestedIndex >= 0 && requestedIndex < selectableCandidates.length;
+      let best = hasRequestedCandidate
+        ? selectableCandidates[requestedIndex]
+        : (selectableCandidates[autoIndex] || selectableCandidates[0] || null);
       if (!best || best.score < -8) {
         testLog('extract.full.failed.no_best', { bestScore: best ? best.score : null });
         return {
@@ -1101,13 +1162,20 @@
       let text = stripBoilerplateLines(best.text);
       let quality = assessTextQuality(text, { sourceType: best.sourceType });
 
-      // Domain-agnostic fallback: auto-pick first candidate that passes quality.
-      if (!quality.pass && !(Number.isInteger(requestedIndex) && requestedIndex >= 0)) {
-        for (let i = 1; i < candidates.length; i++) {
-          const probe = stripBoilerplateLines(candidates[i].text || '');
-          const probeQuality = assessTextQuality(probe, { sourceType: candidates[i].sourceType });
+      // Domain-agnostic fallback: choose first candidate that passes quality.
+      if (!quality.pass) {
+        const probeOrder = [];
+        if (hasRequestedCandidate) probeOrder.push(requestedIndex);
+        if (autoIndex >= 0 && !probeOrder.includes(autoIndex)) probeOrder.push(autoIndex);
+        for (let i = 0; i < selectableCandidates.length; i++) {
+          if (!probeOrder.includes(i)) probeOrder.push(i);
+        }
+        for (const i of probeOrder) {
+          const probeCandidate = selectableCandidates[i];
+          const probe = stripBoilerplateLines(probeCandidate?.text || '');
+          const probeQuality = assessTextQuality(probe, { sourceType: probeCandidate?.sourceType });
           if (probeQuality.pass) {
-            best = candidates[i];
+            best = probeCandidate;
             text = probe;
             quality = probeQuality;
             break;
@@ -1127,22 +1195,21 @@
 
       testLog('extract.full.success', {
         chars: text.length,
-        selectedCandidateId: Number.isInteger(requestedIndex) && requestedIndex >= 0
-          ? ('candidate_' + requestedIndex)
-          : (candidateOptions[0] ? candidateOptions[0].id : '')
+        selectedCandidateId: hasRequestedCandidate
+          ? (candidateOptions[requestedIndex] ? candidateOptions[requestedIndex].id : '')
+          : (candidateOptions[autoIndex] ? candidateOptions[autoIndex].id : (candidateOptions[0] ? candidateOptions[0].id : ''))
       });
+      const resolvedIndex = Math.max(0, selectableCandidates.indexOf(best));
+      const safeResolvedIndex = Math.min(Math.max(0, resolvedIndex), Math.max(0, candidateOptions.length - 1));
+      const resolvedCandidateId = candidateOptions[safeResolvedIndex] ? candidateOptions[safeResolvedIndex].id : '';
+      const autoSelectedCandidateId = candidateOptions[autoIndex] ? candidateOptions[autoIndex].id : '';
       return {
         success: true,
         text: text,
         mode: 'full',
         quality: quality,
-        selectedCandidateId: (() => {
-          const resolved = Number.isInteger(requestedIndex) && requestedIndex >= 0
-            ? requestedIndex
-            : Math.max(0, candidates.indexOf(best));
-          const safe = Math.min(Math.max(0, resolved), Math.max(0, candidateOptions.length - 1));
-          return candidateOptions[safe] ? candidateOptions[safe].id : '';
-        })(),
+        selectedCandidateId: resolvedCandidateId,
+        autoSelectedCandidateId: autoSelectedCandidateId,
         candidates: candidateOptions
       };
     } catch (error) {

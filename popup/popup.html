@@ -54,7 +54,7 @@
         <div class="wizard-card-header">
           <div>
               <h3>Create Comic</h3>
-              <p>Click Generate. Open optional sections only if you want to customize.</p>
+              <p>Click Generate. Open extras only when you need customization.</p>
           </div>
         </div>
 
@@ -92,13 +92,13 @@
           </div>
           <div id="quality-confidence" class="quality-confidence hidden" role="status" aria-live="polite">
             <div class="quality-confidence-row">
-              <span class="label">Grounding Confidence</span>
-              <span id="quality-confidence-badge" class="quality-badge medium">Medium</span>
+              <span class="label quality-light-label">Grounding</span>
+              <span id="quality-confidence-badge" class="quality-light medium" aria-label="Grounding confidence medium" title="Grounding confidence medium"></span>
+              <button id="story-picker-btn" class="btn tiny secondary hidden" type="button">Stories</button>
+              <button id="auto-pick-best-btn" class="btn tiny secondary" type="button">Auto-pick</button>
             </div>
             <div id="quality-confidence-text" class="quality-confidence-text"></div>
-            <div class="quality-confidence-actions">
-              <button id="auto-pick-best-btn" class="btn small secondary" type="button">Auto-pick best story section</button>
-            </div>
+            <div id="story-flow-hint" class="story-flow-hint hidden"></div>
           </div>
 
           <details id="content-extra-section" class="extra-section">
@@ -111,17 +111,17 @@
               <div class="radio-group">
                 <label class="radio-label">
                   <input type="radio" name="contentSource" value="full" checked>
-                  <span>Auto (full page)</span>
+                  <span>Auto-pick top story</span>
                 </label>
                 <label class="radio-label">
                   <input type="radio" name="contentSource" value="selection">
-                  <span>My highlighted text</span>
+                  <span>Use highlighted text</span>
                 </label>
               </div>
             </div>
 
             <div id="content-candidate-wrap" class="content-candidate hidden">
-              <label class="label" for="content-candidate-select">Article Section</label>
+              <label class="label" for="content-candidate-select">Detected Stories</label>
               <select id="content-candidate-select" class="select"></select>
             </div>
             <div id="selected-block-summary" class="selected-block-summary hidden"></div>
@@ -202,13 +202,13 @@
               </div>
 
               <div class="setting-item full-width">
-                <label class="label">AI Provider</label>
+                <label class="label with-inline-icon"><span class="inline-icon inline-icon-ai" aria-hidden="true">AI</span>AI Provider</label>
                 <select id="provider-preset" class="select">
-                  <option value="gemini-free">Google Gemini (Free tier)</option>
-                  <option value="openai">OpenAI (GPT-4 + DALL-E)</option>
-                  <option value="openrouter">OpenRouter</option>
-                  <option value="huggingface">Hugging Face Inference API</option>
-                  <option value="cloudflare-free">Cloudflare Workers AI (Free)</option>
+                  <option value="gemini-free">G Google Gemini (Free tier)</option>
+                  <option value="openai">O OpenAI (GPT-4 + DALL-E)</option>
+                  <option value="openrouter">R OpenRouter</option>
+                  <option value="huggingface">H Hugging Face Inference API</option>
+                  <option value="cloudflare-free">C Cloudflare Workers AI (Free)</option>
                 </select>
                 <span id="provider-info" class="provider-info">Free tier available</span>
               </div>
@@ -316,8 +316,7 @@
     <footer class="popup-footer">
       <button id="history-btn" class="link-btn">History</button>
       <a id="footer-help-link" class="link-btn" href="../docs/user-manual.html#popup-overview" target="_blank" rel="noopener noreferrer" title="Open User Manual">Help</a>
-      <a id="footer-privacy-link" class="link-btn subtle-link" href="../docs/privacy.html" target="_blank" rel="noopener noreferrer" title="Privacy note">Privacy</a>
-      <a id="footer-repo-link" class="link-btn subtle-link" href="../README.md" target="_blank" rel="noopener noreferrer" title="Project home repository">Home Repo</a>
+      <a id="footer-about-link" class="link-btn subtle-link" href="../options/options.html#about-section" target="_blank" rel="noopener noreferrer" title="About, Privacy and Home Repo">About</a>
       <span class="version">v1.0</span>
     </footer>
   </div>
@@ -354,6 +353,24 @@
       <div class="modal-footer">
         <button id="cancel-style-modal-btn" class="btn secondary small">Cancel</button>
         <button id="save-style-modal-btn" class="btn primary small">Save Style</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="story-picker-modal" class="modal hidden">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3>Select Story</h3>
+        <button class="close-btn" id="close-story-picker-btn">&times;</button>
+      </div>
+      <div class="style-modal-body">
+        <p class="setting-hint">Detected story sections. Summaries use Chrome built-in summarizer when available.</p>
+        <div id="story-picker-list" class="story-picker-list">
+          <p class="empty-state">No detected stories yet.</p>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button id="close-story-picker-footer-btn" class="btn secondary small" type="button">Close</button>
       </div>
     </div>
   </div>

@@ -45,6 +45,7 @@ const PROVIDER_LABELS = {
   'openrouter': 'OpenRouter',
   'huggingface': 'Hugging Face'
 };
+const SUPPORTED_OUTPUT_LANGUAGES = new Set(['en', 'auto', 'es', 'fr', 'de', 'it', 'pt', 'ja', 'ko', 'zh']);
 
 function mapRecommendedSettingsPayload(payload) {
   if (!payload || typeof payload !== 'object') return {};
@@ -103,6 +104,7 @@ class PopupController {
     this.extractionQuality = null;
     this.selectedCandidateSummary = '';
     this.selectedCandidateScore = 0;
+    this.storySelectionLockedByUser = false;
     this.currentPageUrl = '';
     this.currentSiteProfile = 'generic';
     this.hasCompletedFirstGeneration = false;
@@ -170,6 +172,7 @@ class PopupController {
       this.currentSiteProfile = this.classifySiteProfile(this.currentPageUrl);
       this.updateSiteProfileHint();
       this.setSelectedContentSource('selection');
+      this.storySelectionLockedByUser = true;
       this.selectionFallbackActive = false;
       this.extractFallbackTried = true;
       this.extractedText = selectedText;
@@ -239,6 +242,7 @@ class PopupController {
       if (stored.settings) {
         this.settings = { ...this.settings, ...stored.settings };
       }
+      this.settings.outputLanguage = this.normalizeOutputLanguage(this.settings.outputLanguage);
       void this.appendDebugLog('settings.loaded', {
         provider: this.settings.activeTextProvider,
         debugFlag: !!this.settings.debugFlag
@@ -267,6 +271,12 @@ class PopupController {
     onboardingSection?.classList.add('hidden');
     homeSection?.classList.remove('hidden');
     mainSection?.classList.add('hidden');
+  }
+
+  normalizeOutputLanguage(value) {
+    const candidate = String(value || '').trim();
+    if (SUPPORTED_OUTPUT_LANGUAGES.has(candidate)) return candidate;
+    return 'en';
   }
 
   classifySiteProfile(url) {
@@ -303,6 +313,10 @@ class PopupController {
 
   getCandidateIndexFromId(candidateId) {
     const id = String(candidateId || '');
+    if (!id) return -1;
+    const candidates = Array.isArray(this.extractionCandidates) ? this.extractionCandidates : [];
+    const exactIndex = candidates.findIndex((candidate) => String(candidate?.id || '') === id);
+    if (exactIndex >= 0) return exactIndex;
     if (!/^candidate_\d+$/i.test(id)) return -1;
     const idx = Number(id.replace('candidate_', ''));
     return Number.isInteger(idx) ? idx : -1;
@@ -312,6 +326,41 @@ class PopupController {
     const idx = this.getCandidateIndexFromId(this.selectedExtractionCandidateId);
     if (idx < 0 || !Array.isArray(this.extractionCandidates)) return null;
     return this.extractionCandidates[idx] || null;
+  }
+
+  updateStoryFlowHint() {
+    const hintEl = document.getElementById('story-flow-hint');
+    if (!hintEl) return;
+
+    const mode = this.getSelectedContentSource();
+    if (!this.extractedText || !String(this.extractedText).trim()) {
+      hintEl.classList.add('hidden');
+      hintEl.textContent = '';
+      return;
+    }
+
+    if (mode === 'selection') {
+      hintEl.textContent = 'Using your highlighted text. Switch back to Auto-pick top story to use detected stories.';
+      hintEl.classList.remove('hidden');
+      return;
+    }
+
+    const candidates = Array.isArray(this.extractionCandidates) ? this.extractionCandidates : [];
+    const selected = this.getSelectedCandidateOption();
+    if (!candidates.length || !selected) {
+      hintEl.textContent = 'Scanning page for top stories...';
+      hintEl.classList.remove('hidden');
+      return;
+    }
+
+    const summary = this.getCandidateDisplaySummary(selected);
+    const selectedLabel = this.storySelectionLockedByUser ? 'Selected story' : 'Auto-selected top story';
+    const summaryMethod = String(selected.summaryMethod || selected.summary_method || '');
+    const summarizerNote = summaryMethod === 'chrome-summarizer'
+      ? ' (Chrome Summarizer)'
+      : '';
+    hintEl.textContent = `${selectedLabel}${summarizerNote}: ${summary} Use Stories to switch, or highlight text to generate from your own selection.`;
+    hintEl.classList.remove('hidden');
   }
 
   evaluateGroundingConfidence() {
@@ -338,31 +387,37 @@ class PopupController {
     const badge = document.getElementById('quality-confidence-badge');
     const text = document.getElementById('quality-confidence-text');
     const selectedSummary = document.getElementById('selected-block-summary');
+    const storyPickerBtn = document.getElementById('story-picker-btn');
     if (!shell || !badge || !text) return;
     if (!this.extractedText) {
       shell.classList.add('hidden');
       if (selectedSummary) selectedSummary.classList.add('hidden');
+      if (storyPickerBtn) storyPickerBtn.classList.add('hidden');
+      this.updateStoryFlowHint();
       return;
     }
     const confidence = this.evaluateGroundingConfidence();
     badge.classList.remove('high', 'medium', 'low');
     badge.classList.add(confidence.level);
-    badge.textContent = confidence.level.charAt(0).toUpperCase() + confidence.level.slice(1);
+    badge.textContent = '';
+    badge.setAttribute('aria-label', 'Grounding confidence ' + confidence.level);
+    badge.setAttribute('title', 'Grounding confidence ' + confidence.level);
     text.textContent = confidence.text;
     shell.classList.remove('hidden');
 
-    const option = this.getSelectedCandidateOption();
-    if (selectedSummary && option?.summary) {
-      selectedSummary.textContent = 'Using section: ' + option.summary;
-      selectedSummary.classList.remove('hidden');
-    } else if (selectedSummary) {
-      selectedSummary.classList.add('hidden');
+    if (selectedSummary) selectedSummary.classList.add('hidden');
+    if (storyPickerBtn) {
+      const canPickStory = this.getSelectedContentSource() === 'full' && Array.isArray(this.extractionCandidates) && this.extractionCandidates.length > 0;
+      storyPickerBtn.classList.toggle('hidden', !canPickStory);
+      storyPickerBtn.disabled = !canPickStory;
     }
+    this.updateStoryFlowHint();
   }
 
   async autoPickBestStorySection() {
     const candidates = Array.isArray(this.extractionCandidates) ? this.extractionCandidates : [];
     if (!candidates.length) return;
+    this.storySelectionLockedByUser = true;
     let bestIndex = 0;
     let bestScore = Number(candidates[0]?.score || -Infinity);
     for (let i = 1; i < candidates.length; i++) {
@@ -372,7 +427,8 @@ class PopupController {
         bestIndex = i;
       }
     }
-    const candidateId = 'candidate_' + bestIndex;
+    const candidateId = String(candidates[bestIndex]?.id || '');
+    if (!candidateId) return;
     this.selectedExtractionCandidateId = candidateId;
     const select = document.getElementById('content-candidate-select');
     if (select) select.value = candidateId;
@@ -464,8 +520,18 @@ class PopupController {
         if (contentSource === 'full') {
           this.selectionFallbackActive = false;
         }
-        this.selectedExtractionCandidateId = response.selectedCandidateId || '';
         this.extractionCandidates = Array.isArray(response.candidates) ? response.candidates : [];
+        const preferredCandidateId = response.selectedCandidateId || response.autoSelectedCandidateId || '';
+        if (contentSource === 'full') {
+          this.selectedExtractionCandidateId =
+            preferredCandidateId ||
+            this.selectedExtractionCandidateId ||
+            options.selectedCandidateId ||
+            (this.extractionCandidates[0] && this.extractionCandidates[0].id) ||
+            '';
+        } else {
+          this.selectedExtractionCandidateId = '';
+        }
         const selectedOption = this.getSelectedCandidateOption();
         this.selectedCandidateSummary = selectedOption?.summary || '';
         this.selectedCandidateScore = Number(selectedOption?.score || 0);
@@ -606,10 +672,12 @@ class PopupController {
     if (!wrap || !select) return;
 
     const candidates = Array.isArray(this.extractionCandidates) ? this.extractionCandidates : [];
-    const confidence = this.evaluateGroundingConfidence();
-    const shouldShow = mode === 'full' && candidates.length > 1 && confidence.level === 'low';
+    const shouldShow = mode === 'full' && candidates.length > 1;
     wrap.classList.toggle('hidden', !shouldShow);
-    if (!shouldShow) return;
+    if (!shouldShow) {
+      this.updateQualityConfidenceUI();
+      return;
+    }
 
     const current = this.selectedExtractionCandidateId || (candidates[0] && candidates[0].id) || '';
     select.innerHTML = candidates.map((c, idx) => {
@@ -624,6 +692,64 @@ class PopupController {
     const selectedOption = this.getSelectedCandidateOption();
     this.selectedCandidateSummary = selectedOption?.summary || '';
     this.selectedCandidateScore = Number(selectedOption?.score || 0);
+    this.updateQualityConfidenceUI();
+  }
+
+  getCandidateDisplaySummary(candidate) {
+    const raw = String(candidate?.summary || '').trim();
+    if (raw) return raw.slice(0, 220);
+    return 'No summary available';
+  }
+
+  renderStoryPickerList() {
+    const list = document.getElementById('story-picker-list');
+    if (!list) return;
+    const candidates = Array.isArray(this.extractionCandidates) ? this.extractionCandidates : [];
+    if (!candidates.length) {
+      list.innerHTML = '<p class="empty-state">No detected stories yet.</p>';
+      return;
+    }
+    list.innerHTML = candidates.map((candidate, idx) => {
+      const id = String(candidate?.id || ('candidate_' + idx));
+      const isActive = id === this.selectedExtractionCandidateId;
+      const title = `Story ${idx + 1} • ${Number(candidate?.chars || 0).toLocaleString()} chars • score ${Number(candidate?.score || 0).toFixed(0)}`;
+      const summary = this.getCandidateDisplaySummary(candidate);
+      return [
+        `<button type="button" class="story-picker-item${isActive ? ' active' : ''}" data-candidate-id="${this.escapeHtml(id)}">`,
+        `<span class="story-picker-item-title">${this.escapeHtml(title)}</span>`,
+        `<span class="story-picker-item-summary">${this.escapeHtml(summary)}</span>`,
+        '</button>'
+      ].join('');
+    }).join('');
+  }
+
+  openStoryPicker() {
+    const modal = document.getElementById('story-picker-modal');
+    if (!modal) return;
+    this.renderStoryPickerList();
+    modal.classList.remove('hidden');
+  }
+
+  hideStoryPicker() {
+    const modal = document.getElementById('story-picker-modal');
+    if (!modal) return;
+    modal.classList.add('hidden');
+  }
+
+  async selectStoryCandidate(candidateId) {
+    const nextCandidateId = String(candidateId || '').trim();
+    if (!nextCandidateId) return;
+    this.storySelectionLockedByUser = true;
+    this.selectedExtractionCandidateId = nextCandidateId;
+    const select = document.getElementById('content-candidate-select');
+    if (select) select.value = nextCandidateId;
+    const selectedOption = this.getSelectedCandidateOption();
+    this.selectedCandidateSummary = selectedOption?.summary || '';
+    this.selectedCandidateScore = Number(selectedOption?.score || 0);
+    this.updateStoryFlowHint();
+    this.updateQualityConfidenceUI();
+    this.hideStoryPicker();
+    await this.extractContent({ selectedCandidateId: nextCandidateId });
   }
 
   bindEvents() {
@@ -644,6 +770,7 @@ class PopupController {
     // Content source change
     document.querySelectorAll('input[name="contentSource"]').forEach(radio => {
       radio.addEventListener('change', () => {
+        this.storySelectionLockedByUser = this.getSelectedContentSource() === 'selection';
         if (this.getSelectedContentSource() !== 'full') {
           this.selectedExtractionCandidateId = '';
           this.extractionCandidates = [];
@@ -655,6 +782,7 @@ class PopupController {
     });
     document.getElementById('content-candidate-select')?.addEventListener('change', (e) => {
       const candidateId = e && e.target ? e.target.value : '';
+      this.storySelectionLockedByUser = true;
       this.selectedExtractionCandidateId = candidateId || '';
       this.extractContent({ selectedCandidateId: this.selectedExtractionCandidateId });
     });
@@ -662,6 +790,15 @@ class PopupController {
     // Refresh preview
     document.getElementById('refresh-preview-btn')?.addEventListener('click', () => this.extractContent());
     document.getElementById('auto-pick-best-btn')?.addEventListener('click', () => this.autoPickBestStorySection());
+    document.getElementById('story-picker-btn')?.addEventListener('click', () => this.openStoryPicker());
+    document.getElementById('close-story-picker-btn')?.addEventListener('click', () => this.hideStoryPicker());
+    document.getElementById('close-story-picker-footer-btn')?.addEventListener('click', () => this.hideStoryPicker());
+    document.getElementById('story-picker-list')?.addEventListener('click', (event) => {
+      const btn = event?.target?.closest?.('.story-picker-item');
+      const candidateId = btn?.dataset?.candidateId || '';
+      if (!candidateId) return;
+      void this.selectStoryCandidate(candidateId);
+    });
     
     // Settings changes
     document.getElementById('panel-count').addEventListener('change', (e) => {
@@ -676,7 +813,7 @@ class PopupController {
       this.updateWizardReadiness();
     });
     document.getElementById('output-language')?.addEventListener('change', (e) => {
-      this.settings.outputLanguage = e.target.value || 'en';
+      this.settings.outputLanguage = this.normalizeOutputLanguage(e.target.value);
       this.saveSettings();
       this.updateWizardReadiness();
     });
@@ -751,6 +888,7 @@ class PopupController {
     document.getElementById('retry-full-extract-btn')?.addEventListener('click', () => {
       this.selectionFallbackActive = false;
       this.extractFallbackTried = false;
+      this.storySelectionLockedByUser = false;
       this.setSelectedContentSource('full');
       this.refreshSelectionFallbackUI();
       this.extractContent({ isRetry: false });
@@ -779,7 +917,8 @@ class PopupController {
     // Update form values from settings
     document.getElementById('panel-count').value = this.settings.panelCount;
     document.getElementById('objective').value = this.settings.objective || 'summarize';
-    document.getElementById('output-language').value = this.settings.outputLanguage || 'en';
+    this.settings.outputLanguage = this.normalizeOutputLanguage(this.settings.outputLanguage);
+    document.getElementById('output-language').value = this.settings.outputLanguage;
     this.normalizePanelCountSetting();
     document.getElementById('detail-level').value = this.settings.detailLevel;
     this.renderStyleOptions();
@@ -894,17 +1033,10 @@ class PopupController {
 
   getReadinessNextAction(readinessState) {
     if (!readinessState || readinessState.canGenerate) return null;
-    if (!readinessState.contentReady) {
-      return {
-        id: 'open-content',
-        label: 'Open Source Text',
-        handler: () => this.setExtraSectionOpen('content-extra-section', true)
-      };
-    }
     if (!this.hasAnyConfiguredProviders) {
       return {
         id: 'open-settings',
-        label: 'Open Settings',
+        label: 'Connect Provider',
         handler: () => this.openOptions()
       };
     }
@@ -913,6 +1045,13 @@ class PopupController {
         id: 'open-customize',
         label: 'Open Customize',
         handler: () => this.setExtraSectionOpen('options-extra-section', true)
+      };
+    }
+    if (!readinessState.contentReady) {
+      return {
+        id: 'open-content',
+        label: 'Open Source Text',
+        handler: () => this.setExtraSectionOpen('content-extra-section', true)
       };
     }
     return null;
@@ -1298,14 +1437,23 @@ class PopupController {
     const settingsReady = providerReady && styleReady;
     const canGenerate = contentReady && settingsReady;
     const issues = [];
-    if (!contentReady) issues.push('Select source text to continue');
+    if (!contentReady) {
+      issues.push(
+        this.getSelectedContentSource() === 'selection'
+          ? 'Highlight text on the page to continue'
+          : 'Wait for top stories to be detected or choose highlighted text'
+      );
+    }
     if (!this.hasAnyConfiguredProviders) issues.push('Connect a model provider in Settings');
     else if (!providerReady) issues.push('Finish provider setup in Settings');
     if (!styleReady) issues.push('Complete style details');
     this.lastWizardReadiness = { contentReady, settingsReady, canGenerate, issues };
-    const canonicalText = canGenerate
-      ? 'Ready. Click Generate Comic.'
-      : ('Next step: ' + issues.join('; ') + '.');
+    const canonicalText = this.getReadinessGuidance({
+      canGenerate,
+      contentReady,
+      providerReady,
+      hasAnyConfiguredProviders: this.hasAnyConfiguredProviders
+    });
     this.updateQuickReadinessChips({ contentReady, settingsReady, canGenerate }, canonicalText);
     this.updateReadinessActionControl(this.lastWizardReadiness);
     const quickChips = document.getElementById('quick-readiness-chips');
@@ -1345,18 +1493,12 @@ class PopupController {
     this.refreshSelectionFallbackUI();
 
     const mainVisible = !document.getElementById('main-section')?.classList.contains('hidden');
-    const criticalWorsening = Boolean(this.lastReadinessState && this.lastReadinessState.canGenerate && !canGenerate);
     if (mainVisible && !this.isGenerating) {
-      const shouldOpenContent = !contentReady && (
-        criticalWorsening ||
-        this.selectionFallbackActive ||
-        (!this.userCollapsedContent && !this.autoExpandedContentOnce)
-      );
-      const shouldOpenOptions = !settingsReady && (
-        criticalWorsening ||
-        !this.hasAnyConfiguredProviders ||
-        (!this.userCollapsedOptions && !this.autoExpandedOptionsOnce)
-      );
+      const shouldOpenOptions = !settingsReady && !this.userCollapsedOptions && !this.autoExpandedOptionsOnce;
+      const shouldOpenContent = !contentReady &&
+        (this.selectionFallbackActive || this.getSelectedContentSource() === 'selection') &&
+        !this.userCollapsedContent &&
+        !this.autoExpandedContentOnce;
       if (shouldOpenContent) {
         this.setExtraSectionOpen('content-extra-section', true);
         this.autoExpandedContentOnce = true;
@@ -1376,6 +1518,19 @@ class PopupController {
     readinessBox.classList.add('warn');
     readinessText.textContent = canonicalText;
     this.lastReadinessState = { contentReady, settingsReady, canGenerate };
+  }
+
+  getReadinessGuidance(state) {
+    if (state?.canGenerate) return 'Ready to generate.';
+    if (!state?.hasAnyConfiguredProviders) return 'Connect a model provider in Settings to continue.';
+    if (!state?.providerReady) return 'Complete provider setup in Settings.';
+    if (!state?.contentReady) {
+      if (this.getSelectedContentSource() === 'selection') {
+        return 'Select text on the page, then click Re-scan.';
+      }
+      return 'Pick a detected story or switch to highlighted text.';
+    }
+    return 'Review settings, then generate.';
   }
 
   async saveSettings() {

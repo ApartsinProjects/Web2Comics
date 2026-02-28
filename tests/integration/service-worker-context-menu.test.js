@@ -200,6 +200,28 @@ describe('Service Worker Context Menu Settings', () => {
     expect(chrome.action.openPopup).not.toHaveBeenCalled();
   });
 
+  it('opens popup and stores source metadata when opening composer from context menu by default', async () => {
+    await import('../../background/service-worker.js');
+    const hook = globalThis.__WEB2COMICS_E2E__;
+
+    const result = await hook.triggerSelectionMenuOpenComposer(
+      { selectionText: 'Selected text for default open composer flow.' },
+      { url: 'https://example.com/source', title: 'Source Article', windowId: 1 }
+    );
+    await flush();
+
+    expect(result).toEqual({ opened: true });
+    const prefillCall = chrome.storage.local.set.mock.calls.find((call) => call[0]?.pendingComposerPrefill);
+    expect(prefillCall).toBeTruthy();
+    expect(prefillCall[0].pendingComposerPrefill).toMatchObject({
+      text: 'Selected text for default open composer flow.',
+      sourceUrl: 'https://example.com/source',
+      sourceTitle: 'Source Article',
+      source: 'context-menu-selection'
+    });
+    expect(chrome.action.openPopup).toHaveBeenCalled();
+  });
+
   it('falls back to defaults when reading settings throws', async () => {
     chrome.storage.local.get.mockImplementation(async (key) => {
       if (key === 'settings') throw new Error('storage read failed');
@@ -261,5 +283,122 @@ describe('Service Worker Context Menu Settings', () => {
 
     expect(result?.started).toBe(true);
     expect(sw.executeGeneration).toHaveBeenCalled();
+  });
+
+  it('extracts panel facts from the most relevant sentence and filters unrelated entities', async () => {
+    await import('../../background/service-worker.js');
+    const hook = globalThis.__WEB2COMICS_E2E__;
+    const sw = hook.getServiceWorker();
+
+    const facts = sw.extractPanelFacts(
+      { caption: 'Israel inflation in 2024 and Bank of Israel outlook' },
+      [
+        'Meanwhile Committee members in Washington discussed unrelated policy details.',
+        'Israel inflation reached 3.2% in 2024, according to the Bank of Israel in Jerusalem.'
+      ].join(' ')
+    );
+
+    expect(String(facts.source_snippet || '')).toContain('Israel inflation reached 3.2% in 2024');
+    const entitiesText = (facts.entities || []).join(' ');
+    expect(entitiesText).toContain('Israel');
+    expect(entitiesText).toContain('Bank');
+    expect(entitiesText).not.toContain('Committee');
+  });
+
+  it('keeps entities conservative when caption has weak overlap with source', async () => {
+    await import('../../background/service-worker.js');
+    const hook = globalThis.__WEB2COMICS_E2E__;
+    const sw = hook.getServiceWorker();
+
+    const facts = sw.extractPanelFacts(
+      { caption: 'Update' },
+      'The Council met in Geneva. Delegates reviewed procedural matters and issued a brief note.'
+    );
+
+    const entities = Array.isArray(facts.entities) ? facts.entities : [];
+    expect(entities).not.toContain('The');
+    expect(entities.length).toBeLessThanOrEqual(2);
+  });
+
+  it('regenerate-caption keeps beat meaning and only changes phrasing form', async () => {
+    await import('../../background/service-worker.js');
+    const hook = globalThis.__WEB2COMICS_E2E__;
+    const sw = hook.getServiceWorker();
+
+    const caption = sw.transformPanelCaption(
+      {
+        beat_summary: 'Israel inflation cooled in 2024 while the central bank held rates steady.',
+        caption: 'Previous caption text'
+      },
+      'regenerate-caption'
+    );
+
+    expect(caption).toContain('In this moment:');
+    expect(caption).toContain('Israel inflation cooled in 2024 while the central bank held rates steady');
+    expect(caption).not.toContain('Previous caption text');
+  });
+
+  it('regenerate-image builds a beat-preserving prompt anchored to story facts', async () => {
+    await import('../../background/service-worker.js');
+    const hook = globalThis.__WEB2COMICS_E2E__;
+    const sw = hook.getServiceWorker();
+
+    const imagePrompt = sw.buildBeatPreservingImagePrompt(
+      {
+        beat_summary: 'The parliament approved the budget after a late-night vote.',
+        facts_used: {
+          entities: ['Parliament'],
+          dates: ['2026'],
+          numbers: ['61']
+        }
+      },
+      0
+    );
+
+    expect(imagePrompt).toContain('Comic panel illustration of: The parliament approved the budget after a late-night vote.');
+    expect(imagePrompt).toContain('Keep these facts visible: Parliament, 2026, 61');
+    expect(imagePrompt).toContain('Preserve the same scene meaning and event context');
+  });
+
+  it('prefers beat-specific snippet over generic sentence when caption phrasing is generic', async () => {
+    await import('../../background/service-worker.js');
+    const hook = globalThis.__WEB2COMICS_E2E__;
+    const sw = hook.getServiceWorker();
+
+    const facts = sw.extractPanelFacts(
+      {
+        caption: 'In this moment: this story develops.',
+        beat_summary: 'Israel inflation reached 3.2% in 2024 according to the Bank of Israel.'
+      },
+      [
+        'This story develops as reactions continue across markets.',
+        'Israel inflation reached 3.2% in 2024 according to the Bank of Israel in Jerusalem.'
+      ].join(' ')
+    );
+
+    expect(String(facts.source_snippet || '')).toContain('Israel inflation reached 3.2% in 2024');
+    const entitiesText = (facts.entities || []).join(' ');
+    expect(entitiesText).toContain('Israel');
+    expect(entitiesText).toContain('Bank');
+  });
+
+  it('filters noisy wire/news entities that are not tied to the beat', async () => {
+    await import('../../background/service-worker.js');
+    const hook = globalThis.__WEB2COMICS_E2E__;
+    const sw = hook.getServiceWorker();
+
+    const facts = sw.extractPanelFacts(
+      {
+        beat_summary: 'Apple reported revenue growth in 2025 and iPhone sales increased.'
+      },
+      [
+        'Breaking Update Reuters Live: Apple reported revenue growth in 2025 and iPhone sales increased.',
+        'Analysts said the report reflects stronger demand.'
+      ].join(' ')
+    );
+
+    const entities = Array.isArray(facts.entities) ? facts.entities.join(' ') : '';
+    expect(entities).toContain('Apple');
+    expect(entities).not.toMatch(/Reuters|Breaking|Update|Live/);
   });
 });

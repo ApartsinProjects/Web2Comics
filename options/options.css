@@ -34,6 +34,10 @@ body {
   min-height: 100vh;
 }
 
+.hidden {
+  display: none !important;
+}
+
 .options-container {
   max-width: 900px;
   margin: 0 auto;
@@ -240,6 +244,88 @@ textarea:focus, select:focus, input:focus {
 
 .provider-header h4 {
   font-size: 16px;
+}
+
+.with-inline-icon {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.inline-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--bg-primary);
+  color: var(--text-secondary);
+  font-size: 10px;
+  line-height: 1;
+  font-weight: 700;
+  flex: 0 0 auto;
+}
+
+.inline-icon-provider-gemini {
+  color: #4338ca;
+  border-color: #c7d2fe;
+  background: #eef2ff;
+}
+
+.inline-icon-provider-cloudflare {
+  color: #b45309;
+  border-color: #fed7aa;
+  background: #fff7ed;
+}
+
+.inline-icon-provider-openrouter {
+  color: #7c2d12;
+  border-color: #fdba74;
+  background: #fff7ed;
+}
+
+.inline-icon-provider-huggingface {
+  color: #854d0e;
+  border-color: #fef08a;
+  background: #fefce8;
+}
+
+.inline-icon-provider-openai {
+  color: #065f46;
+  border-color: #a7f3d0;
+  background: #ecfdf5;
+}
+
+.inline-icon-target-gdrive {
+  color: #1d4ed8;
+  border-color: #bfdbfe;
+  background: #eff6ff;
+}
+
+.inline-icon-target-facebook {
+  color: #1d4ed8;
+  border-color: #bfdbfe;
+  background: #eff6ff;
+}
+
+.inline-icon-target-x {
+  color: #111827;
+  border-color: #d1d5db;
+  background: #f9fafb;
+}
+
+.inline-icon-target-instagram {
+  color: #9d174d;
+  border-color: #fbcfe8;
+  background: #fdf2f8;
+}
+
+.inline-icon-target-other {
+  color: #334155;
+  border-color: #cbd5e1;
+  background: #f8fafc;
 }
 
 .badge {
@@ -467,6 +553,35 @@ textarea:focus, select:focus, input:focus {
   margin-top: 10px;
 }
 
+.connection-card {
+  border: 1px solid var(--border);
+}
+
+.connection-actions {
+  margin-top: 12px;
+  gap: 8px;
+}
+
+.icon-control {
+  padding: 6px 10px;
+  min-height: 32px;
+  font-size: 12px;
+}
+
+.icon-control-glyph {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  font-size: 11px;
+  line-height: 1;
+  font-weight: 700;
+  background: rgba(99, 102, 241, 0.14);
+  color: var(--primary);
+}
+
 #google-drive-connection-status.connected {
   color: var(--success);
   font-weight: 600;
@@ -658,4 +773,72 @@ textarea:focus, select:focus, input:focus {
 
 .toast.error {
   background: var(--danger);
+}
+
+/* XUI polish overrides */
+.options-container {
+  max-width: 980px;
+}
+
+.options-header {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  backdrop-filter: blur(8px);
+}
+
+.options-nav {
+  position: sticky;
+  top: 74px;
+  z-index: 9;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.nav-btn {
+  padding: 8px 14px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.options-main {
+  padding: 20px 24px 28px;
+}
+
+.setting-group {
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-sm);
+}
+
+.setting-description {
+  line-height: 1.45;
+  max-width: 72ch;
+}
+
+select,
+input[type="number"],
+input[type="text"],
+input[type="password"],
+textarea {
+  max-width: 100%;
+}
+
+.actions {
+  flex-wrap: wrap;
+}
+
+.connection-actions {
+  align-items: center;
+}
+
+@media (max-width: 860px) {
+  .options-nav {
+    top: 68px;
+  }
+  .options-main {
+    padding: 16px;
+  }
+  .model-selection {
+    flex-direction: column;
+  }
 }

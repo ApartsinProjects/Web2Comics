@@ -2495,35 +2495,189 @@ var ServiceWorker = function() {
   };
 
   this.extractPanelFacts = function(panel, sourceText) {
-    var caption = String((panel && (panel.caption || panel.beat_summary || panel.summary || panel.title || panel.text)) || '').trim();
+    var beatAnchorRaw = normalizeLooseTextValue(
+      panel && (panel.beat_summary || panel.summary || panel.beat || panel.narration || panel.description || panel.title || panel.text || panel.dialogue)
+    );
+    var captionRaw = normalizeLooseTextValue(
+      panel && (panel.caption || panel.beat_summary || panel.summary || panel.title || panel.text || panel.narration || panel.description || panel.dialogue)
+    );
+    var beatAnchor = String(beatAnchorRaw || '').trim();
+    var caption = String(captionRaw || '').trim();
+    var groundingAnchor = beatAnchor || caption;
+    // Strip common regenerate wrappers so grounding is tied to content, not UI wording.
+    groundingAnchor = groundingAnchor
+      .replace(/^\s*in this moment\s*:\s*/i, '')
+      .replace(/^\s*key point\s*:\s*/i, '')
+      .replace(/\s*\[[^\]]+\]\s*$/g, '')
+      .trim();
+    if (!groundingAnchor) groundingAnchor = caption;
     var text = String(sourceText || '');
     var sentencePool = text
-      .split(/[.!?]\s+/)
+      .split(/[.!?]\s+|\n+/)
       .map(function(s) { return s.trim(); })
       .filter(Boolean)
-      .slice(0, 220);
+      .slice(0, 260);
     var fallbackSnippet = sentencePool[0] || '';
-    var captionTerms = caption.toLowerCase().match(/[a-z0-9][a-z0-9'-]{2,}/g) || [];
-    var snippet = '';
-    if (captionTerms.length) {
-      for (var i = 0; i < sentencePool.length; i++) {
-        var s = sentencePool[i];
-        var lower = s.toLowerCase();
-        var hits = 0;
-        for (var j = 0; j < captionTerms.length; j++) {
-          if (lower.indexOf(captionTerms[j]) >= 0) hits += 1;
-          if (hits >= 2) break;
-        }
-        if (hits >= 2) {
-          snippet = s;
-          break;
-        }
+    var stopTerms = {
+      the: 1, and: 1, for: 1, with: 1, from: 1, into: 1, onto: 1, this: 1, that: 1, these: 1, those: 1,
+      about: 1, after: 1, before: 1, during: 1, under: 1, over: 1, were: 1, was: 1, have: 1, has: 1, had: 1,
+      into: 1, than: 1, then: 1, also: 1, only: 1, very: 1, more: 1, most: 1, less: 1, much: 1
+    };
+    var anchorTerms = (groundingAnchor.toLowerCase().match(/[a-z0-9][a-z0-9'-]{2,}/g) || [])
+      .filter(function(term) { return !stopTerms[term]; })
+      .slice(0, 30);
+    var anchorTermSet = {};
+    for (var ct = 0; ct < anchorTerms.length; ct++) anchorTermSet[anchorTerms[ct]] = 1;
+    var anchorEntities = (groundingAnchor.match(/\b(?:[A-Z]{2,}|[A-Z][a-z]+)(?:\s+(?:[A-Z]{2,}|[A-Z][a-z]+)){0,2}\b/g) || [])
+      .map(function(v) { return String(v || '').trim().toLowerCase(); })
+      .filter(Boolean)
+      .slice(0, 8);
+    var anchorEntitySet = {};
+    for (var ae = 0; ae < anchorEntities.length; ae++) anchorEntitySet[anchorEntities[ae]] = 1;
+    var anchorDates = (groundingAnchor.match(/\b(?:\d{4}|\d{1,2}\s+[A-Z][a-z]+\s+\d{4}|[A-Z][a-z]+\s+\d{1,2},\s+\d{4})\b/g) || [])
+      .map(function(v) { return String(v || '').trim(); })
+      .filter(Boolean)
+      .slice(0, 4);
+    var anchorNumbers = (groundingAnchor.match(/\b\d[\d,]*(?:\.\d+)?%?\b/g) || [])
+      .map(function(v) { return String(v || '').trim(); })
+      .filter(Boolean)
+      .slice(0, 6);
+
+    function countPhraseOccurrences(haystack, phrase) {
+      var h = String(haystack || '').toLowerCase();
+      var p = String(phrase || '').toLowerCase().trim();
+      if (!h || !p) return 0;
+      var idx = 0;
+      var hits = 0;
+      while (idx >= 0) {
+        idx = h.indexOf(p, idx);
+        if (idx < 0) break;
+        hits += 1;
+        idx += p.length;
       }
+      return hits;
     }
-    if (!snippet) snippet = fallbackSnippet;
-    var entityMatches = (snippet.match(/\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,2}\b/g) || []).slice(0, 6);
-    var dateMatches = (snippet.match(/\b(?:\d{4}|\d{1,2}\s+[A-Z][a-z]+\s+\d{4}|[A-Z][a-z]+\s+\d{1,2},\s+\d{4})\b/g) || []).slice(0, 4);
-    var numberMatches = (snippet.match(/\b\d[\d,]*(?:\.\d+)?%?\b/g) || []).slice(0, 5);
+
+    function getKeyPhrases(anchorText) {
+      var tokens = (String(anchorText || '').toLowerCase().match(/[a-z0-9][a-z0-9'-]{2,}/g) || [])
+        .filter(function(term) { return !stopTerms[term]; })
+        .slice(0, 18);
+      var phrases = [];
+      for (var i = 0; i < tokens.length - 1; i++) {
+        phrases.push(tokens[i] + ' ' + tokens[i + 1]);
+      }
+      return phrases.slice(0, 8);
+    }
+    var keyPhrases = getKeyPhrases(groundingAnchor);
+
+    function scoreSentence(sentence) {
+      var tokens = (String(sentence || '').toLowerCase().match(/[a-z0-9][a-z0-9'-]{2,}/g) || []);
+      var uniq = {};
+      var overlap = 0;
+      for (var i = 0; i < tokens.length; i++) {
+        var tok = tokens[i];
+        if (!anchorTermSet[tok] || uniq[tok]) continue;
+        uniq[tok] = 1;
+        overlap += 1;
+      }
+      var sentenceLower = String(sentence || '').toLowerCase();
+      var phraseHits = 0;
+      for (var p = 0; p < keyPhrases.length; p++) {
+        if (sentenceLower.indexOf(keyPhrases[p]) >= 0) phraseHits += 1;
+      }
+      var entityHits = 0;
+      for (var ent = 0; ent < anchorEntities.length; ent++) {
+        if (sentenceLower.indexOf(anchorEntities[ent]) >= 0) entityHits += 1;
+      }
+      var dateHits = 0;
+      for (var d = 0; d < anchorDates.length; d++) {
+        if (sentence.indexOf(anchorDates[d]) >= 0) dateHits += 1;
+      }
+      var numberHits = 0;
+      for (var n = 0; n < anchorNumbers.length; n++) {
+        if (sentence.indexOf(anchorNumbers[n]) >= 0) numberHits += 1;
+      }
+      return overlap + (phraseHits * 2) + (entityHits * 2) + (dateHits * 2) + numberHits;
+    }
+
+    var bestSnippet = '';
+    var bestScore = -1;
+    for (var i = 0; i < sentencePool.length; i++) {
+      var s = sentencePool[i];
+      var score = scoreSentence(s);
+      if (score > bestScore) {
+        bestScore = score;
+        bestSnippet = s;
+      }
+      if (score >= 3) break;
+    }
+    var snippet = bestSnippet || fallbackSnippet || '';
+    var lowConfidence = anchorTerms.length > 0 && bestScore <= 1;
+
+    var entityStopwords = {
+      The: 1, A: 1, An: 1, In: 1, On: 1, At: 1, As: 1, By: 1, From: 1, To: 1, Of: 1, For: 1, And: 1, Or: 1,
+      This: 1, That: 1, These: 1, Those: 1, It: 1, He: 1, She: 1, They: 1, We: 1, You: 1, I: 1,
+      Monday: 1, Tuesday: 1, Wednesday: 1, Thursday: 1, Friday: 1, Saturday: 1, Sunday: 1
+    };
+    var entityNoiseTerms = {
+      live: 1, breaking: 1, update: 1, updates: 1, video: 1, photo: 1, image: 1, images: 1,
+      story: 1, stories: 1, report: 1, reports: 1, analysis: 1, opinion: 1, reuters: 1, ap: 1
+    };
+    function countAnchorTokenOverlap(candidateLower) {
+      var parts = String(candidateLower || '').split(/[^a-z0-9]+/).filter(Boolean);
+      var overlap = 0;
+      for (var pi = 0; pi < parts.length; pi++) {
+        if (anchorTermSet[parts[pi]]) overlap += 1;
+      }
+      return overlap;
+    }
+    var rawEntities = snippet.match(/\b(?:[A-Z]{2,}|[A-Z][a-z]+)(?:\s+(?:[A-Z]{2,}|[A-Z][a-z]+)){0,3}\b/g) || [];
+    var entityMatches = [];
+    var seenEntities = {};
+    var panelLower = groundingAnchor.toLowerCase();
+    var sourceLower = text.toLowerCase();
+    for (var e = 0; e < rawEntities.length; e++) {
+      var candidate = String(rawEntities[e] || '').trim().replace(/^[^A-Za-z0-9]+|[^A-Za-z0-9]+$/g, '');
+      if (!candidate || candidate.length < 3) continue;
+      if (entityStopwords[candidate]) continue;
+      var candidateLower = candidate.toLowerCase();
+      if (seenEntities[candidateLower]) continue;
+      if (entityNoiseTerms[candidateLower]) continue;
+      var inPanel = panelLower.indexOf(candidateLower) >= 0;
+      var inAnchorEntities = !!anchorEntitySet[candidateLower];
+      var anchorTokenOverlap = countAnchorTokenOverlap(candidateLower);
+      var anchorRelated = inPanel || inAnchorEntities || anchorTokenOverlap > 0;
+      var freq = countPhraseOccurrences(sourceLower, candidateLower);
+      if (anchorTerms.length && !anchorRelated && freq < 3) continue;
+      if (lowConfidence && !anchorRelated) continue;
+      seenEntities[candidateLower] = 1;
+      entityMatches.push(candidate);
+      if (entityMatches.length >= 6) break;
+    }
+
+    var rawDates = snippet.match(/\b(?:\d{4}|\d{1,2}\s+[A-Z][a-z]+\s+\d{4}|[A-Z][a-z]+\s+\d{1,2},\s+\d{4})\b/g) || [];
+    var dateMatches = [];
+    var seenDates = {};
+    for (var d = 0; d < rawDates.length; d++) {
+      var dateCandidate = String(rawDates[d] || '').trim();
+      if (!dateCandidate || seenDates[dateCandidate]) continue;
+      seenDates[dateCandidate] = 1;
+      dateMatches.push(dateCandidate);
+      if (dateMatches.length >= 4) break;
+    }
+
+    var rawNumbers = snippet.match(/\b\d[\d,]*(?:\.\d+)?%?\b/g) || [];
+    var numberMatches = [];
+    var seenNumbers = {};
+    for (var n = 0; n < rawNumbers.length; n++) {
+      var numCandidate = String(rawNumbers[n] || '').trim();
+      var digits = numCandidate.replace(/\D/g, '').length;
+      if (!numCandidate || seenNumbers[numCandidate]) continue;
+      if (digits < 2 && numCandidate.indexOf('%') < 0) continue;
+      seenNumbers[numCandidate] = 1;
+      numberMatches.push(numCandidate);
+      if (numberMatches.length >= 5) break;
+    }
     return {
       entities: entityMatches,
       dates: dateMatches,
@@ -2544,9 +2698,16 @@ var ServiceWorker = function() {
 
   this.transformPanelCaption = function(panel, action) {
     var p = panel && typeof panel === 'object' ? panel : {};
+    var panelIndex = Number(p.panel_index || p.panelIndex || 0) || 0;
+    var beatAnchor = normalizeLooseTextValue(
+      p.beat_summary || p.summary || p.beat || p.narration || p.description || p.title || p.text || p.dialogue
+    ) || '';
     var currentCaption = normalizeLooseTextValue(
       p.caption || p.beat_summary || p.summary || p.title || p.text || p.narration || p.description || p.dialogue
     ) || 'Key moment from the source';
+    if (!beatAnchor) {
+      beatAnchor = rewritePromptLikeCaptionToStoryBeat(currentCaption, p, panelIndex);
+    }
     var facts = p.facts_used || {};
     var entity = Array.isArray(facts.entities) && facts.entities.length ? facts.entities[0] : '';
     var number = Array.isArray(facts.numbers) && facts.numbers.length ? facts.numbers[0] : '';
@@ -2554,86 +2715,186 @@ var ServiceWorker = function() {
     var snippet = normalizeLooseTextValue(facts.source_snippet || '');
 
     if (action === 'make-simpler') {
-      return currentCaption
+      var storyLikeSource = normalizeLooseTextValue(
+        p.beat_summary || p.summary || p.narration || p.description || p.title || p.text || p.dialogue
+      );
+      var baseCaption = storyLikeSource && !looksLikeImagePromptText(storyLikeSource)
+        ? storyLikeSource
+        : rewritePromptLikeCaptionToStoryBeat(currentCaption, p, panelIndex);
+      var simplified = baseCaption
         .replace(/\s+/g, ' ')
         .split(/[;:,.]/)[0]
         .slice(0, 130)
         .trim();
+      if (!simplified) simplified = ('Key point: ' + (entity || date || number || snippet || currentCaption)).slice(0, 130).trim();
+      if (looksLikeImagePromptText(simplified)) {
+        simplified = rewritePromptLikeCaptionToStoryBeat(simplified, p, panelIndex);
+      }
+      return simplified;
     }
 
     if (action === 'make-factual') {
-      var factual = [entity, date, number].filter(Boolean).join(' ');
-      if (factual) return ('Fact check: ' + factual + '.').slice(0, 180);
-      if (snippet) return ('Fact check: ' + snippet).slice(0, 180);
-      return ('Fact check: ' + currentCaption).slice(0, 180);
+      var anchor = beatAnchor || currentCaption;
+      var factualBits = [date, number, entity].filter(Boolean).join(' | ');
+      if (factualBits) return (anchor + ' [' + factualBits + ']').slice(0, 180);
+      if (snippet) return (anchor + ' [' + snippet.slice(0, 70) + ']').slice(0, 180);
+      return anchor.slice(0, 180);
     }
 
     if (action === 'regenerate-caption') {
-      if (snippet) return snippet.slice(0, 180);
-      return ('Updated: ' + currentCaption).slice(0, 180);
+      var sourceBeat = beatAnchor || currentCaption;
+      var compact = sourceBeat.replace(/\s+/g, ' ').replace(/[.!?]+$/g, '').trim();
+      if (!compact) compact = 'Key moment from the source';
+      if (compact.length > 150) return (compact.slice(0, 150) + '.').trim();
+      // Reword form while keeping beat meaning unchanged.
+      return ('In this moment: ' + compact + '.').slice(0, 180);
     }
 
     return currentCaption;
+  };
+
+  this.buildBeatPreservingImagePrompt = function(panel, panelIndex) {
+    var p = panel && typeof panel === 'object' ? panel : {};
+    var idx = Number(panelIndex || 0);
+    var beatAnchor = normalizeLooseTextValue(
+      p.beat_summary || p.summary || p.beat || p.narration || p.description || p.title || p.text || p.dialogue || p.caption
+    ) || '';
+    if (!beatAnchor) beatAnchor = 'Panel ' + (idx + 1) + ' key event';
+    if (looksLikeImagePromptText(beatAnchor)) {
+      beatAnchor = rewritePromptLikeCaptionToStoryBeat(beatAnchor, p, idx);
+    }
+
+    var facts = p.facts_used || {};
+    var factualHint = [
+      Array.isArray(facts.entities) && facts.entities.length ? facts.entities[0] : '',
+      Array.isArray(facts.dates) && facts.dates.length ? facts.dates[0] : '',
+      Array.isArray(facts.numbers) && facts.numbers.length ? facts.numbers[0] : ''
+    ].filter(Boolean).join(', ');
+
+    var rebuilt = 'Comic panel illustration of: ' + beatAnchor;
+    if (factualHint) rebuilt += '. Keep these facts visible: ' + factualHint;
+    rebuilt += '. Preserve the same scene meaning and event context as this panel.';
+    return rebuilt.replace(/\s+/g, ' ').trim().slice(0, 420);
+  };
+
+  this.resolvePanelEditTarget = function(payload) {
+    var panelIndex = Number(payload && payload.panelIndex);
+    var comicId = String((payload && payload.comicId) || '').trim();
+    var target = {
+      kind: 'currentJob',
+      job: self.currentJob,
+      history: null,
+      historyIndex: -1
+    };
+    if (
+      !target.job ||
+      !target.job.storyboard ||
+      !Array.isArray(target.job.storyboard.panels) ||
+      (comicId && String(target.job.id || target.job.jobId || '') !== comicId)
+    ) {
+      target.kind = 'history';
+      target.job = null;
+      return chrome.storage.local.get('history').then(function(result) {
+        var history = Array.isArray(result && result.history) ? result.history : [];
+        var idx = -1;
+        if (comicId) {
+          idx = history.findIndex(function(item) { return String(item && item.id || '') === comicId; });
+        }
+        if (idx < 0) {
+          idx = history.findIndex(function(item) {
+            return item && item.storyboard && Array.isArray(item.storyboard.panels) && panelIndex < item.storyboard.panels.length;
+          });
+        }
+        if (idx < 0) throw new Error('No editable comic available');
+        var item = history[idx] || {};
+        target.history = history;
+        target.historyIndex = idx;
+        target.job = {
+          id: String(item.id || ''),
+          storyboard: item.storyboard || { panels: [] },
+          settings: (item.storyboard && item.storyboard.settings) || {},
+          extractedText: item.extractedText || '',
+          sourceUrl: (item.source && item.source.url) || (item.storyboard && item.storyboard.source && item.storyboard.source.url) || '',
+          sourceTitle: (item.source && item.source.title) || (item.storyboard && item.storyboard.source && item.storyboard.source.title) || ''
+        };
+        return target;
+      });
+    }
+    return Promise.resolve(target);
   };
 
   this.handleEditPanel = function(message) {
     var payload = message && message.payload ? message.payload : {};
     var panelIndex = Number(payload.panelIndex);
     var action = String(payload.action || '').trim();
-    if (!Number.isInteger(panelIndex) || panelIndex < 0) {
-      throw new Error('panelIndex is required');
-    }
-    if (!action) {
-      throw new Error('action is required');
-    }
-    if (!self.currentJob || !self.currentJob.storyboard || !Array.isArray(self.currentJob.storyboard.panels)) {
-      throw new Error('No active comic available');
-    }
-    var panels = self.currentJob.storyboard.panels;
-    if (panelIndex >= panels.length) throw new Error('Invalid panel index');
-    var panel = panels[panelIndex] || {};
+    var comicId = String(payload.comicId || '').trim();
+    if (!Number.isInteger(panelIndex) || panelIndex < 0) throw new Error('panelIndex is required');
+    if (!action) throw new Error('action is required');
 
-    if (action === 'regenerate-image') {
-      var provider = self.getImageProvider(self.currentJob.settings.provider_image);
-      panel.runtime_status = 'rendering';
-      self.currentJob.updatedAt = new Date().toISOString();
-      self.saveJob();
-      self.notifyProgress();
-      return self.generateImageWithRefusalHandling(
-        provider,
-        panel,
-        panelIndex,
-        panels.length,
-        self.currentJob,
-        null
-      ).then(function(imageResult) {
-        if (!imageResult || !imageResult.imageData) throw new Error('Provider returned no image data');
-        panel.artifacts = {
-          image_blob_ref: imageResult.imageData,
-          provider_metadata: imageResult.providerMetadata || null
-        };
-        panel.runtime_status = 'completed';
-        self.currentJob.updatedAt = new Date().toISOString();
-        self.saveJob();
-        self.notifyProgress();
-        self.trackMetric('panel_edit_regenerate_image', {
-          panel_index: panelIndex,
-          domain: (() => { try { return new URL(String(self.currentJob.sourceUrl || '')).hostname; } catch (_) { return ''; } })()
-        });
-        return self.addCompletedJobToHistory(self.currentJob).then(function() {
-          return { job: self.currentJob };
-        });
-      });
-    }
+    return self.resolvePanelEditTarget({ panelIndex: panelIndex, comicId: comicId }).then(function(target) {
+      var job = target.job;
+      if (!job || !job.storyboard || !Array.isArray(job.storyboard.panels)) {
+        throw new Error('No editable comic available');
+      }
+      var panels = job.storyboard.panels;
+      if (panelIndex >= panels.length) throw new Error('Invalid panel index');
+      var panel = panels[panelIndex] || {};
 
-    panel.caption = self.transformPanelCaption(panel, action);
-    panel.facts_used = self.extractPanelFacts(panel, self.currentJob.extractedText || '');
-    self.currentJob.updatedAt = new Date().toISOString();
-    self.saveJob();
-    self.notifyProgress();
-    self.trackMetric('panel_edit_caption', { action: action, panel_index: panelIndex });
-    return self.addCompletedJobToHistory(self.currentJob).then(function() {
-      return { job: self.currentJob };
+      function persistTarget() {
+        job.updatedAt = new Date().toISOString();
+        if (target.kind === 'currentJob') {
+          self.currentJob = job;
+          self.saveJob();
+          self.notifyProgress();
+          return self.addCompletedJobToHistory(job).then(function() {
+            return { job: job };
+          });
+        }
+        if (target.kind === 'history' && Array.isArray(target.history) && target.historyIndex >= 0) {
+          var item = target.history[target.historyIndex] || {};
+          item.storyboard = job.storyboard;
+          item.source = item.source || job.storyboard.source || {};
+          target.history[target.historyIndex] = item;
+          return chrome.storage.local.set({ history: target.history }).then(function() {
+            return { job: job };
+          });
+        }
+        return { job: job };
+      }
+
+      if (action === 'regenerate-image') {
+        var providerId = (job.settings && job.settings.provider_image) || (self.settings && self.settings.provider_image) || '';
+        var provider = self.getImageProvider(providerId);
+        panel.image_prompt = self.buildBeatPreservingImagePrompt(panel, panelIndex);
+        panel.runtime_status = 'rendering';
+        return persistTarget().then(function() {
+          return self.generateImageWithRefusalHandling(
+            provider,
+            panel,
+            panelIndex,
+            panels.length,
+            job,
+            null
+          ).then(function(imageResult) {
+            if (!imageResult || !imageResult.imageData) throw new Error('Provider returned no image data');
+            panel.artifacts = {
+              image_blob_ref: imageResult.imageData,
+              provider_metadata: imageResult.providerMetadata || null
+            };
+            panel.runtime_status = 'completed';
+            self.trackMetric('panel_edit_regenerate_image', {
+              panel_index: panelIndex,
+              domain: (() => { try { return new URL(String(job.sourceUrl || '')).hostname; } catch (_) { return ''; } })()
+            });
+            return persistTarget();
+          });
+        });
+      }
+
+      panel.caption = self.transformPanelCaption(panel, action);
+      panel.facts_used = self.extractPanelFacts(panel, job.extractedText || '');
+      self.trackMetric('panel_edit_caption', { action: action, panel_index: panelIndex });
+      return persistTarget();
     });
   };
 
@@ -3552,12 +3813,50 @@ var ServiceWorker = function() {
     };
   };
 
+  this.getManifestOAuthClientId = function() {
+    try {
+      var manifest = chrome.runtime && chrome.runtime.getManifest ? chrome.runtime.getManifest() : null;
+      return String(manifest && manifest.oauth2 && manifest.oauth2.client_id ? manifest.oauth2.client_id : '').trim();
+    } catch (_) {
+      return '';
+    }
+  };
+
+  this.getOAuthClientConfig = async function() {
+    var stored = await chrome.storage.local.get('oauthClientConfig');
+    var configured = stored && stored.oauthClientConfig && typeof stored.oauthClientConfig === 'object'
+      ? stored.oauthClientConfig
+      : {};
+    var googleDriveClientId = String(
+      configured.googleDriveClientId ||
+      configured.googleDrive?.clientId ||
+      self.getManifestOAuthClientId() ||
+      ''
+    ).trim();
+    var facebookAppId = String(
+      configured.facebookAppId ||
+      configured.facebook?.appId ||
+      ''
+    ).trim();
+    var xClientId = String(
+      configured.xClientId ||
+      configured.x?.clientId ||
+      ''
+    ).trim();
+    return {
+      googleDriveClientId: googleDriveClientId,
+      facebookAppId: facebookAppId,
+      xClientId: xClientId
+    };
+  };
+
   this.getGoogleDriveSettings = async function() {
     var stored = await chrome.storage.local.get('settings');
     var settings = stored && stored.settings ? stored.settings : {};
+    var oauthConfig = await self.getOAuthClientConfig();
     return {
       autoSave: !!settings.googleDriveAutoSave,
-      clientId: String(settings.googleDriveClientId || '').trim()
+      clientId: String(oauthConfig.googleDriveClientId || settings.googleDriveClientId || '').trim()
     };
   };
 
@@ -3636,7 +3935,7 @@ var ServiceWorker = function() {
     var currentSettings = await self.getGoogleDriveSettings();
     var clientId = String(payload.clientId || currentSettings.clientId || '').trim();
     if (!clientId) {
-      throw new Error('Google OAuth Client ID is required');
+      throw new Error('Google Drive OAuth is not configured for this extension build');
     }
     var redirectUri = chrome.identity && chrome.identity.getRedirectURL
       ? chrome.identity.getRedirectURL('google-oauth2')
@@ -3678,8 +3977,9 @@ var ServiceWorker = function() {
   this.getFacebookSettings = async function() {
     var stored = await chrome.storage.local.get('settings');
     var settings = stored && stored.settings ? stored.settings : {};
+    var oauthConfig = await self.getOAuthClientConfig();
     return {
-      appId: String(settings.facebookAppId || '').trim()
+      appId: String(oauthConfig.facebookAppId || settings.facebookAppId || '').trim()
     };
   };
 
@@ -3745,7 +4045,7 @@ var ServiceWorker = function() {
     var currentSettings = await self.getFacebookSettings();
     var appId = String(payload.appId || currentSettings.appId || '').trim();
     if (!appId) {
-      throw new Error('Facebook App ID is required');
+      throw new Error('Facebook OAuth is not configured for this extension build');
     }
     var redirectUri = chrome.identity && chrome.identity.getRedirectURL
       ? chrome.identity.getRedirectURL('facebook-oauth2')
@@ -3784,8 +4084,9 @@ var ServiceWorker = function() {
   this.getXSettings = async function() {
     var stored = await chrome.storage.local.get('settings');
     var settings = stored && stored.settings ? stored.settings : {};
+    var oauthConfig = await self.getOAuthClientConfig();
     return {
-      clientId: String(settings.xClientId || '').trim()
+      clientId: String(oauthConfig.xClientId || settings.xClientId || '').trim()
     };
   };
 
@@ -3894,7 +4195,7 @@ var ServiceWorker = function() {
     var currentSettings = await self.getXSettings();
     var clientId = String(payload.clientId || currentSettings.clientId || '').trim();
     if (!clientId) {
-      throw new Error('X OAuth Client ID is required');
+      throw new Error('X OAuth is not configured for this extension build');
     }
     var redirectUri = chrome.identity && chrome.identity.getRedirectURL
       ? chrome.identity.getRedirectURL('x-oauth2')

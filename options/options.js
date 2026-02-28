@@ -34,9 +34,17 @@ const DEFAULT_SETTINGS = {
   maxCacheSize: 100,
   autoOpenSidePanel: true,
   googleDriveAutoSave: false,
-  googleDriveClientId: '',
-  facebookAppId: '',
-  xClientId: ''
+  otherShareTarget: 'linkedin'
+};
+
+const AUTHORIZATION_URLS = {
+  googleDrive: 'https://accounts.google.com/',
+  facebook: 'https://www.facebook.com/login/',
+  x: 'https://x.com/i/flow/login',
+  instagram: 'https://www.instagram.com/accounts/login/',
+  linkedin: 'https://www.linkedin.com/login',
+  reddit: 'https://www.reddit.com/login/',
+  email: 'https://mail.google.com/'
 };
 
 const DEFAULT_PROMPT_TEMPLATES = {
@@ -639,6 +647,8 @@ class OptionsController {
     this.customStyles = [];
     this.promptTemplates = JSON.parse(JSON.stringify(DEFAULT_PROMPT_TEMPLATES));
     this.promptLibraryCustomPresets = [];
+    this.connectionStates = {};
+    this.pendingPromptLibraryPreview = null;
     this.activePromptProviderScope = 'openai';
     this.init();
   }
@@ -685,7 +695,7 @@ class OptionsController {
 
   async loadSettings() {
     try {
-      const stored = await chrome.storage.local.get(['settings', 'providers', 'providerValidation', 'promptTemplates', 'customStyles', 'promptLibraryCustomPresets']);
+      const stored = await chrome.storage.local.get(['settings', 'providers', 'providerValidation', 'promptTemplates', 'customStyles', 'promptLibraryCustomPresets', 'connectionStates']);
       if (stored.settings) {
         this.settings = { ...this.settings, ...stored.settings };
       }
@@ -693,6 +703,9 @@ class OptionsController {
       this.promptLibraryCustomPresets = Array.isArray(stored.promptLibraryCustomPresets)
         ? stored.promptLibraryCustomPresets
         : [];
+      this.connectionStates = (stored.connectionStates && typeof stored.connectionStates === 'object')
+        ? stored.connectionStates
+        : {};
       this.providers = stored.providers || {};
       this.providerValidation = stored.providerValidation || {};
       if (stored.promptTemplates && typeof stored.promptTemplates === 'object') {
@@ -760,9 +773,16 @@ class OptionsController {
     document.getElementById('save-prompts-btn')?.addEventListener('click', () => this.savePromptTemplates());
     document.getElementById('reset-storyboard-template-btn')?.addEventListener('click', () => this.resetPromptTemplateField('storyboard'));
     document.getElementById('reset-image-template-btn')?.addEventListener('click', () => this.resetPromptTemplateField('image'));
-    document.getElementById('prompt-library-group')?.addEventListener('change', () => this.populatePromptLibraryPresetUI());
-    document.getElementById('prompt-library-preset')?.addEventListener('change', () => this.updatePromptLibraryDescription());
-    document.getElementById('apply-prompt-preset-current-btn')?.addEventListener('click', () => this.applyPromptLibraryPreset(false));
+    document.getElementById('prompt-library-group')?.addEventListener('change', () => {
+      this.populatePromptLibraryPresetUI();
+      this.previewSelectedPromptLibraryPreset();
+    });
+    document.getElementById('prompt-library-preset')?.addEventListener('change', () => {
+      this.updatePromptLibraryDescription();
+      this.previewSelectedPromptLibraryPreset();
+    });
+    document.getElementById('apply-prompt-preset-current-btn')?.addEventListener('click', () => this.approvePromptLibraryPreview());
+    document.getElementById('cancel-prompt-preset-preview-btn')?.addEventListener('click', () => this.cancelPromptLibraryPreview());
     document.getElementById('apply-prompt-preset-all-btn')?.addEventListener('click', () => this.applyPromptLibraryPreset(true));
     document.getElementById('import-prompt-library-btn')?.addEventListener('click', () => {
       document.getElementById('import-prompt-library-file')?.click();
@@ -781,6 +801,11 @@ class OptionsController {
     document.getElementById('disconnect-facebook-btn')?.addEventListener('click', () => this.disconnectFacebook());
     document.getElementById('connect-x-btn')?.addEventListener('click', () => this.connectX());
     document.getElementById('disconnect-x-btn')?.addEventListener('click', () => this.disconnectX());
+    document.getElementById('connect-instagram-btn')?.addEventListener('click', () => this.connectInstagram());
+    document.getElementById('disconnect-instagram-btn')?.addEventListener('click', () => this.disconnectInstagram());
+    document.getElementById('connect-other-share-btn')?.addEventListener('click', () => this.connectOtherShareTarget());
+    document.getElementById('disconnect-other-share-btn')?.addEventListener('click', () => this.disconnectOtherShareTarget());
+    document.getElementById('other-share-target-select')?.addEventListener('change', () => this.refreshOtherShareTargetStatus());
   }
 
   getProviderModelSelectId(providerId, mode) {
@@ -890,14 +915,17 @@ class OptionsController {
     // Storage
     document.getElementById('max-cache-size').value = this.settings.maxCacheSize || 100;
     document.getElementById('history-retention').value = this.settings.historyRetention || 30;
+    const googleDriveAutoSaveItemEl = document.getElementById('google-drive-auto-save-item');
     const googleDriveAutoSaveEl = document.getElementById('google-drive-auto-save');
-    if (googleDriveAutoSaveEl) googleDriveAutoSaveEl.checked = !!this.settings.googleDriveAutoSave;
-    const googleDriveClientIdEl = document.getElementById('google-drive-client-id');
-    if (googleDriveClientIdEl) googleDriveClientIdEl.value = this.settings.googleDriveClientId || '';
-    const facebookAppIdEl = document.getElementById('facebook-app-id');
-    if (facebookAppIdEl) facebookAppIdEl.value = this.settings.facebookAppId || '';
-    const xClientIdEl = document.getElementById('x-client-id');
-    if (xClientIdEl) xClientIdEl.value = this.settings.xClientId || '';
+    if (googleDriveAutoSaveItemEl) {
+      googleDriveAutoSaveItemEl.style.display = 'none';
+    }
+    if (googleDriveAutoSaveEl) {
+      googleDriveAutoSaveEl.checked = !!this.settings.googleDriveAutoSave;
+      googleDriveAutoSaveEl.disabled = true;
+    }
+    const otherTargetEl = document.getElementById('other-share-target-select');
+    if (otherTargetEl) otherTargetEl.value = this.settings.otherShareTarget || 'linkedin';
     if (document.getElementById('openai-text-model')) {
       document.getElementById('openai-text-model').value = this.settings.textModel || 'gpt-4o-mini';
       document.getElementById('openai-image-model').value = this.settings.imageModel || 'dall-e-2';
@@ -1197,7 +1225,9 @@ class OptionsController {
     const imageEl = document.getElementById('image-template');
     if (storyboardEl) storyboardEl.value = templates.storyboard || '';
     if (imageEl) imageEl.value = templates.image || '';
+    this.pendingPromptLibraryPreview = null;
     this.populatePromptLibraryUI();
+    this.updatePromptLibraryPreviewStatus();
     this.validatePromptTemplatesUI();
   }
 
@@ -1285,6 +1315,71 @@ class OptionsController {
       return;
     }
     descriptionEl.textContent = `${preset.useCase} Objective: ${preset.objective}.`;
+  }
+
+  updatePromptLibraryPreviewStatus() {
+    const statusEl = document.getElementById('prompt-library-preview-status');
+    if (!statusEl) return;
+    const pending = this.pendingPromptLibraryPreview;
+    if (!pending) {
+      statusEl.textContent = 'Select a preset to preview it in the editors. Approve to keep it.';
+      return;
+    }
+    if (pending.approved) {
+      statusEl.textContent = 'Preset preview approved. Save Prompt Templates to persist.';
+      return;
+    }
+    statusEl.textContent = 'Preview only. Approve to keep changes, or cancel to restore previous templates.';
+  }
+
+  previewSelectedPromptLibraryPreset() {
+    const preset = this.getSelectedPromptLibraryPreset();
+    if (!preset) return;
+    const storyboardEl = document.getElementById('storyboard-template');
+    const imageEl = document.getElementById('image-template');
+    if (!storyboardEl || !imageEl) return;
+
+    if (!this.pendingPromptLibraryPreview || this.pendingPromptLibraryPreview.scope !== this.activePromptProviderScope) {
+      this.pendingPromptLibraryPreview = {
+        scope: this.activePromptProviderScope,
+        originalStoryboard: storyboardEl.value,
+        originalImage: imageEl.value,
+        approved: false
+      };
+    }
+
+    this.pendingPromptLibraryPreview.presetId = preset.id;
+    this.pendingPromptLibraryPreview.approved = false;
+    storyboardEl.value = preset.storyboard;
+    imageEl.value = preset.image;
+    this.updatePromptLibraryPreviewStatus();
+    this.validatePromptTemplatesUI();
+  }
+
+  approvePromptLibraryPreview() {
+    const pending = this.pendingPromptLibraryPreview;
+    if (!pending || pending.scope !== this.activePromptProviderScope) {
+      this.previewSelectedPromptLibraryPreset();
+      return;
+    }
+    pending.approved = true;
+    this.updatePromptLibraryPreviewStatus();
+    this.validatePromptTemplatesUI();
+    this.showToast('Preset preview approved. Click "Save Prompt Templates" to persist.', 'success');
+  }
+
+  cancelPromptLibraryPreview() {
+    const pending = this.pendingPromptLibraryPreview;
+    const storyboardEl = document.getElementById('storyboard-template');
+    const imageEl = document.getElementById('image-template');
+    if (pending && storyboardEl && imageEl && pending.scope === this.activePromptProviderScope) {
+      storyboardEl.value = pending.originalStoryboard || '';
+      imageEl.value = pending.originalImage || '';
+    }
+    this.pendingPromptLibraryPreview = null;
+    this.updatePromptLibraryPreviewStatus();
+    this.validatePromptTemplatesUI();
+    this.showToast('Preset preview canceled', 'success');
   }
 
   normalizePromptLibraryEntry(entry, fallbackIndex = 0) {
@@ -1408,12 +1503,7 @@ class OptionsController {
       return;
     }
 
-    const storyboardEl = document.getElementById('storyboard-template');
-    const imageEl = document.getElementById('image-template');
-    if (storyboardEl) storyboardEl.value = preset.storyboard;
-    if (imageEl) imageEl.value = preset.image;
-    this.validatePromptTemplatesUI();
-    this.showToast('Preset applied. Click "Save Prompt Templates" to persist.', 'success');
+    this.previewSelectedPromptLibraryPreset();
   }
 
   collectPromptTemplateInputs() {
@@ -1499,6 +1589,14 @@ class OptionsController {
       this.showToast('Prompt templates have validation errors', 'error');
       return;
     }
+    if (
+      this.pendingPromptLibraryPreview &&
+      this.pendingPromptLibraryPreview.scope === scope &&
+      !this.pendingPromptLibraryPreview.approved
+    ) {
+      this.showToast('Approve or cancel prompt preset preview before saving', 'error');
+      return;
+    }
     this.promptTemplates = {
       ...this.promptTemplates,
       [scope]: {
@@ -1508,6 +1606,8 @@ class OptionsController {
     };
     try {
       await chrome.storage.local.set({ promptTemplates: this.promptTemplates });
+      this.pendingPromptLibraryPreview = null;
+      this.updatePromptLibraryPreviewStatus();
       this.showToast('Prompt templates saved!', 'success');
     } catch (error) {
       this.showToast('Failed to save prompt templates', 'error');
@@ -1546,9 +1646,7 @@ class OptionsController {
       maxCacheSize: parseInt(document.getElementById('max-cache-size').value),
       historyRetention: parseInt(document.getElementById('history-retention').value),
       googleDriveAutoSave: !!document.getElementById('google-drive-auto-save')?.checked,
-      googleDriveClientId: (document.getElementById('google-drive-client-id')?.value || '').trim(),
-      facebookAppId: (document.getElementById('facebook-app-id')?.value || '').trim(),
-      xClientId: (document.getElementById('x-client-id')?.value || '').trim()
+      otherShareTarget: (document.getElementById('other-share-target-select')?.value || 'linkedin').trim()
     };
 
     try {
@@ -1910,9 +2008,7 @@ class OptionsController {
     this.settings = {
       ...this.settings,
       googleDriveAutoSave: !!document.getElementById('google-drive-auto-save')?.checked,
-      googleDriveClientId: (document.getElementById('google-drive-client-id')?.value || '').trim(),
-      facebookAppId: (document.getElementById('facebook-app-id')?.value || '').trim(),
-      xClientId: (document.getElementById('x-client-id')?.value || '').trim()
+      otherShareTarget: (document.getElementById('other-share-target-select')?.value || 'linkedin').trim()
     };
     try {
       await chrome.storage.local.set({ settings: this.settings });
@@ -1927,18 +2023,29 @@ class OptionsController {
     return this.saveConnectionSettings({ silent: false });
   }
 
+  async persistConnectionState(key, connected) {
+    this.connectionStates = {
+      ...(this.connectionStates || {}),
+      [key]: !!connected
+    };
+    await chrome.storage.local.set({ connectionStates: this.connectionStates });
+  }
+
+  getConnectionState(key) {
+    return !!(this.connectionStates && this.connectionStates[key]);
+  }
+
+  openAuthorizationAuthentication(url) {
+    if (!url) return;
+    try {
+      chrome.tabs?.create?.({ url });
+    } catch (_) {}
+  }
+
   async connectGoogleDrive() {
-    const clientId = (document.getElementById('google-drive-client-id')?.value || '').trim();
-    if (!clientId) {
-      this.showToast('Enter Google OAuth Client ID first', 'error');
-      return;
-    }
     try {
       await this.saveConnectionSettings({ silent: true });
-      const response = await chrome.runtime.sendMessage({
-        type: 'GOOGLE_DRIVE_CONNECT',
-        payload: { clientId }
-      });
+      const response = await chrome.runtime.sendMessage({ type: 'GOOGLE_DRIVE_CONNECT' });
       if (!response || response.success === false) {
         throw new Error(response?.error || 'Google Drive connection failed');
       }
@@ -1964,32 +2071,43 @@ class OptionsController {
 
   async refreshGoogleDriveStatus() {
     const statusEl = document.getElementById('google-drive-connection-status');
+    const autoSaveItemEl = document.getElementById('google-drive-auto-save-item');
+    const autoSaveEl = document.getElementById('google-drive-auto-save');
     if (!statusEl) return;
     try {
       const response = await chrome.runtime.sendMessage({ type: 'GOOGLE_DRIVE_GET_STATUS' });
+      const hasClientId = response?.status?.hasClientId !== false;
       const connected = !!(response && response.success !== false && response.status && response.status.connected);
-      statusEl.textContent = connected ? 'Connected' : 'Not connected';
+      statusEl.textContent = hasClientId ? (connected ? 'Connected' : 'Not connected') : 'OAuth app not configured';
       statusEl.classList.toggle('connected', connected);
       statusEl.classList.toggle('disconnected', !connected);
+      this.updateConnectionActionButtons('connect-google-drive-btn', 'disconnect-google-drive-btn', connected, hasClientId);
+      if (autoSaveItemEl) {
+        autoSaveItemEl.style.display = connected ? '' : 'none';
+      }
+      if (autoSaveEl) {
+        autoSaveEl.disabled = !connected || !hasClientId;
+        if (!connected) autoSaveEl.checked = false;
+      }
     } catch (_) {
       statusEl.textContent = 'Status unavailable';
       statusEl.classList.remove('connected');
       statusEl.classList.add('disconnected');
+      this.updateConnectionActionButtons('connect-google-drive-btn', 'disconnect-google-drive-btn', false, false);
+      if (autoSaveItemEl) {
+        autoSaveItemEl.style.display = 'none';
+      }
+      if (autoSaveEl) {
+        autoSaveEl.disabled = true;
+        autoSaveEl.checked = false;
+      }
     }
   }
 
   async connectFacebook() {
-    const appId = (document.getElementById('facebook-app-id')?.value || '').trim();
-    if (!appId) {
-      this.showToast('Enter Facebook App ID first', 'error');
-      return;
-    }
     try {
       await this.saveConnectionSettings({ silent: true });
-      const response = await chrome.runtime.sendMessage({
-        type: 'FACEBOOK_CONNECT',
-        payload: { appId }
-      });
+      const response = await chrome.runtime.sendMessage({ type: 'FACEBOOK_CONNECT' });
       if (!response || response.success === false) {
         throw new Error(response?.error || 'Facebook connection failed');
       }
@@ -2018,29 +2136,24 @@ class OptionsController {
     if (!statusEl) return;
     try {
       const response = await chrome.runtime.sendMessage({ type: 'FACEBOOK_GET_STATUS' });
+      const hasAppId = response?.status?.hasAppId !== false;
       const connected = !!(response && response.success !== false && response.status && response.status.connected);
-      statusEl.textContent = connected ? 'Connected' : 'Not connected';
+      statusEl.textContent = hasAppId ? (connected ? 'Connected' : 'Not connected') : 'OAuth app not configured';
       statusEl.classList.toggle('connected', connected);
       statusEl.classList.toggle('disconnected', !connected);
+      this.updateConnectionActionButtons('connect-facebook-btn', 'disconnect-facebook-btn', connected, hasAppId);
     } catch (_) {
       statusEl.textContent = 'Status unavailable';
       statusEl.classList.remove('connected');
       statusEl.classList.add('disconnected');
+      this.updateConnectionActionButtons('connect-facebook-btn', 'disconnect-facebook-btn', false, false);
     }
   }
 
   async connectX() {
-    const clientId = (document.getElementById('x-client-id')?.value || '').trim();
-    if (!clientId) {
-      this.showToast('Enter X OAuth Client ID first', 'error');
-      return;
-    }
     try {
       await this.saveConnectionSettings({ silent: true });
-      const response = await chrome.runtime.sendMessage({
-        type: 'X_CONNECT',
-        payload: { clientId }
-      });
+      const response = await chrome.runtime.sendMessage({ type: 'X_CONNECT' });
       if (!response || response.success === false) {
         throw new Error(response?.error || 'X connection failed');
       }
@@ -2069,22 +2182,115 @@ class OptionsController {
     if (!statusEl) return;
     try {
       const response = await chrome.runtime.sendMessage({ type: 'X_GET_STATUS' });
+      const hasClientId = response?.status?.hasClientId !== false;
       const connected = !!(response && response.success !== false && response.status && response.status.connected);
-      statusEl.textContent = connected ? 'Connected' : 'Not connected';
+      statusEl.textContent = hasClientId ? (connected ? 'Connected' : 'Not connected') : 'OAuth app not configured';
       statusEl.classList.toggle('connected', connected);
       statusEl.classList.toggle('disconnected', !connected);
+      this.updateConnectionActionButtons('connect-x-btn', 'disconnect-x-btn', connected, hasClientId);
     } catch (_) {
       statusEl.textContent = 'Status unavailable';
       statusEl.classList.remove('connected');
       statusEl.classList.add('disconnected');
+      this.updateConnectionActionButtons('connect-x-btn', 'disconnect-x-btn', false, false);
     }
+  }
+
+  async connectInstagram() {
+    try {
+      this.openAuthorizationAuthentication(AUTHORIZATION_URLS.instagram);
+      await this.persistConnectionState('instagram', true);
+      await this.refreshInstagramStatus();
+      this.showToast('Instagram authorization started', 'success');
+    } catch (error) {
+      this.showToast(error?.message || 'Failed to connect Instagram', 'error');
+    }
+  }
+
+  async disconnectInstagram() {
+    try {
+      await this.persistConnectionState('instagram', false);
+      await this.refreshInstagramStatus();
+      this.showToast('Instagram disconnected', 'success');
+    } catch (error) {
+      this.showToast(error?.message || 'Failed to disconnect Instagram', 'error');
+    }
+  }
+
+  async refreshInstagramStatus() {
+    const statusEl = document.getElementById('instagram-connection-status');
+    if (!statusEl) return;
+    const connected = this.getConnectionState('instagram');
+    statusEl.textContent = connected ? 'Connected' : 'Not connected';
+    statusEl.classList.toggle('connected', connected);
+    statusEl.classList.toggle('disconnected', !connected);
+    this.updateConnectionActionButtons('connect-instagram-btn', 'disconnect-instagram-btn', connected, true);
+  }
+
+  getSelectedOtherShareTarget() {
+    return (document.getElementById('other-share-target-select')?.value || 'linkedin').trim().toLowerCase();
+  }
+
+  async connectOtherShareTarget() {
+    const target = this.getSelectedOtherShareTarget();
+    try {
+      await this.saveConnectionSettings({ silent: true });
+      this.openAuthorizationAuthentication(AUTHORIZATION_URLS[target] || AUTHORIZATION_URLS.linkedin);
+      await this.persistConnectionState(`otherShare:${target}`, true);
+      await this.refreshOtherShareTargetStatus();
+      this.showToast(`${target} authorization started`, 'success');
+    } catch (error) {
+      this.showToast(error?.message || 'Failed to connect share target', 'error');
+    }
+  }
+
+  async disconnectOtherShareTarget() {
+    const target = this.getSelectedOtherShareTarget();
+    try {
+      await this.persistConnectionState(`otherShare:${target}`, false);
+      await this.refreshOtherShareTargetStatus();
+      this.showToast(`${target} disconnected`, 'success');
+    } catch (error) {
+      this.showToast(error?.message || 'Failed to disconnect share target', 'error');
+    }
+  }
+
+  async refreshOtherShareTargetStatus() {
+    const statusEl = document.getElementById('other-share-connection-status');
+    if (!statusEl) return;
+    const target = this.getSelectedOtherShareTarget();
+    const connected = this.getConnectionState(`otherShare:${target}`);
+    statusEl.textContent = connected ? `Connected (${target})` : `Not connected (${target})`;
+    statusEl.classList.toggle('connected', connected);
+    statusEl.classList.toggle('disconnected', !connected);
+    this.updateConnectionActionButtons('connect-other-share-btn', 'disconnect-other-share-btn', connected, true);
+  }
+
+  updateConnectionActionButtons(connectBtnId, disconnectBtnId, connected, available = true) {
+    const connectBtn = document.getElementById(connectBtnId);
+    const disconnectBtn = document.getElementById(disconnectBtnId);
+    if (!connectBtn || !disconnectBtn) return;
+    const isAvailable = Boolean(available);
+    if (!isAvailable) {
+      connectBtn.disabled = true;
+      connectBtn.classList.remove('hidden');
+      disconnectBtn.classList.add('hidden');
+      disconnectBtn.disabled = true;
+      return;
+    }
+    connectBtn.disabled = false;
+    connectBtn.classList.toggle('hidden', Boolean(connected));
+    disconnectBtn.disabled = !connected;
+    disconnectBtn.classList.toggle('hidden', !connected);
   }
 
   async refreshAllConnectionStatuses() {
     await Promise.all([
       this.refreshGoogleDriveStatus(),
       this.refreshFacebookStatus(),
-      this.refreshXStatus()
+      this.refreshXStatus(),
+      this.refreshInstagramStatus(),
+      this.refreshOtherShareTargetStatus()
     ]);
   }
 

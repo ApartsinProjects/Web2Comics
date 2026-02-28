@@ -46,6 +46,7 @@ class ComicViewer {
       'reading-grid': 'guided-path'
     };
     this.currentComic = null;
+    this.currentComicId = '';
     this.viewMode = 'strip';
     this.layoutPreset = 'classic-strip';
     this.primaryView = 'comic';
@@ -58,6 +59,8 @@ class ComicViewer {
     this.pollTimer = null;
     this.lastTerminalJobNoticeKey = '';
     this.missingCaptionNoticeKeys = new Set();
+    this.selectedShareTarget = 'facebook';
+    this.panelEditState = {};
     this.init();
   }
 
@@ -108,6 +111,14 @@ class ComicViewer {
       .replace(/>/g, '&gt;')
       .replace(/"/g, '&quot;')
       .replace(/'/g, '&#39;');
+  }
+
+  renderFactChips(values) {
+    const items = Array.isArray(values) ? values : [];
+    if (!items.length) return '';
+    return items
+      .map((item) => `<span class="panel-fact-chip">${this.escapeHtml(item)}</span>`)
+      .join('');
   }
 
   sanitizeExternalUrl(url) {
@@ -309,6 +320,7 @@ class ComicViewer {
       const items = Array.isArray(history) ? history : this.historyItems;
       const item = (Array.isArray(items) ? items : []).find((h) => h && h.id === selectedHistoryComicId);
       if (!item?.storyboard) return false;
+      this.currentComicId = String(item.id || '');
       this.displayComic(item.storyboard);
       return true;
     } catch (_) {
@@ -325,7 +337,9 @@ class ComicViewer {
     document.getElementById('open-tab-btn')?.addEventListener('click', () => this.openInTab());
     document.getElementById('download-logs-sidepanel-btn')?.addEventListener('click', () => this.downloadDebugLogs());
     document.getElementById('download-btn')?.addEventListener('click', () => this.downloadComic());
-    document.getElementById('share-btn')?.addEventListener('click', () => this.shareComic());
+    document.getElementById('share-btn')?.addEventListener('click', () => this.toggleShareMenu());
+    document.getElementById('share-target-menu')?.addEventListener('click', (e) => this.handleShareMenuClick(e));
+    document.addEventListener('click', (e) => this.handleGlobalClick(e));
     document.getElementById('open-popup-btn')?.addEventListener('click', () => this.openPopup());
     document.getElementById('cancel-gen-btn')?.addEventListener('click', () => this.cancelGeneration());
     document.getElementById('regenerate-btn')?.addEventListener('click', () => this.regenerate());
@@ -334,10 +348,6 @@ class ComicViewer {
     document.getElementById('carousel-next-btn')?.addEventListener('click', () => this.showCarouselPanel(this.carouselIndex + 1));
     document.getElementById('history-browser-more-btn')?.addEventListener('click', () => this.showMoreHistory());
     document.getElementById('layout-preset-select')?.addEventListener('change', (e) => this.setLayoutPreset(e.target.value));
-
-    document.querySelectorAll('.toggle-btn').forEach(btn => {
-      btn.addEventListener('click', (e) => this.setViewMode(e.target.dataset.mode));
-    });
     document.getElementById('comic-strip')?.addEventListener('click', (e) => this.handlePanelActionClick(e));
     document.getElementById('comic-panels')?.addEventListener('click', (e) => this.handlePanelActionClick(e));
   }
@@ -348,6 +358,7 @@ class ComicViewer {
     const panelIndex = Number(actionBtn.dataset.panelIndex || -1);
     const action = String(actionBtn.dataset.panelAction || '');
     if (!Number.isInteger(panelIndex) || panelIndex < 0 || !action) return;
+    if (this.getPanelEditState(panelIndex)?.pending) return;
 
     if (action === 'jump-source') {
       const snippet = String(actionBtn.dataset.sourceSnippet || '');
@@ -355,7 +366,7 @@ class ComicViewer {
       return;
     }
 
-    actionBtn.disabled = true;
+    this.setPanelEditState(panelIndex, { pending: true, action });
     try {
       await this.requestPanelEdit(panelIndex, action);
       void this.trackMetric('panel_edit', { action, panel_index: panelIndex });
@@ -363,14 +374,45 @@ class ComicViewer {
       console.error('Panel action failed:', error);
       alert(error?.message || 'Panel action failed.');
     } finally {
-      actionBtn.disabled = false;
+      this.clearPanelEditState(panelIndex);
+    }
+  }
+
+  getPanelEditState(panelIndex) {
+    return this.panelEditState[String(panelIndex)] || null;
+  }
+
+  getPanelEditLabel(action) {
+    const key = String(action || '').trim();
+    if (key === 'regenerate-image') return 'Regenerating image...';
+    if (key === 'regenerate-caption') return 'Regenerating caption...';
+    if (key === 'make-factual') return 'Improving factuality...';
+    if (key === 'make-simpler') return 'Simplifying caption...';
+    return 'Updating panel...';
+  }
+
+  setPanelEditState(panelIndex, state) {
+    this.panelEditState[String(panelIndex)] = state && typeof state === 'object' ? state : { pending: true, action: '' };
+    if (this.currentComic && Array.isArray(this.currentComic.panels)) {
+      this.renderPanels(this.currentComic.panels);
+    }
+  }
+
+  clearPanelEditState(panelIndex) {
+    delete this.panelEditState[String(panelIndex)];
+    if (this.currentComic && Array.isArray(this.currentComic.panels)) {
+      this.renderPanels(this.currentComic.panels);
     }
   }
 
   async requestPanelEdit(panelIndex, action) {
     const response = await chrome.runtime.sendMessage({
       type: 'EDIT_PANEL',
-      payload: { panelIndex, action }
+      payload: {
+        panelIndex,
+        action,
+        comicId: this.currentComicId || ''
+      }
     });
     if (!response || response.success !== true || !response.job?.storyboard) {
       throw new Error(response?.error || 'Unable to edit panel');
@@ -394,11 +436,12 @@ class ComicViewer {
     const openTabBtn = document.getElementById('open-tab-btn');
     const downloadBtn = document.getElementById('download-btn');
     const shareBtn = document.getElementById('share-btn');
-    const shareTargetSelect = document.getElementById('share-target-select');
     if (openTabBtn) openTabBtn.disabled = !canActOnComic;
     if (downloadBtn) downloadBtn.disabled = !canActOnComic;
-    if (shareBtn) shareBtn.disabled = !canActOnComic;
-    if (shareTargetSelect) shareTargetSelect.disabled = !canActOnComic;
+    if (shareBtn) {
+      shareBtn.disabled = !canActOnComic;
+      if (!canActOnComic) this.hideShareMenu();
+    }
   }
 
   computeViewerStats() {
@@ -643,9 +686,7 @@ class ComicViewer {
         clearInterval(this.pollTimer);
         this.pollTimer = null;
       }
-      if (this.viewMode === 'carousel' && currentJob.storyboard?.panels?.length > 1) {
-        this.viewMode = 'strip';
-      }
+      this.currentComicId = String(currentJob.id || currentJob.jobId || '');
       this.displayComic(currentJob.storyboard);
       void this.loadHistory();
       this.updateViewerStats();
@@ -724,7 +765,7 @@ class ComicViewer {
   async setLayoutPreset(presetId) {
     if (!this.layoutPresets[presetId]) return;
     this.layoutPreset = presetId;
-    this.setViewMode(this.layoutPresets[presetId].mode, { preservePreset: true });
+    this.setViewMode(this.layoutPresets[presetId].mode);
     this.applyLayoutPreset();
     await this.persistPrefs();
   }
@@ -764,8 +805,8 @@ class ComicViewer {
     
     this.renderPanels(storyboard.panels);
     this.renderCarousel(storyboard.panels);
-    // Re-apply the current view mode so persisted layout presets restore the visible shell on load.
-    this.setViewMode(this.viewMode, { preservePreset: true });
+    // The active layout preset is the single source of truth for display mode.
+    this.setViewMode(this.layoutPresets[this.layoutPreset]?.mode || 'strip');
     
     this.setHeaderActionState();
     this.updateViewerStats();
@@ -784,6 +825,9 @@ class ComicViewer {
     const showRewrittenBadge = this.currentComic?.settings?.show_rewritten_badge !== false;
     const debugEnabled = !!this.currentComic?.settings?.debug_flag;
     const panelsHTML = panels.map((panel, index) => {
+      const editState = this.getPanelEditState(index);
+      const isPanelEditing = !!(editState && editState.pending);
+      const editLabel = isPanelEditing ? this.getPanelEditLabel(editState.action) : '';
       const refusalHandling = panel?.artifacts?.provider_metadata?.refusal_handling || null;
       const showBadge = Boolean(
         showRewrittenBadge &&
@@ -805,6 +849,7 @@ class ComicViewer {
       const numbers = Array.isArray(facts.numbers) ? facts.numbers.slice(0, 3) : [];
       const snippet = this.escapeHtml(String(facts.source_snippet || '').slice(0, 220));
       const hasFacts = entities.length || dates.length || numbers.length || snippet;
+      const factCount = entities.length + dates.length + numbers.length + (snippet ? 1 : 0);
       return `
       <div class="panel">
         <div class="panel-image">
@@ -819,19 +864,38 @@ class ComicViewer {
           ${refusalHandling?.blockedPlaceholder ? '<div class="panel-badge panel-badge-blocked">Blocked</div>' : ''}
           <div>${safeCaption}</div>
           ${hasFacts ? `
-            <div class="panel-facts">
-              ${entities.length ? `<div><strong>Entities:</strong> ${this.escapeHtml(entities.join(', '))}</div>` : ''}
-              ${dates.length ? `<div><strong>Dates:</strong> ${this.escapeHtml(dates.join(', '))}</div>` : ''}
-              ${numbers.length ? `<div><strong>Numbers:</strong> ${this.escapeHtml(numbers.join(', '))}</div>` : ''}
-              ${snippet ? `<div class="panel-facts-snippet">${snippet}</div>` : ''}
+            <details class="panel-facts-shell">
+              <summary>Grounding (${factCount})</summary>
+              <div class="panel-facts">
+                ${entities.length ? `
+                  <details class="panel-facts-sublist">
+                    <summary>Entities (${entities.length})</summary>
+                    <div class="panel-facts-chip-row">${this.renderFactChips(entities)}</div>
+                  </details>
+                ` : ''}
+                ${dates.length ? `<div><strong>Dates:</strong> ${this.escapeHtml(dates.join(', '))}</div>` : ''}
+                ${numbers.length ? `<div><strong>Numbers:</strong> ${this.escapeHtml(numbers.join(', '))}</div>` : ''}
+                ${snippet ? `<div class="panel-facts-snippet">${snippet}</div>` : ''}
+              </div>
+            </details>
+          ` : ''}
+          ${isPanelEditing ? `
+            <div class="panel-edit-status" role="status" aria-live="polite">
+              <span class="panel-inline-spinner" aria-hidden="true"></span>
+              <span>${this.escapeHtml(editLabel)}</span>
             </div>
           ` : ''}
-          <div class="panel-actions-row">
-            <button type="button" class="btn small secondary" data-panel-action="regenerate-image" data-panel-index="${index}">Regenerate panel</button>
-            <button type="button" class="btn small secondary" data-panel-action="regenerate-caption" data-panel-index="${index}">Regenerate caption</button>
-            <button type="button" class="btn small secondary" data-panel-action="make-factual" data-panel-index="${index}">Make more factual</button>
-            <button type="button" class="btn small secondary" data-panel-action="make-simpler" data-panel-index="${index}">Make simpler</button>
-            ${snippet ? `<button type="button" class="btn small secondary" data-panel-action="jump-source" data-panel-index="${index}" data-source-snippet="${snippet}">Jump to source</button>` : ''}
+          <div class="panel-quick-actions">
+            <button type="button" class="panel-action-btn${isPanelEditing ? ' is-busy' : ''}" data-panel-action="regenerate-image" data-panel-index="${index}" title="Regenerate panel image" aria-label="Regenerate panel image"${isPanelEditing ? ' disabled' : ''}>Img</button>
+            <button type="button" class="panel-action-btn${isPanelEditing ? ' is-busy' : ''}" data-panel-action="regenerate-caption" data-panel-index="${index}" title="Regenerate caption" aria-label="Regenerate caption"${isPanelEditing ? ' disabled' : ''}>Cap</button>
+            <button type="button" class="panel-action-btn${isPanelEditing ? ' is-busy' : ''}" data-panel-action="make-factual" data-panel-index="${index}" title="Make caption more factual" aria-label="Make caption more factual"${isPanelEditing ? ' disabled' : ''}>Fact</button>
+            <details class="panel-more-actions${isPanelEditing ? ' is-busy' : ''}">
+              <summary>More</summary>
+              <div class="panel-more-actions-menu">
+                <button type="button" class="btn small secondary" data-panel-action="make-simpler" data-panel-index="${index}"${isPanelEditing ? ' disabled' : ''}>Make simpler</button>
+                ${snippet ? `<button type="button" class="btn small secondary" data-panel-action="jump-source" data-panel-index="${index}" data-source-snippet="${snippet}"${isPanelEditing ? ' disabled' : ''}>Jump to source</button>` : ''}
+              </div>
+            </details>
           </div>
           ${showPromptBtn ? `<button type="button" class="panel-debug-prompt-btn" data-panel-index="${index}">View prompt</button>` : ''}
         </div>
@@ -1143,24 +1207,21 @@ class ComicViewer {
     }, 1000);
   }
 
-  setViewMode(mode, options = {}) {
-    this.viewMode = mode;
-    
-    document.querySelectorAll('.toggle-btn').forEach(btn => {
-      btn.classList.toggle('active', btn.dataset.mode === mode);
-    });
+  setViewMode(mode) {
+    const nextMode = (mode === 'carousel' || mode === 'panels' || mode === 'strip') ? mode : 'strip';
+    this.viewMode = nextMode;
     
     const strip = document.getElementById('comic-strip');
     const carousel = document.getElementById('comic-carousel');
     const panels = document.getElementById('comic-panels');
     const comicDisplay = document.getElementById('comic-display');
-    comicDisplay?.classList.toggle('mode-carousel', mode === 'carousel');
+    comicDisplay?.classList.toggle('mode-carousel', nextMode === 'carousel');
     
-    if (mode === 'strip') {
+    if (nextMode === 'strip') {
       strip.classList.remove('hidden');
       carousel.classList.add('hidden');
       panels.classList.add('hidden');
-    } else if (mode === 'carousel') {
+    } else if (nextMode === 'carousel') {
       strip.classList.add('hidden');
       carousel.classList.remove('hidden');
       panels.classList.add('hidden');
@@ -1172,9 +1233,6 @@ class ComicViewer {
     }
 
     this.applyGenerationLayoutMode();
-    if (!options.preservePreset) {
-      this.syncLayoutPresetUI();
-    }
   }
 
   openPopup() {
@@ -1200,7 +1258,47 @@ class ComicViewer {
 
   getSelectedShareTarget() {
     const select = document.getElementById('share-target-select');
-    return String(select?.value || 'facebook');
+    if (select && select.value) return String(select.value);
+    return String(this.selectedShareTarget || 'facebook');
+  }
+
+  toggleShareMenu() {
+    const shareBtn = document.getElementById('share-btn');
+    if (!shareBtn || shareBtn.disabled) return;
+    const menu = document.getElementById('share-target-menu');
+    if (!menu) return;
+    const isOpen = !menu.classList.contains('hidden');
+    if (isOpen) {
+      this.hideShareMenu();
+      return;
+    }
+    menu.classList.remove('hidden');
+    shareBtn.setAttribute('aria-expanded', 'true');
+  }
+
+  hideShareMenu() {
+    const menu = document.getElementById('share-target-menu');
+    const shareBtn = document.getElementById('share-btn');
+    if (menu) menu.classList.add('hidden');
+    if (shareBtn) shareBtn.setAttribute('aria-expanded', 'false');
+  }
+
+  handleShareMenuClick(event) {
+    const targetEl = event?.target?.closest?.('[data-share-target]');
+    if (!targetEl) return;
+    const target = String(targetEl.dataset.shareTarget || '').trim();
+    if (!target) return;
+    this.selectedShareTarget = target;
+    this.hideShareMenu();
+    void this.shareComic(target);
+  }
+
+  handleGlobalClick(event) {
+    const menu = document.getElementById('share-target-menu');
+    const controls = document.querySelector('.share-controls');
+    if (!menu || menu.classList.contains('hidden')) return;
+    if (controls && controls.contains(event.target)) return;
+    this.hideShareMenu();
   }
 
   getComicShareText() {
@@ -1317,7 +1415,7 @@ class ComicViewer {
 
   getExportLayoutProfile() {
     const preset = this.layoutPreset || 'classic-strip';
-    const activeMode = this.viewMode || this.layoutPresets[preset]?.mode || 'strip';
+    const activeMode = this.layoutPresets[preset]?.mode || this.viewMode || 'strip';
     const map = {
       'single-panel-full': { kind: 'single', name: 'single-panel-full' },
       'split-2-vertical': { kind: 'vertical-list', aspect: 16 / 9, name: preset },
@@ -1344,8 +1442,7 @@ class ComicViewer {
     };
     const presetProfile = map[preset] || { kind: 'strip', columns: 3, aspect: 4 / 3, name: preset };
 
-    // Export should follow the currently visible mode, not only the preset default mode.
-    // Users can switch Strip/Carousel/Panels manually after choosing a preset.
+    // Export follows the active layout preset mode.
     if (activeMode === 'carousel') {
       return {
         kind: 'spotlight',
@@ -1807,8 +1904,8 @@ class ComicViewer {
     }
   }
 
-  async shareComic() {
-    const target = this.getSelectedShareTarget();
+  async shareComic(forcedTarget) {
+    const target = String(forcedTarget || this.getSelectedShareTarget() || '').trim();
     if (!this.currentComic) return;
     const payload = this.buildSharePayload();
     const encodedUrl = encodeURIComponent(payload.sourceUrl || '');
@@ -1942,11 +2039,43 @@ class ComicViewer {
     }
   }
 
+  getHistoryThumbnail(item) {
+    const explicit = String(item?.thumbnail || '').trim();
+    if (explicit) return explicit;
+    const panels = Array.isArray(item?.storyboard?.panels) ? item.storyboard.panels : [];
+    for (let i = 0; i < panels.length; i++) {
+      const image = String(panels[i]?.artifacts?.image_blob_ref || '').trim();
+      if (image) return image;
+    }
+    return '';
+  }
+
+  getHistorySourceInfo(item) {
+    const storyboardSource = item?.storyboard?.source || {};
+    const source = item?.source || {};
+    const url = String(
+      source.url ||
+      item?.sourceUrl ||
+      item?.url ||
+      storyboardSource.url ||
+      ''
+    ).trim();
+    const title = String(
+      source.title ||
+      item?.sourceTitle ||
+      item?.title ||
+      storyboardSource.title ||
+      'Untitled'
+    ).trim() || 'Untitled';
+    return { url: url || '#', title };
+  }
+
   renderHistoryCard(item, options = {}) {
-    const sourceUrl = item?.source?.url || '#';
+    const sourceInfo = this.getHistorySourceInfo(item);
+    const sourceUrl = sourceInfo.url || '#';
     const safeSourceHref = this.sanitizeExternalUrl(sourceUrl);
     const shortName = this.getShortSourceName(sourceUrl);
-    const sourceTitle = item?.source?.title || 'Untitled';
+    const sourceTitle = sourceInfo.title || 'Untitled';
     const showDate = options.showDate !== false;
     const showOriginalLink = options.showOriginalLink !== false;
     let dateText = '';
@@ -1959,10 +2088,12 @@ class ComicViewer {
     const safeShortName = this.escapeHtml(shortName);
     const safeSourceTitle = this.escapeHtml(sourceTitle);
     const safeDateText = this.escapeHtml(dateText);
+    const thumbSrc = this.getHistoryThumbnail(item);
+    const safeThumbSrc = this.escapeHtml(thumbSrc);
     return `
       <div class="history-item" data-id="${safeId}" role="button" tabindex="0" aria-label="Open comic ${safeSourceTitle}">
         <div class="history-thumb">
-          ${item.thumbnail ? `<img src="${item.thumbnail}" alt="">` : ''}
+          ${safeThumbSrc ? `<img src="${safeThumbSrc}" alt="">` : ''}
         </div>
         <div class="history-card-body">
           <div class="history-title" title="${safeSourceTitle}">${safeSourceTitle}</div>
@@ -1987,6 +2118,7 @@ class ComicViewer {
           } catch (_) {
             void this.appendDebugLog('history.selected.persist.error', { id: item.id });
           }
+          this.currentComicId = String(item.id || '');
           this.displayComic(item.storyboard);
         }
       };

@@ -26,32 +26,43 @@
           <span class="viewer-stat"><strong id="viewer-stat-storage">0 B</strong> storage</span>
         </div>
         <div class="header-meta-links">
-          <a class="meta-link" href="../docs/privacy.html" target="_blank" rel="noopener noreferrer">Privacy</a>
-          <a class="meta-link" href="../README.md" target="_blank" rel="noopener noreferrer">Home Repo</a>
+          <a class="meta-link" href="../options/options.html#about-section" target="_blank" rel="noopener noreferrer">About</a>
         </div>
       </div>
       <div class="header-actions">
-        <button id="new-comic-btn" class="btn small secondary">New Comic</button>
-        <button id="open-tab-btn" class="btn small secondary" disabled>Open in Tab</button>
-        <button id="download-btn" class="btn small primary" disabled>Download</button>
+        <button id="new-comic-btn" class="icon-control-btn" type="button" title="Create comic" aria-label="Create comic">
+          <svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+            <path d="M8 1.5a.75.75 0 01.75.75v5h5a.75.75 0 010 1.5h-5v5a.75.75 0 01-1.5 0v-5h-5a.75.75 0 010-1.5h5v-5A.75.75 0 018 1.5z"/>
+          </svg>
+        </button>
+        <button id="download-btn" class="icon-control-btn is-primary" type="button" title="Download comic" aria-label="Download comic" disabled>
+          <svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+            <path d="M8 1.5a.75.75 0 01.75.75v6.19l1.72-1.72a.75.75 0 111.06 1.06l-3 3a.75.75 0 01-1.06 0l-3-3a.75.75 0 111.06-1.06l1.72 1.72V2.25A.75.75 0 018 1.5z"/>
+            <path d="M2.75 10.5a.75.75 0 01.75.75v1c0 .14.11.25.25.25h8.5a.25.25 0 00.25-.25v-1a.75.75 0 011.5 0v1A1.75 1.75 0 0112.25 14h-8.5A1.75 1.75 0 012 12.25v-1a.75.75 0 01.75-.75z"/>
+          </svg>
+        </button>
         <div class="share-controls">
-          <select id="share-target-select" class="share-target-select" aria-label="Share target" disabled>
-            <option value="facebook">Facebook</option>
-            <option value="instagram">Instagram</option>
-            <option value="x">X</option>
-            <option value="x-card">X (image card)</option>
-            <option value="linkedin">LinkedIn</option>
-            <option value="linkedin-post">LinkedIn (image post)</option>
-            <option value="story">Story / Reel cover</option>
-            <option value="whatsapp">WhatsApp</option>
-            <option value="telegram">Telegram</option>
-            <option value="reddit">Reddit</option>
-            <option value="email">Email</option>
-            <option value="email-card">Email (with image)</option>
-            <option value="copy-link">Copy source link</option>
-            <option value="copy-caption">Copy caption text</option>
-          </select>
-          <button id="share-btn" class="btn small secondary" disabled>Share</button>
+          <button id="share-btn" class="icon-control-btn" type="button" title="Share comic" aria-label="Share comic" disabled aria-expanded="false" aria-haspopup="menu">
+            <svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+              <path d="M12.5 10.25a2.25 2.25 0 00-1.69.77L5.66 8.76a2.36 2.36 0 000-1.52l5.15-2.26a2.25 2.25 0 10-.6-1.36L5.06 5.88a2.25 2.25 0 100 4.24l5.15 2.26a2.25 2.25 0 102.29-2.13z"/>
+            </svg>
+          </button>
+          <div id="share-target-menu" class="share-target-menu hidden" role="menu" aria-label="Share target">
+            <button type="button" class="share-target-item" data-share-target="facebook" role="menuitem"><span class="share-target-icon share-target-facebook" aria-hidden="true">f</span><span>Facebook</span></button>
+            <button type="button" class="share-target-item" data-share-target="instagram" role="menuitem"><span class="share-target-icon share-target-instagram" aria-hidden="true">I</span><span>Instagram</span></button>
+            <button type="button" class="share-target-item" data-share-target="x" role="menuitem"><span class="share-target-icon share-target-x" aria-hidden="true">X</span><span>X</span></button>
+            <button type="button" class="share-target-item" data-share-target="x-card" role="menuitem"><span class="share-target-icon share-target-x" aria-hidden="true">X</span><span>X (image card)</span></button>
+            <button type="button" class="share-target-item" data-share-target="linkedin" role="menuitem"><span class="share-target-icon share-target-linkedin" aria-hidden="true">in</span><span>LinkedIn</span></button>
+            <button type="button" class="share-target-item" data-share-target="linkedin-post" role="menuitem"><span class="share-target-icon share-target-linkedin" aria-hidden="true">in</span><span>LinkedIn (image post)</span></button>
+            <button type="button" class="share-target-item" data-share-target="story" role="menuitem"><span class="share-target-icon share-target-story" aria-hidden="true">S</span><span>Story / Reel cover</span></button>
+            <button type="button" class="share-target-item" data-share-target="whatsapp" role="menuitem"><span class="share-target-icon share-target-whatsapp" aria-hidden="true">W</span><span>WhatsApp</span></button>
+            <button type="button" class="share-target-item" data-share-target="telegram" role="menuitem"><span class="share-target-icon share-target-telegram" aria-hidden="true">T</span><span>Telegram</span></button>
+            <button type="button" class="share-target-item" data-share-target="reddit" role="menuitem"><span class="share-target-icon share-target-reddit" aria-hidden="true">R</span><span>Reddit</span></button>
+            <button type="button" class="share-target-item" data-share-target="email" role="menuitem"><span class="share-target-icon share-target-email" aria-hidden="true">@</span><span>Email</span></button>
+            <button type="button" class="share-target-item" data-share-target="email-card" role="menuitem"><span class="share-target-icon share-target-email" aria-hidden="true">@</span><span>Email (with image)</span></button>
+            <button type="button" class="share-target-item" data-share-target="copy-link" role="menuitem"><span class="share-target-icon share-target-copy" aria-hidden="true">L</span><span>Copy source link</span></button>
+            <button type="button" class="share-target-item" data-share-target="copy-caption" role="menuitem"><span class="share-target-icon share-target-copy" aria-hidden="true">C</span><span>Copy caption text</span></button>
+          </div>
         </div>
       </div>
     </header>
@@ -74,13 +85,15 @@
               <h2 id="comic-title">Comic Title</h2>
               <a class="help-link-icon inline" href="../docs/user-manual.html#sidepanel-comic-view" target="_blank" rel="noopener noreferrer" title="Comic view help">?</a>
             </div>
-            <a id="comic-source" href="#" target="_blank" class="source-link">View Original</a>
-          </div>
-
-          <div class="view-mode-toggle">
-            <button class="toggle-btn active" data-mode="strip">Strip View</button>
-            <button class="toggle-btn" data-mode="carousel">Carousel</button>
-            <button class="toggle-btn" data-mode="panels">Panel View</button>
+            <div class="comic-meta-actions">
+              <a id="comic-source" href="#" target="_blank" class="source-link">View Original</a>
+              <button id="open-tab-btn" class="icon-control-btn tiny" type="button" title="Open comic in new tab" aria-label="Open comic in new tab" disabled>
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+                  <path d="M10 2a.75.75 0 000 1.5h2.44L7.47 8.47a.75.75 0 101.06 1.06l4.97-4.97V7a.75.75 0 001.5 0V2.75A.75.75 0 0014.25 2H10z"/>
+                  <path d="M3.75 3A1.75 1.75 0 002 4.75v7.5C2 13.22 2.78 14 3.75 14h7.5A1.75 1.75 0 0013 12.25V9a.75.75 0 00-1.5 0v3.25a.25.25 0 01-.25.25h-7.5a.25.25 0 01-.25-.25v-7.5a.25.25 0 01.25-.25H7a.75.75 0 000-1.5H3.75z"/>
+                </svg>
+              </button>
+            </div>
           </div>
 
           <div class="layout-preset-row">

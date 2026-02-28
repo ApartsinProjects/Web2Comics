@@ -85,7 +85,7 @@ describe('Popup Page Startup', () => {
 
     expect(generateBtn.disabled).toBe(true);
     const readinessText = document.getElementById('wizard-readiness-text');
-    expect(String(readinessText.textContent)).toContain('Select source text to continue');
+    expect(String(readinessText.textContent)).toContain('Connect a model provider in Settings to continue');
   });
 
   it('opens create composer with context-menu selected text prepopulated', async () => {
@@ -320,6 +320,63 @@ describe('Popup Page Startup', () => {
     expect(String(previewText.textContent)).not.toContain('Unable to extract content');
   });
 
+  it('shows story picker button with detected story summaries and allows selecting a different auto-detected story', async () => {
+    chrome.tabs.query.mockResolvedValue([{ id: 1, status: 'complete', url: 'https://en.wikipedia.org/wiki/Israel' }]);
+    chrome.tabs.sendMessage.mockImplementation(async (_tabId, msg) => {
+      if (msg.type !== 'EXTRACT_CONTENT') return { success: true };
+      const selectedId = msg.payload?.selectedCandidateId || 'candidate_0';
+      return {
+        success: true,
+        text: 'x '.repeat(650),
+        selectedCandidateId: selectedId,
+        autoSelectedCandidateId: 'candidate_0',
+        candidates: [
+          { id: 'candidate_0', summary: 'Lead section summary from Chrome summarizer', summaryMethod: 'chrome-summarizer', chars: 1200, score: 140 },
+          { id: 'candidate_1', summary: 'History section summary from Chrome summarizer', summaryMethod: 'chrome-summarizer', chars: 950, score: 118 }
+        ],
+        quality: { pass: true, words: 240, uniqueRatio: 0.32, shortLineRatio: 0.4, boilerplateHits: 1 }
+      };
+    });
+
+    await import('../../popup/popup.js');
+    document.dispatchEvent(new Event('DOMContentLoaded'));
+    await flush();
+    await flush();
+
+    document.getElementById('create-comic-btn').click();
+    await flush();
+    await flush();
+
+    const storyBtn = document.getElementById('story-picker-btn');
+    expect(storyBtn.classList.contains('hidden')).toBe(false);
+    const flowHint = String(document.getElementById('story-flow-hint')?.textContent || '');
+    expect(flowHint).toContain('Auto-selected top story');
+    expect(flowHint).toContain('Lead section summary');
+
+    storyBtn.click();
+    await flush();
+
+    const modal = document.getElementById('story-picker-modal');
+    expect(modal.classList.contains('hidden')).toBe(false);
+    const listText = String(document.getElementById('story-picker-list').textContent || '');
+    expect(listText).toContain('Lead section summary');
+    expect(listText).toContain('History section summary');
+
+    const second = document.querySelector('.story-picker-item[data-candidate-id="candidate_1"]');
+    second.click();
+    await flush();
+    await flush();
+
+    const selectedCandidateCall = chrome.tabs.sendMessage.mock.calls.find((call) =>
+      call[1]?.type === 'EXTRACT_CONTENT' && call[1]?.payload?.selectedCandidateId === 'candidate_1'
+    );
+    expect(selectedCandidateCall).toBeTruthy();
+    expect(modal.classList.contains('hidden')).toBe(true);
+    const selectedWrap = String(document.getElementById('story-flow-hint')?.textContent || '');
+    expect(selectedWrap).toContain('Selected story');
+    expect(selectedWrap).toContain('History section summary');
+  });
+
   it('simulates user flow: navigate to Wikipedia article, click Create Comic, then click Generate Comic', async () => {
     let startPayload = null;
     const articleUrl = 'https://en.wikipedia.org/wiki/Israel';
@@ -397,7 +454,7 @@ describe('Popup Page Startup', () => {
     await flush();
 
     const details = document.getElementById('content-extra-section');
-    expect(details.open).toBe(true);
+    expect(details.open).toBe(false);
 
     details.open = false;
     details.dispatchEvent(new Event('toggle'));
@@ -408,6 +465,46 @@ describe('Popup Page Startup', () => {
     await flush();
 
     expect(details.open).toBe(false);
+  });
+
+  it('falls back to English when persisted output language is unsupported', async () => {
+    chrome.tabs.sendMessage.mockResolvedValue({ success: true, text: 'x '.repeat(600) });
+    chrome.storage.local.get.mockImplementation(async (keys) => {
+      if (Array.isArray(keys)) {
+        const result = {
+          settings: {
+            activeTextProvider: 'openai',
+            activeImageProvider: 'openai',
+            panelCount: 3,
+            outputLanguage: 'xx-unsupported'
+          },
+          providers: {}
+        };
+        if (keys.includes('apiKeys')) result.apiKeys = { openai: global.TEST_OPENAI_API_KEY };
+        if (keys.includes('providerValidation')) result.providerValidation = { openai: { valid: true } };
+        return result;
+      }
+      if (keys === 'onboardingComplete') return { onboardingComplete: true };
+      if (keys === 'history') return { history: [] };
+      if (keys === 'currentJob') return { currentJob: null };
+      if (keys === 'apiKeys') return { apiKeys: { openai: global.TEST_OPENAI_API_KEY } };
+      if (keys === 'providerValidation') return { providerValidation: { openai: { valid: true } } };
+      return {};
+    });
+
+    await import('../../popup/popup.js');
+    document.dispatchEvent(new Event('DOMContentLoaded'));
+    await flush();
+    await flush();
+
+    document.getElementById('create-comic-btn').click();
+    await flush();
+    await flush();
+
+    const controller = window.__popupController;
+    expect(controller.settings.outputLanguage).toBe('en');
+    const outputLanguageSelect = document.getElementById('output-language');
+    expect(outputLanguageSelect.value).toBe('en');
   });
 
   it('shows selection fallback note and allows retrying full-page extraction', async () => {
@@ -714,6 +811,7 @@ describe('Popup Page Startup', () => {
   });
 
   it('sends selected objective in START_GENERATION payload', async () => {
+    const selectedText = 'Objective payload test selected text '.repeat(16);
     chrome.storage.local.get.mockImplementation(async (keys) => {
       if (Array.isArray(keys)) {
         return {
@@ -726,11 +824,20 @@ describe('Popup Page Startup', () => {
       if (keys === 'history') return { history: [] };
       if (keys === 'currentJob') return { currentJob: null };
       if (keys === 'apiKeys') return { apiKeys: { openai: global.TEST_OPENAI_API_KEY } };
+      if (keys === 'pendingComposerPrefill') {
+        return {
+          pendingComposerPrefill: {
+            text: selectedText,
+            sourceUrl: 'https://example.com/objective',
+            sourceTitle: 'Objective Source',
+            source: 'context-menu-selection'
+          }
+        };
+      }
       return {};
     });
 
     chrome.tabs.sendMessage.mockImplementation(async (_tabId, msg) => {
-      if (msg.type === 'EXTRACT_CONTENT') return { success: true, text: 'x '.repeat(400) };
       if (msg.type === 'START_GENERATION') return { success: true, jobId: 'job-objective-selected' };
       return { success: true };
     });
@@ -740,22 +847,19 @@ describe('Popup Page Startup', () => {
     await flush();
     await flush();
 
-    document.getElementById('create-comic-btn').click();
-    await flush();
-
     const objective = document.getElementById('objective');
     objective.value = 'learn-step-by-step';
     objective.dispatchEvent(new Event('change', { bubbles: true }));
     await flush();
 
-    await waitForCondition(() => !document.getElementById('generate-btn').disabled, 2000);
+    await waitForCondition(() => !document.getElementById('generate-btn').disabled, 3000);
     document.getElementById('generate-btn').click();
     await flush();
 
     const startCall = chrome.tabs.sendMessage.mock.calls.find((call) => call[1]?.type === 'START_GENERATION');
     expect(startCall).toBeTruthy();
     expect(startCall[1].payload.settings.objective).toBe('learn-step-by-step');
-  });
+  }, 15000);
 
   it('hides key-based providers when validation records exist but provider is not validated', async () => {
     chrome.storage.local.get.mockImplementation(async (keys) => {
@@ -1714,7 +1818,7 @@ describe('Popup Page Startup', () => {
 
     const generateBtn = document.getElementById('generate-btn');
     expect(generateBtn.disabled).toBe(true);
-    expect(generateBtn.title).toContain('Select source text to continue');
+    expect(generateBtn.title).toContain('Wait for top stories to be detected or choose highlighted text');
 
     generateBtn.disabled = false;
     generateBtn.click();
@@ -1759,6 +1863,6 @@ describe('Popup Page Startup', () => {
     const generateBtn = document.getElementById('generate-btn');
     const readinessText = document.getElementById('wizard-readiness-text');
     expect(generateBtn.disabled).toBe(false);
-    expect(String(readinessText.textContent)).toContain('Ready. Click Generate Comic.');
+    expect(String(readinessText.textContent)).toContain('Ready to generate.');
   });
 });

@@ -155,6 +155,35 @@ function buildXShortFeedHtml() {
   `;
 }
 
+function buildCnnLikeMultiStoryHtml() {
+  return `
+    <main role="main">
+      <article>
+        <h1>Story Alpha: Elections</h1>
+        <p>
+          Story Alpha reports on election turnout changes across major districts with detailed county-by-county
+          comparisons, official statements, and updated timelines for certification.
+        </p>
+        <p>
+          Analysts in Story Alpha cite historical turnout baselines from 2016 through 2024 and explain how
+          policy messaging, transport access, and early voting windows influenced participation.
+        </p>
+      </article>
+      <article>
+        <h1>Story Beta: Space Launch</h1>
+        <p>
+          Story Beta covers a commercial launch campaign, engine validation milestones, weather constraints,
+          and revised mission windows for payload deployment and orbital insertion.
+        </p>
+        <p>
+          Engineers in Story Beta describe static-fire test data, telemetry checks, and go/no-go criteria used
+          before approving the launch timeline and recovery operations.
+        </p>
+      </article>
+    </main>
+  `;
+}
+
 describe('Content Script Site Adapters', () => {
   beforeEach(() => {
     vi.resetModules();
@@ -196,6 +225,11 @@ describe('Content Script Site Adapters', () => {
     expect(result.text.length).toBeGreaterThan(140);
     expect(Array.isArray(result.candidates)).toBe(true);
     expect(result.candidates.length).toBeGreaterThan(0);
+    expect(typeof result.selectedCandidateId).toBe('string');
+    expect(typeof result.autoSelectedCandidateId).toBe('string');
+    expect(result.selectedCandidateId.length).toBeGreaterThan(0);
+    expect(result.autoSelectedCandidateId.length).toBeGreaterThan(0);
+    expect(typeof result.candidates[0].summaryMethod).toBe('string');
   });
 
   it('extracts readable content for Facebook single-post view fallback', async () => {
@@ -329,5 +363,27 @@ describe('Content Script Site Adapters', () => {
     expect(result.text).toContain('City opens new bike lanes');
     expect(result.text).toContain('monthly metrics for ridership');
     expect(result.text.length).toBeGreaterThan(120);
+  });
+
+  it('resolves selected story by stable candidate id on cnn-like multi-story pages', async () => {
+    document.body.innerHTML = buildCnnLikeMultiStoryHtml();
+    await import('../../content/content-script.js');
+    await flush();
+
+    const api = globalThis.__WEB2COMICS_CONTENT_TEST_API__;
+    const firstPass = await api.extractReadableContent('full', {});
+    expect(firstPass.success).toBe(true);
+    expect(Array.isArray(firstPass.candidates)).toBe(true);
+    expect(firstPass.candidates.length).toBeGreaterThan(1);
+
+    const selectedId = String(firstPass.candidates[1].id || '');
+    expect(selectedId.length).toBeGreaterThan(0);
+    expect(/^candidate_/i.test(selectedId)).toBe(true);
+
+    const secondPass = await api.extractReadableContent('full', { selectedCandidateId: selectedId });
+    expect(secondPass.success).toBe(true);
+    expect(secondPass.selectedCandidateId).toBe(selectedId);
+    expect(secondPass.text.length).toBeGreaterThan(120);
+    expect(secondPass.text).toContain('Story Beta');
   });
 });

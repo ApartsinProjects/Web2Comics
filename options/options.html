@@ -20,6 +20,7 @@
       <button class="nav-btn" data-section="providers">Providers</button>
       <button class="nav-btn" data-section="prompts">Prompts</button>
       <button class="nav-btn" data-section="storage">Storage</button>
+      <button class="nav-btn" data-section="connections">Connections</button>
       <button class="nav-btn" data-section="about">About</button>
     </nav>
 
@@ -171,7 +172,7 @@
           
           <div class="provider-card active" data-provider="gemini-free">
             <div class="provider-header">
-              <h4>Google Gemini (Free Tier)</h4>
+              <h4 class="with-inline-icon"><span class="inline-icon inline-icon-provider-gemini" aria-hidden="true">G</span>Google Gemini (Free Tier)</h4>
               <span class="badge free">Free</span>
             </div>
             <p>Text generation and image generation. Free tier available with rate limits.</p>
@@ -214,7 +215,7 @@
 
           <div class="provider-card" data-provider="cloudflare-free">
             <div class="provider-header">
-              <h4>Cloudflare Workers AI</h4>
+              <h4 class="with-inline-icon"><span class="inline-icon inline-icon-provider-cloudflare" aria-hidden="true">C</span>Cloudflare Workers AI</h4>
               <span class="badge free">Free</span>
             </div>
             <p>Text generation using Workers AI. Free daily neuron allocation.</p>
@@ -265,7 +266,7 @@
 
           <div class="provider-card" data-provider="openrouter">
             <div class="provider-header">
-              <h4>OpenRouter</h4>
+              <h4 class="with-inline-icon"><span class="inline-icon inline-icon-provider-openrouter" aria-hidden="true">R</span>OpenRouter</h4>
               <span class="badge free">Free/Paid</span>
             </div>
             <p>Text and image generation through OpenRouter model routing (image support is model/account dependent and may require paid access).</p>
@@ -315,7 +316,7 @@
 
           <div class="provider-card" data-provider="huggingface">
             <div class="provider-header">
-              <h4>Hugging Face Inference API</h4>
+              <h4 class="with-inline-icon"><span class="inline-icon inline-icon-provider-huggingface" aria-hidden="true">H</span>Hugging Face Inference API</h4>
               <span class="badge free">Free/Paid</span>
             </div>
             <p>Text and image generation through Hugging Face Inference API (chat + hf-inference image tasks).</p>
@@ -375,7 +376,7 @@
 
           <div class="provider-card" data-provider="openai">
             <div class="provider-header">
-              <h4>OpenAI (GPT & DALL-E)</h4>
+              <h4 class="with-inline-icon"><span class="inline-icon inline-icon-provider-openai" aria-hidden="true">O</span>OpenAI (GPT & DALL-E)</h4>
               <span class="badge paid">Paid</span>
             </div>
             <p>Text generation with GPT models and image generation with DALL-E.</p>
@@ -482,11 +483,13 @@
             <p class="setting-description" id="prompt-library-description">Choose a preset to apply structured storyboard/image templates.</p>
           </div>
           <div class="actions compact">
-            <button id="apply-prompt-preset-current-btn" class="btn secondary" type="button">Apply To Current Provider</button>
+            <button id="apply-prompt-preset-current-btn" class="btn secondary" type="button">Approve Preview</button>
+            <button id="cancel-prompt-preset-preview-btn" class="btn secondary" type="button">Cancel Preview</button>
             <button id="apply-prompt-preset-all-btn" class="btn secondary" type="button">Apply To All Providers</button>
             <button id="import-prompt-library-btn" class="btn secondary" type="button">Import Prompt Library JSON</button>
             <input id="import-prompt-library-file" type="file" accept=".json,application/json" style="display:none" />
           </div>
+          <p class="setting-description" id="prompt-library-preview-status">Select a preset to preview it in the editors. Approve to keep it.</p>
         </div>
 
         <div class="setting-group">
@@ -568,83 +571,131 @@
           </div>
         </div>
 
-        <div class="setting-group">
-          <h3>Google Drive Backup (Optional)</h3>
+      </section>
 
-          <div class="setting-item checkbox">
+      <!-- Connections Settings -->
+      <section id="connections-section" class="settings-section">
+        <div class="section-title-row"><h2>Connections</h2><a class="help-link-icon inline" href="../docs/user-manual.html#options-storage" target="_blank" rel="noopener noreferrer" title="Connections help">?</a></div>
+
+        <div class="setting-group connection-card">
+          <h3 class="with-inline-icon"><span class="inline-icon inline-icon-target-gdrive" aria-hidden="true">D</span>Google Drive (Automatic Sync)</h3>
+          <p class="setting-description">Connect once to auto-save comics into your <code>Web2Comics</code> Drive folder.</p>
+          <div id="google-drive-auto-save-item" class="setting-item checkbox" style="display: none;">
             <label>
               <input type="checkbox" id="google-drive-auto-save">
-              <span>Auto-save every generated comic to Google Drive</span>
+              <span>Enable authorization</span>
             </label>
-            <p class="setting-description">Saves each comic as interactive HTML in the <code>Web2Comics</code> folder.</p>
           </div>
-
-          <div class="setting-item">
-            <label for="google-drive-client-id">Google OAuth Client ID</label>
-            <input type="text" id="google-drive-client-id" placeholder="xxxxxx.apps.googleusercontent.com">
-            <p class="setting-description">Create OAuth client in Google Cloud and enable Google Drive API.</p>
-          </div>
-
           <div class="drive-status-box" id="google-drive-status-box">
             <div class="storage-item">
               <span>Connection Status</span>
               <span id="google-drive-connection-status">Not connected</span>
             </div>
-            <div class="storage-item">
-              <span>Target Folder</span>
-              <span><code>Web2Comics</code></span>
-            </div>
           </div>
-
-          <div class="actions">
-            <button id="connect-google-drive-btn" class="btn secondary" type="button">Connect Google Drive</button>
-            <button id="disconnect-google-drive-btn" class="btn secondary" type="button">Disconnect</button>
-            <button id="save-drive-settings-btn" class="btn primary" type="button">Save Connection Settings</button>
+          <div class="actions connection-actions">
+            <button id="connect-google-drive-btn" class="btn secondary icon-control" type="button" title="Connect Google Drive" aria-label="Connect Google Drive">
+              <span class="icon-control-glyph" aria-hidden="true">+</span>
+              <span>Connect</span>
+            </button>
+            <button id="disconnect-google-drive-btn" class="btn secondary icon-control" type="button" title="Disconnect Google Drive" aria-label="Disconnect Google Drive">
+              <span class="icon-control-glyph" aria-hidden="true">-</span>
+              <span>Disconnect</span>
+            </button>
           </div>
         </div>
 
-        <div class="setting-group">
-          <h3>Facebook Connection (Optional)</h3>
-
-          <div class="setting-item">
-            <label for="facebook-app-id">Facebook App ID</label>
-            <input type="text" id="facebook-app-id" placeholder="123456789012345">
-            <p class="setting-description">Create a Facebook app, enable Login, and add this extension redirect URL in Valid OAuth Redirect URIs.</p>
-          </div>
-
+        <div class="setting-group connection-card">
+          <h3 class="with-inline-icon"><span class="inline-icon inline-icon-target-facebook" aria-hidden="true">f</span>Facebook (Share Target)</h3>
+          <p class="setting-description">Connect Facebook with OAuth. No manual token entry.</p>
           <div class="drive-status-box" id="facebook-status-box">
             <div class="storage-item">
               <span>Connection Status</span>
               <span id="facebook-connection-status" class="connection-status">Not connected</span>
             </div>
           </div>
-
-          <div class="actions">
-            <button id="connect-facebook-btn" class="btn secondary" type="button">Connect Facebook</button>
-            <button id="disconnect-facebook-btn" class="btn secondary" type="button">Disconnect</button>
+          <div class="actions connection-actions">
+            <button id="connect-facebook-btn" class="btn secondary icon-control" type="button" title="Connect Facebook" aria-label="Connect Facebook">
+              <span class="icon-control-glyph" aria-hidden="true">+</span>
+              <span>Connect</span>
+            </button>
+            <button id="disconnect-facebook-btn" class="btn secondary icon-control" type="button" title="Disconnect Facebook" aria-label="Disconnect Facebook">
+              <span class="icon-control-glyph" aria-hidden="true">-</span>
+              <span>Disconnect</span>
+            </button>
           </div>
         </div>
 
-        <div class="setting-group">
-          <h3>X Connection (Optional)</h3>
-
-          <div class="setting-item">
-            <label for="x-client-id">X OAuth Client ID</label>
-            <input type="text" id="x-client-id" placeholder="Your X OAuth Client ID">
-            <p class="setting-description">Configure X OAuth2 app and allow this extension redirect URI for posting/sharing workflows.</p>
-          </div>
-
+        <div class="setting-group connection-card">
+          <h3 class="with-inline-icon"><span class="inline-icon inline-icon-target-x" aria-hidden="true">X</span>X (Share Target)</h3>
+          <p class="setting-description">Connect X with OAuth. No manual token entry.</p>
           <div class="drive-status-box" id="x-status-box">
             <div class="storage-item">
               <span>Connection Status</span>
               <span id="x-connection-status" class="connection-status">Not connected</span>
             </div>
           </div>
-
-          <div class="actions">
-            <button id="connect-x-btn" class="btn secondary" type="button">Connect X</button>
-            <button id="disconnect-x-btn" class="btn secondary" type="button">Disconnect</button>
+          <div class="actions connection-actions">
+            <button id="connect-x-btn" class="btn secondary icon-control" type="button" title="Connect X" aria-label="Connect X">
+              <span class="icon-control-glyph" aria-hidden="true">+</span>
+              <span>Connect</span>
+            </button>
+            <button id="disconnect-x-btn" class="btn secondary icon-control" type="button" title="Disconnect X" aria-label="Disconnect X">
+              <span class="icon-control-glyph" aria-hidden="true">-</span>
+              <span>Disconnect</span>
+            </button>
           </div>
+        </div>
+
+        <div class="setting-group connection-card">
+          <h3 class="with-inline-icon"><span class="inline-icon inline-icon-target-instagram" aria-hidden="true">I</span>Instagram (Share Target)</h3>
+          <div class="drive-status-box" id="instagram-status-box">
+            <div class="storage-item">
+              <span>Connection Status</span>
+              <span id="instagram-connection-status" class="connection-status">Not connected</span>
+            </div>
+          </div>
+          <div class="actions connection-actions">
+            <button id="connect-instagram-btn" class="btn secondary icon-control" type="button" title="Connect Instagram" aria-label="Connect Instagram">
+              <span class="icon-control-glyph" aria-hidden="true">+</span>
+              <span>Connect</span>
+            </button>
+            <button id="disconnect-instagram-btn" class="btn secondary icon-control" type="button" title="Disconnect Instagram" aria-label="Disconnect Instagram">
+              <span class="icon-control-glyph" aria-hidden="true">-</span>
+              <span>Disconnect</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="setting-group connection-card">
+          <h3 class="with-inline-icon"><span class="inline-icon inline-icon-target-other" aria-hidden="true">+</span>All Other Share Targets</h3>
+          <div class="setting-item">
+            <label for="other-share-target-select">Share Target</label>
+            <select id="other-share-target-select">
+              <option value="linkedin">in LinkedIn</option>
+              <option value="reddit">R Reddit</option>
+              <option value="email">@ Email</option>
+            </select>
+          </div>
+          <div class="drive-status-box" id="other-share-status-box">
+            <div class="storage-item">
+              <span>Connection Status</span>
+              <span id="other-share-connection-status" class="connection-status">Not connected</span>
+            </div>
+          </div>
+          <div class="actions connection-actions">
+            <button id="connect-other-share-btn" class="btn secondary icon-control" type="button" title="Connect selected share target" aria-label="Connect selected share target">
+              <span class="icon-control-glyph" aria-hidden="true">+</span>
+              <span>Connect</span>
+            </button>
+            <button id="disconnect-other-share-btn" class="btn secondary icon-control" type="button" title="Disconnect selected share target" aria-label="Disconnect selected share target">
+              <span class="icon-control-glyph" aria-hidden="true">-</span>
+              <span>Disconnect</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="actions">
+          <button id="save-drive-settings-btn" class="btn primary" type="button">Save Connection Settings</button>
         </div>
       </section>
 

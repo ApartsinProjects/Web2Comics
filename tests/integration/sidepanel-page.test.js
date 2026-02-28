@@ -131,6 +131,53 @@ describe('Sidepanel Page UX', () => {
     expect(actions.classList.contains('hidden')).toBe(true);
   });
 
+  it('renders history thumbnail fallback from storyboard panel image when thumbnail is missing', async () => {
+    const item = makeHistoryItem(1);
+    delete item.thumbnail;
+    item.storyboard.panels[0].artifacts.image_blob_ref =
+      'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMB/axlF8UAAAAASUVORK5CYII=';
+    chrome.storage.local.get.mockImplementation(async (key) => {
+      if (key === 'currentJob') return { currentJob: null };
+      if (key === 'history') return { history: [item] };
+      return {};
+    });
+
+    await import('../../sidepanel/sidepanel.js');
+    document.dispatchEvent(new Event('DOMContentLoaded'));
+    await flush();
+    await flush();
+
+    document.getElementById('mode-history-btn').click();
+    await flush();
+
+    const thumb = document.querySelector('#history-browser-grid .history-thumb img');
+    expect(thumb).toBeTruthy();
+    expect(String(thumb.getAttribute('src') || '')).toContain('data:image/png;base64');
+  });
+
+  it('renders history title and source link from sourceTitle/sourceUrl fallback fields', async () => {
+    const item = makeHistoryItem(1);
+    delete item.source;
+    item.sourceTitle = 'CNN Fallback Source Title';
+    item.sourceUrl = 'https://www.cnn.com/fallback';
+    chrome.storage.local.get.mockImplementation(async (key) => {
+      if (key === 'currentJob') return { currentJob: null };
+      if (key === 'history') return { history: [item] };
+      return {};
+    });
+
+    await import('../../sidepanel/sidepanel.js');
+    document.dispatchEvent(new Event('DOMContentLoaded'));
+    await flush();
+    await flush();
+
+    const titleEl = document.querySelector('#history-list .history-title');
+    const originalLink = document.querySelector('#history-list .history-source-link');
+    expect(String(titleEl?.textContent || '')).toContain('CNN Fallback Source Title');
+    expect(originalLink).toBeTruthy();
+    expect(String(originalLink?.getAttribute('href') || '').toLowerCase()).not.toContain('javascript:');
+  });
+
   it('opens a history card with keyboard and returns to Comic View', async () => {
     const history = [makeHistoryItem(1), makeHistoryItem(2)];
     chrome.storage.local.get.mockImplementation(async (key) => {
@@ -747,7 +794,7 @@ describe('Sidepanel Page UX', () => {
     }
   });
 
-  it('uses current visible mode for export profile when user overrides preset mode', async () => {
+  it('uses preset mode for export profile (preset is single source of truth)', async () => {
     const item = makeHistoryItem(1);
     item.storyboard.panels = Array.from({ length: 6 }, (_, i) => ({
       caption: `Panel ${i + 1} caption`,
@@ -774,24 +821,24 @@ describe('Sidepanel Page UX', () => {
     const select = document.getElementById('layout-preset-select');
     expect(viewer).toBeTruthy();
 
-    // Preset defaults to panels; user switches to strip view.
+    // Preset defaults to panels; direct mode override should not change export kind.
     select.value = 'grid-6';
     select.dispatchEvent(new Event('change', { bubbles: true }));
     await flush();
     viewer.setViewMode('strip');
     await flush();
     const stripProfile = viewer.getExportLayoutProfile();
-    expect(stripProfile.kind).toBe('strip');
-    expect(stripProfile.columns).toBe(3);
+    expect(stripProfile.kind).toBe('grid');
 
-    // Preset defaults to strip; user switches to panel view.
+    // Preset defaults to strip; direct mode override should not change export kind.
     select.value = 'classic-strip';
     select.dispatchEvent(new Event('change', { bubbles: true }));
     await flush();
     viewer.setViewMode('panels');
     await flush();
     const panelProfile = viewer.getExportLayoutProfile();
-    expect(panelProfile.kind).toBe('grid');
+    expect(panelProfile.kind).toBe('strip');
+    expect(panelProfile.columns).toBe(3);
   });
 
   it('alerts when composite export fails', async () => {
@@ -895,6 +942,255 @@ describe('Sidepanel Page UX', () => {
     promptButtons[0].click();
     expect(global.alert).toHaveBeenCalled();
     expect(String(global.alert.mock.calls.at(-1)?.[0] || '')).toContain('Original prompt');
+  });
+
+  it('renders compact panel quick actions and collapsible grounding/entities details', async () => {
+    const item = makeHistoryItem(1);
+    item.storyboard.panels = [
+      {
+        caption: 'Panel with grounded facts',
+        facts_used: {
+          entities: ['Israel', 'Jerusalem', 'UN'],
+          dates: ['1948'],
+          numbers: ['2 million'],
+          source_snippet: 'Relevant extracted source sentence.'
+        },
+        artifacts: {
+          image_blob_ref:
+            'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMB/axlF8UAAAAASUVORK5CYII='
+        }
+      }
+    ];
+
+    chrome.storage.local.get.mockImplementation(async (key) => {
+      if (key === 'currentJob') return { currentJob: { status: 'completed', storyboard: item.storyboard } };
+      if (key === 'history') return { history: [item] };
+      if (key === 'sidepanelPrefs') return { sidepanelPrefs: {} };
+      return {};
+    });
+
+    await import('../../sidepanel/sidepanel.js');
+    document.dispatchEvent(new Event('DOMContentLoaded'));
+    await flush();
+    await flush();
+
+    const quickActionButtons = Array.from(document.querySelectorAll('.comic-strip .panel-action-btn'));
+    expect(quickActionButtons.length).toBeGreaterThanOrEqual(3);
+    expect(quickActionButtons.map((el) => String(el.textContent || '').trim())).toEqual(
+      expect.arrayContaining(['Img', 'Cap', 'Fact'])
+    );
+    expect(document.querySelector('[data-panel-action="regenerate-image"]')).toBeTruthy();
+    expect(document.querySelector('[data-panel-action="regenerate-caption"]')).toBeTruthy();
+    expect(document.querySelector('[data-panel-action="make-factual"]')).toBeTruthy();
+
+    const factsShell = document.querySelector('.comic-strip .panel-facts-shell');
+    expect(factsShell).toBeTruthy();
+    expect(String(factsShell.querySelector('summary')?.textContent || '')).toContain('Grounding');
+
+    const entitiesDetails = factsShell.querySelector('.panel-facts-sublist');
+    expect(entitiesDetails).toBeTruthy();
+    expect(String(entitiesDetails.querySelector('summary')?.textContent || '')).toContain('Entities');
+    expect(entitiesDetails.querySelectorAll('.panel-fact-chip').length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('applies make-simpler from panel action menu and updates caption text', async () => {
+    const item = makeHistoryItem(1);
+    item.storyboard.panels = [
+      {
+        caption: 'This is a long and complex caption, with extra clauses, and too much detail.',
+        artifacts: {
+          image_blob_ref:
+            'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMB/axlF8UAAAAASUVORK5CYII='
+        }
+      }
+    ];
+
+    chrome.storage.local.get.mockImplementation(async (key) => {
+      if (key === 'currentJob') return { currentJob: { status: 'completed', storyboard: item.storyboard } };
+      if (key === 'history') return { history: [item] };
+      if (key === 'sidepanelPrefs') return { sidepanelPrefs: {} };
+      return {};
+    });
+    chrome.runtime.sendMessage.mockImplementation(async (msg) => {
+      if (msg?.type === 'EDIT_PANEL' && msg?.payload?.action === 'make-simpler') {
+        return {
+          success: true,
+          job: {
+            storyboard: {
+              source: item.storyboard.source,
+              panels: [
+                {
+                  caption: 'This is a long and complex caption',
+                  artifacts: item.storyboard.panels[0].artifacts
+                }
+              ]
+            }
+          }
+        };
+      }
+      return { success: true };
+    });
+
+    await import('../../sidepanel/sidepanel.js');
+    document.dispatchEvent(new Event('DOMContentLoaded'));
+    await flush();
+    await flush();
+
+    const more = document.querySelector('.comic-strip .panel-more-actions');
+    more.setAttribute('open', '');
+    const simplerBtn = document.querySelector('.comic-strip [data-panel-action="make-simpler"]');
+    expect(simplerBtn).toBeTruthy();
+    simplerBtn.click();
+    await flush();
+    await flush();
+
+    expect(chrome.runtime.sendMessage).toHaveBeenCalledWith({
+      type: 'EDIT_PANEL',
+      payload: { panelIndex: 0, action: 'make-simpler', comicId: '' }
+    });
+    const captionEl = document.querySelector('.comic-strip .panel-caption');
+    expect(String(captionEl.textContent || '')).toContain('This is a long and complex caption');
+  });
+
+  it('shows per-panel spinner/status while panel regenerate action is running', async () => {
+    const item = makeHistoryItem(1);
+    item.storyboard.panels = [
+      {
+        caption: 'Original caption',
+        artifacts: {
+          image_blob_ref:
+            'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMB/axlF8UAAAAASUVORK5CYII='
+        }
+      }
+    ];
+
+    let resolveEdit;
+    chrome.storage.local.get.mockImplementation(async (key) => {
+      if (key === 'currentJob') return { currentJob: { status: 'completed', storyboard: item.storyboard } };
+      if (key === 'history') return { history: [item] };
+      if (key === 'sidepanelPrefs') return { sidepanelPrefs: {} };
+      return {};
+    });
+    chrome.runtime.sendMessage.mockImplementation(async (msg) => {
+      if (msg?.type === 'EDIT_PANEL' && msg?.payload?.action === 'regenerate-caption') {
+        return await new Promise((resolve) => {
+          resolveEdit = resolve;
+        });
+      }
+      return { success: true };
+    });
+
+    await import('../../sidepanel/sidepanel.js');
+    document.dispatchEvent(new Event('DOMContentLoaded'));
+    await flush();
+    await flush();
+
+    const capBtn = document.querySelector('.comic-strip [data-panel-action="regenerate-caption"]');
+    expect(capBtn).toBeTruthy();
+    capBtn.click();
+    await flush();
+    await flush();
+
+    const editStatus = document.querySelector('.comic-strip .panel-edit-status');
+    expect(editStatus).toBeTruthy();
+    expect(String(editStatus.textContent || '')).toContain('Regenerating caption');
+    const actionButtons = Array.from(document.querySelectorAll('.comic-strip .panel-action-btn'));
+    expect(actionButtons.every((btn) => btn.disabled)).toBe(true);
+
+    resolveEdit({
+      success: true,
+      job: {
+        storyboard: {
+          source: item.storyboard.source,
+          panels: [
+            {
+              caption: 'Updated caption',
+              artifacts: item.storyboard.panels[0].artifacts
+            }
+          ]
+        }
+      }
+    });
+    await flush();
+    await flush();
+
+    expect(document.querySelector('.comic-strip .panel-edit-status')).toBeFalsy();
+    const updatedCaption = document.querySelector('.comic-strip .panel-caption');
+    expect(String(updatedCaption.textContent || '')).toContain('Updated caption');
+  });
+
+  it('opens More menu inside panel and keeps quick actions visible', async () => {
+    const item = makeHistoryItem(1);
+    item.storyboard.panels = [
+      {
+        caption: 'Panel caption for More menu behavior',
+        facts_used: {
+          entities: ['CNN'],
+          dates: ['2026'],
+          numbers: ['3']
+        },
+        artifacts: {
+          image_blob_ref:
+            'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMB/axlF8UAAAAASUVORK5CYII='
+        }
+      }
+    ];
+
+    chrome.storage.local.get.mockImplementation(async (key) => {
+      if (key === 'currentJob') return { currentJob: { status: 'completed', storyboard: item.storyboard } };
+      if (key === 'history') return { history: [item] };
+      if (key === 'sidepanelPrefs') return { sidepanelPrefs: {} };
+      return {};
+    });
+
+    await import('../../sidepanel/sidepanel.js');
+    document.dispatchEvent(new Event('DOMContentLoaded'));
+    await flush();
+    await flush();
+
+    const detailsEl = document.querySelector('.comic-strip .panel-more-actions');
+    expect(detailsEl).toBeTruthy();
+    expect(detailsEl.hasAttribute('open')).toBe(false);
+    detailsEl.setAttribute('open', '');
+
+    const menuEl = detailsEl.querySelector('.panel-more-actions-menu');
+    expect(menuEl).toBeTruthy();
+    expect(menuEl.querySelector('[data-panel-action="make-simpler"]')).toBeTruthy();
+    const panelEl = document.querySelector('.comic-strip .panel');
+    expect(panelEl.querySelector('.panel-quick-actions')).toBeTruthy();
+  });
+
+  it('sends panel edit requests with history comic id when comic is opened from history', async () => {
+    const history = [makeHistoryItem(1), makeHistoryItem(2)];
+    chrome.storage.local.get.mockImplementation(async (key) => {
+      if (Array.isArray(key) && key.includes('selectedHistoryComicId')) {
+        return { selectedHistoryComicId: 'history-2', history };
+      }
+      if (key === 'currentJob') return { currentJob: null };
+      if (key === 'history') return { history };
+      if (key === 'sidepanelPrefs') return { sidepanelPrefs: {} };
+      return {};
+    });
+    chrome.runtime.sendMessage.mockResolvedValue({
+      success: true,
+      job: { storyboard: history[1].storyboard }
+    });
+
+    await import('../../sidepanel/sidepanel.js');
+    document.dispatchEvent(new Event('DOMContentLoaded'));
+    await flush();
+    await flush();
+
+    const quickBtn = document.querySelector('.comic-strip [data-panel-action="make-factual"]');
+    expect(quickBtn).toBeTruthy();
+    quickBtn.click();
+    await flush();
+    await flush();
+
+    expect(chrome.runtime.sendMessage).toHaveBeenCalledWith({
+      type: 'EDIT_PANEL',
+      payload: { panelIndex: 0, action: 'make-factual', comicId: 'history-2' }
+    });
   });
 
   it('renders caption fallback text when panel.caption is missing', async () => {
@@ -1254,10 +1550,10 @@ describe('Sidepanel Page UX', () => {
     await flush();
 
     const shareBtn = document.getElementById('share-btn');
-    const shareSelect = document.getElementById('share-target-select');
+    const shareMenu = document.getElementById('share-target-menu');
     const openTabBtn = document.getElementById('open-tab-btn');
     expect(shareBtn.disabled).toBe(true);
-    expect(shareSelect.disabled).toBe(true);
+    expect(shareMenu.classList.contains('hidden')).toBe(true);
     expect(openTabBtn.disabled).toBe(true);
 
     document.getElementById('mode-history-btn').click();
@@ -1267,13 +1563,11 @@ describe('Sidepanel Page UX', () => {
     await flush();
 
     expect(shareBtn.disabled).toBe(false);
-    expect(shareSelect.disabled).toBe(false);
     expect(openTabBtn.disabled).toBe(false);
 
     document.getElementById('mode-history-btn').click();
     await flush();
     expect(shareBtn.disabled).toBe(true);
-    expect(shareSelect.disabled).toBe(true);
     expect(openTabBtn.disabled).toBe(true);
   });
 
@@ -1345,9 +1639,9 @@ describe('Sidepanel Page UX', () => {
     await flush();
     await flush();
 
-    const select = document.getElementById('share-target-select');
-    select.value = 'x';
     document.getElementById('share-btn').click();
+    await flush();
+    document.querySelector('[data-share-target="x"]').click();
     await flush();
 
     expect(chrome.tabs.create).toHaveBeenCalled();
@@ -1381,9 +1675,9 @@ describe('Sidepanel Page UX', () => {
       sourceUrl: 'https://www.cnn.com/1'
     });
 
-    const select = document.getElementById('share-target-select');
-    select.value = 'instagram';
     document.getElementById('share-btn').click();
+    await flush();
+    document.querySelector('[data-share-target="instagram"]').click();
     await flush();
     await flush();
 
@@ -1392,5 +1686,134 @@ describe('Sidepanel Page UX', () => {
     const call = chrome.tabs.create.mock.calls.at(-1)?.[0] || {};
     expect(String(call.url || '')).toBe('https://www.instagram.com/');
     expect(global.alert).toHaveBeenCalled();
+  });
+
+  it('shows safe alert when share export fails', async () => {
+    const history = [makeHistoryItem(1)];
+    chrome.storage.local.get.mockImplementation(async (key) => {
+      if (key === 'currentJob') return { currentJob: { status: 'completed', storyboard: history[0].storyboard } };
+      if (key === 'history') return { history };
+      if (key === 'sidepanelPrefs') return { sidepanelPrefs: {} };
+      return {};
+    });
+
+    await import('../../sidepanel/sidepanel.js');
+    document.dispatchEvent(new Event('DOMContentLoaded'));
+    await flush();
+    await flush();
+
+    const viewer = window.__sidepanelViewer;
+    vi.spyOn(viewer, 'exportComicAsCompositeImage').mockRejectedValue(new Error('Canvas export is unavailable'));
+
+    document.getElementById('share-btn').click();
+    await flush();
+    document.querySelector('[data-share-target="instagram"]').click();
+    await flush();
+    await flush();
+
+    expect(global.alert).toHaveBeenCalledWith('Failed to open sharing target.');
+  });
+
+  it('uses email-card fallback by downloading image and opening mail client link', async () => {
+    const history = [makeHistoryItem(1)];
+    chrome.storage.local.get.mockImplementation(async (key) => {
+      if (key === 'currentJob') return { currentJob: { status: 'completed', storyboard: history[0].storyboard } };
+      if (key === 'history') return { history };
+      if (key === 'sidepanelPrefs') return { sidepanelPrefs: {} };
+      return {};
+    });
+
+    const anchorClick = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+
+    await import('../../sidepanel/sidepanel.js');
+    document.dispatchEvent(new Event('DOMContentLoaded'));
+    await flush();
+    await flush();
+
+    const viewer = window.__sidepanelViewer;
+    vi.spyOn(viewer, 'exportComicAsCompositeImage').mockResolvedValue({
+      dataUrl: 'data:image/png;base64,ZmFrZS1wbmc=',
+      filename: 'cnn-story-comic-sheet.png',
+      sourceTitle: 'CNN Story 1',
+      sourceUrl: 'https://www.cnn.com/1'
+    });
+
+    document.getElementById('share-btn').click();
+    await flush();
+    document.querySelector('[data-share-target="email-card"]').click();
+    await flush();
+    await flush();
+
+    expect(viewer.exportComicAsCompositeImage).toHaveBeenCalledWith({ download: false });
+    expect(anchorClick).toHaveBeenCalled();
+    const call = chrome.tabs.create.mock.calls.at(-1)?.[0] || {};
+    expect(String(call.url || '')).toContain('mailto:?subject=');
+    expect(global.alert).toHaveBeenCalled();
+  });
+
+  it('uses linkedin-post fallback by downloading image and opening LinkedIn feed', async () => {
+    const history = [makeHistoryItem(1)];
+    chrome.storage.local.get.mockImplementation(async (key) => {
+      if (key === 'currentJob') return { currentJob: { status: 'completed', storyboard: history[0].storyboard } };
+      if (key === 'history') return { history };
+      if (key === 'sidepanelPrefs') return { sidepanelPrefs: {} };
+      return {};
+    });
+
+    const anchorClick = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+
+    await import('../../sidepanel/sidepanel.js');
+    document.dispatchEvent(new Event('DOMContentLoaded'));
+    await flush();
+    await flush();
+
+    const viewer = window.__sidepanelViewer;
+    vi.spyOn(viewer, 'exportComicAsCompositeImage').mockResolvedValue({
+      dataUrl: 'data:image/png;base64,ZmFrZS1wbmc=',
+      filename: 'cnn-story-comic-sheet.png',
+      sourceTitle: 'CNN Story 1',
+      sourceUrl: 'https://www.cnn.com/1'
+    });
+
+    document.getElementById('share-btn').click();
+    await flush();
+    document.querySelector('[data-share-target="linkedin-post"]').click();
+    await flush();
+    await flush();
+
+    expect(viewer.exportComicAsCompositeImage).toHaveBeenCalledWith({ download: false });
+    expect(anchorClick).toHaveBeenCalled();
+    const call = chrome.tabs.create.mock.calls.at(-1)?.[0] || {};
+    expect(String(call.url || '')).toBe('https://www.linkedin.com/feed/');
+    expect(global.alert).toHaveBeenCalled();
+  });
+
+  it('shows clear alert for unsupported share target values', async () => {
+    const history = [makeHistoryItem(1)];
+    chrome.storage.local.get.mockImplementation(async (key) => {
+      if (key === 'currentJob') return { currentJob: { status: 'completed', storyboard: history[0].storyboard } };
+      if (key === 'history') return { history };
+      if (key === 'sidepanelPrefs') return { sidepanelPrefs: {} };
+      return {};
+    });
+
+    await import('../../sidepanel/sidepanel.js');
+    document.dispatchEvent(new Event('DOMContentLoaded'));
+    await flush();
+    await flush();
+
+    const menu = document.getElementById('share-target-menu');
+    const unsupported = document.createElement('button');
+    unsupported.type = 'button';
+    unsupported.className = 'share-target-item';
+    unsupported.dataset.shareTarget = 'unsupported-target';
+    unsupported.textContent = 'Unsupported';
+    menu.appendChild(unsupported);
+    document.getElementById('share-btn').click();
+    await flush();
+    unsupported.click();
+    await flush();
+
+    expect(global.alert).toHaveBeenCalledWith('Unsupported share target.');
   });
 });

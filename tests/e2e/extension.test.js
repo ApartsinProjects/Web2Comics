@@ -119,12 +119,13 @@ test.describe('Web2Comics Extension E2E', () => {
         await page.goto(`chrome-extension://${extensionId}/options/options.html`);
 
         const navButtons = page.locator('.nav-btn');
-        await expect(navButtons).toHaveCount(5);
+        await expect(navButtons).toHaveCount(6);
         await expect(navButtons.nth(0)).toHaveText('General');
         await expect(navButtons.nth(1)).toHaveText('Providers');
         await expect(navButtons.nth(2)).toHaveText('Prompts');
         await expect(navButtons.nth(3)).toHaveText('Storage');
-        await expect(navButtons.nth(4)).toHaveText('About');
+        await expect(navButtons.nth(4)).toHaveText('Connections');
+        await expect(navButtons.nth(5)).toHaveText('About');
       } finally {
         await context.close();
         fs.rmSync(userDataDir, { recursive: true, force: true });

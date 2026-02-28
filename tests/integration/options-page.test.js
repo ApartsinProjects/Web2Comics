@@ -267,6 +267,32 @@ describe('Options Page Navigation', () => {
     expect(settingsSaveCall[0].settings.openaiImageSize).toBe('256x256');
   });
 
+  it('normalizes unsupported dall-e-3 image quality and size to safe defaults', async () => {
+    await import('../../options/options.js');
+    document.dispatchEvent(new Event('DOMContentLoaded'));
+    await flush();
+
+    document.querySelector('.nav-btn[data-section="providers"]').click();
+    await flush();
+
+    const quality = document.getElementById('openai-image-quality');
+    const size = document.getElementById('openai-image-size');
+
+    document.getElementById('openai-image-model').value = 'dall-e-3';
+    quality.value = 'standard';
+    quality.value = 'ultra';
+    size.value = '1024x1024';
+    size.value = '256x256';
+    document.getElementById('save-providers-btn').click();
+    await flush();
+
+    const settingsSaveCall = chrome.storage.local.set.mock.calls.find((call) => call[0] && call[0].settings && call[0].settings.imageModel);
+    expect(settingsSaveCall).toBeTruthy();
+    expect(settingsSaveCall[0].settings.imageModel).toBe('dall-e-3');
+    expect(settingsSaveCall[0].settings.openaiImageQuality).toBe('standard');
+    expect(settingsSaveCall[0].settings.openaiImageSize).toBe('1024x1024');
+  });
+
   it('renders model option lists for all providers with free/fast/state-of-the-art choices and keeps preferred defaults', async () => {
     await import('../../options/options.js');
     document.dispatchEvent(new Event('DOMContentLoaded'));
@@ -795,7 +821,7 @@ describe('Options Page Navigation', () => {
     expect(saveCall[0].promptTemplates.openrouter.image).toContain('OR-IMG {{panel_caption}}');
   });
 
-  it('shows grouped prompt library presets and applies selected preset to current provider editor', async () => {
+  it('previews selected prompt library preset in editors and requires approval before save', async () => {
     await import('../../options/options.js');
     document.dispatchEvent(new Event('DOMContentLoaded'));
     await flush();
@@ -806,6 +832,8 @@ describe('Options Page Navigation', () => {
     const group = document.getElementById('prompt-library-group');
     const preset = document.getElementById('prompt-library-preset');
     const applyCurrentBtn = document.getElementById('apply-prompt-preset-current-btn');
+    const previewStatus = document.getElementById('prompt-library-preview-status');
+    const savePromptsBtn = document.getElementById('save-prompts-btn');
     const storyboard = document.getElementById('storyboard-template');
     const image = document.getElementById('image-template');
     const description = document.getElementById('prompt-library-description');
@@ -821,7 +849,6 @@ describe('Options Page Navigation', () => {
 
     preset.value = 'work_meeting_notes';
     preset.dispatchEvent(new Event('change', { bubbles: true }));
-    applyCurrentBtn.click();
     await flush();
 
     expect(storyboard.value).toContain('{{panel_count}}');
@@ -830,6 +857,16 @@ describe('Options Page Navigation', () => {
     expect(image.value).toContain('{{panel_caption}}');
     expect(image.value).toContain('{{style_prompt}}');
     expect(String(description.textContent || '')).toContain('Objective: Meeting Recap');
+    expect(String(previewStatus.textContent || '')).toContain('Preview only');
+
+    savePromptsBtn.click();
+    await flush();
+    expect(global.alert).not.toHaveBeenCalled();
+    expect(chrome.storage.local.set.mock.calls.some((call) => call[0]?.promptTemplates)).toBe(false);
+
+    applyCurrentBtn.click();
+    await flush();
+    expect(String(previewStatus.textContent || '')).toContain('approved');
   });
 
   it('applies selected prompt library preset to all provider scopes and persists templates', async () => {
@@ -966,13 +1003,11 @@ describe('Options Page Navigation', () => {
     document.dispatchEvent(new Event('DOMContentLoaded'));
     await flush();
 
-    document.querySelector('.nav-btn[data-section="storage"]').click();
+    document.querySelector('.nav-btn[data-section="connections"]').click();
     await flush();
 
     const autoSave = document.getElementById('google-drive-auto-save');
-    const clientId = document.getElementById('google-drive-client-id');
     autoSave.checked = true;
-    clientId.value = 'test-client-id.apps.googleusercontent.com';
 
     document.getElementById('save-drive-settings-btn').click();
     await flush();
@@ -980,18 +1015,21 @@ describe('Options Page Navigation', () => {
     const settingsSaveCall = chrome.storage.local.set.mock.calls.find((call) => call[0]?.settings);
     expect(settingsSaveCall).toBeTruthy();
     expect(settingsSaveCall[0].settings.googleDriveAutoSave).toBe(true);
-    expect(settingsSaveCall[0].settings.googleDriveClientId).toBe('test-client-id.apps.googleusercontent.com');
+    expect(settingsSaveCall[0].settings.otherShareTarget).toBeTruthy();
   });
 
   it('connects and disconnects Google Drive via runtime message handlers', async () => {
+    let connected = false;
     chrome.runtime.sendMessage.mockImplementation(async (msg) => {
       if (msg?.type === 'GOOGLE_DRIVE_GET_STATUS') {
-        return { success: true, status: { connected: false } };
+        return { success: true, status: { connected } };
       }
       if (msg?.type === 'GOOGLE_DRIVE_CONNECT') {
+        connected = true;
         return { success: true, status: { connected: true } };
       }
       if (msg?.type === 'GOOGLE_DRIVE_DISCONNECT') {
+        connected = false;
         return { success: true, status: { connected: false } };
       }
       return { success: true, result: { summary: 'OK' } };
@@ -1001,11 +1039,13 @@ describe('Options Page Navigation', () => {
     document.dispatchEvent(new Event('DOMContentLoaded'));
     await flush();
 
-    document.querySelector('.nav-btn[data-section="storage"]').click();
+    document.querySelector('.nav-btn[data-section="connections"]').click();
     await flush();
 
-    const clientId = document.getElementById('google-drive-client-id');
-    clientId.value = 'test-client-id.apps.googleusercontent.com';
+    const autoSave = document.getElementById('google-drive-auto-save');
+    const autoSaveItem = document.getElementById('google-drive-auto-save-item');
+    expect(autoSave.disabled).toBe(true);
+    expect(autoSaveItem.style.display).toBe('none');
 
     document.getElementById('connect-google-drive-btn').click();
     await flush();
@@ -1013,6 +1053,10 @@ describe('Options Page Navigation', () => {
 
     const connectCall = chrome.runtime.sendMessage.mock.calls.find((call) => call[0]?.type === 'GOOGLE_DRIVE_CONNECT');
     expect(connectCall).toBeTruthy();
+    expect(connectCall[0]).toEqual({ type: 'GOOGLE_DRIVE_CONNECT' });
+    expect(chrome.tabs.create).not.toHaveBeenCalledWith(expect.objectContaining({ url: expect.stringContaining('accounts.google.com') }));
+    expect(autoSave.disabled).toBe(false);
+    expect(autoSaveItem.style.display).toBe('');
 
     document.getElementById('disconnect-google-drive-btn').click();
     await flush();
@@ -1020,15 +1064,24 @@ describe('Options Page Navigation', () => {
 
     const disconnectCall = chrome.runtime.sendMessage.mock.calls.find((call) => call[0]?.type === 'GOOGLE_DRIVE_DISCONNECT');
     expect(disconnectCall).toBeTruthy();
+    expect(autoSave.disabled).toBe(true);
+    expect(autoSaveItem.style.display).toBe('none');
   });
 
   it('connects and disconnects X via runtime message handlers', async () => {
+    let xConnected = false;
     chrome.runtime.sendMessage.mockImplementation(async (msg) => {
       if (msg?.type === 'GOOGLE_DRIVE_GET_STATUS') return { success: true, status: { connected: false } };
       if (msg?.type === 'FACEBOOK_GET_STATUS') return { success: true, status: { connected: false } };
-      if (msg?.type === 'X_GET_STATUS') return { success: true, status: { connected: false } };
-      if (msg?.type === 'X_CONNECT') return { success: true, status: { connected: true } };
-      if (msg?.type === 'X_DISCONNECT') return { success: true, status: { connected: false } };
+      if (msg?.type === 'X_GET_STATUS') return { success: true, status: { connected: xConnected } };
+      if (msg?.type === 'X_CONNECT') {
+        xConnected = true;
+        return { success: true, status: { connected: true } };
+      }
+      if (msg?.type === 'X_DISCONNECT') {
+        xConnected = false;
+        return { success: true, status: { connected: false } };
+      }
       return { success: true, result: { summary: 'OK' } };
     });
 
@@ -1036,11 +1089,8 @@ describe('Options Page Navigation', () => {
     document.dispatchEvent(new Event('DOMContentLoaded'));
     await flush();
 
-    document.querySelector('.nav-btn[data-section="storage"]').click();
+    document.querySelector('.nav-btn[data-section="connections"]').click();
     await flush();
-
-    const clientId = document.getElementById('x-client-id');
-    clientId.value = 'x-client-id-test';
 
     document.getElementById('connect-x-btn').click();
     await flush();
@@ -1048,8 +1098,11 @@ describe('Options Page Navigation', () => {
 
     const connectCall = chrome.runtime.sendMessage.mock.calls.find((call) => call[0]?.type === 'X_CONNECT');
     expect(connectCall).toBeTruthy();
-    expect(connectCall[0].payload.clientId).toBe('x-client-id-test');
+    expect(connectCall[0]).toEqual({ type: 'X_CONNECT' });
+    expect(chrome.tabs.create).not.toHaveBeenCalledWith(expect.objectContaining({ url: expect.stringContaining('x.com') }));
 
+    const disconnectBtn = document.getElementById('disconnect-x-btn');
+    expect(disconnectBtn.classList.contains('hidden')).toBe(false);
     document.getElementById('disconnect-x-btn').click();
     await flush();
     await flush();
@@ -1059,12 +1112,19 @@ describe('Options Page Navigation', () => {
   });
 
   it('connects and disconnects Facebook via runtime message handlers', async () => {
+    let fbConnected = false;
     chrome.runtime.sendMessage.mockImplementation(async (msg) => {
       if (msg?.type === 'GOOGLE_DRIVE_GET_STATUS') return { success: true, status: { connected: false } };
-      if (msg?.type === 'FACEBOOK_GET_STATUS') return { success: true, status: { connected: false } };
+      if (msg?.type === 'FACEBOOK_GET_STATUS') return { success: true, status: { connected: fbConnected } };
       if (msg?.type === 'X_GET_STATUS') return { success: true, status: { connected: false } };
-      if (msg?.type === 'FACEBOOK_CONNECT') return { success: true, status: { connected: true } };
-      if (msg?.type === 'FACEBOOK_DISCONNECT') return { success: true, status: { connected: false } };
+      if (msg?.type === 'FACEBOOK_CONNECT') {
+        fbConnected = true;
+        return { success: true, status: { connected: true } };
+      }
+      if (msg?.type === 'FACEBOOK_DISCONNECT') {
+        fbConnected = false;
+        return { success: true, status: { connected: false } };
+      }
       return { success: true, result: { summary: 'OK' } };
     });
 
@@ -1072,11 +1132,8 @@ describe('Options Page Navigation', () => {
     document.dispatchEvent(new Event('DOMContentLoaded'));
     await flush();
 
-    document.querySelector('.nav-btn[data-section="storage"]').click();
+    document.querySelector('.nav-btn[data-section="connections"]').click();
     await flush();
-
-    const appId = document.getElementById('facebook-app-id');
-    appId.value = '123456789012345';
 
     document.getElementById('connect-facebook-btn').click();
     await flush();
@@ -1084,13 +1141,162 @@ describe('Options Page Navigation', () => {
 
     const connectCall = chrome.runtime.sendMessage.mock.calls.find((call) => call[0]?.type === 'FACEBOOK_CONNECT');
     expect(connectCall).toBeTruthy();
-    expect(connectCall[0].payload.appId).toBe('123456789012345');
+    expect(connectCall[0]).toEqual({ type: 'FACEBOOK_CONNECT' });
+    expect(chrome.tabs.create).not.toHaveBeenCalledWith(expect.objectContaining({ url: expect.stringContaining('facebook.com') }));
 
+    const disconnectBtn = document.getElementById('disconnect-facebook-btn');
+    expect(disconnectBtn.classList.contains('hidden')).toBe(false);
     document.getElementById('disconnect-facebook-btn').click();
     await flush();
     await flush();
 
     const disconnectCall = chrome.runtime.sendMessage.mock.calls.find((call) => call[0]?.type === 'FACEBOOK_DISCONNECT');
     expect(disconnectCall).toBeTruthy();
+  });
+
+  it('shows OAuth app not configured status when provider app/client is unavailable', async () => {
+    chrome.runtime.sendMessage.mockImplementation(async (msg) => {
+      if (msg?.type === 'GOOGLE_DRIVE_GET_STATUS') return { success: true, status: { connected: false, hasClientId: false } };
+      if (msg?.type === 'FACEBOOK_GET_STATUS') return { success: true, status: { connected: false, hasAppId: false } };
+      if (msg?.type === 'X_GET_STATUS') return { success: true, status: { connected: false, hasClientId: false } };
+      return { success: true, result: { summary: 'OK' } };
+    });
+
+    await import('../../options/options.js');
+    document.dispatchEvent(new Event('DOMContentLoaded'));
+    await flush();
+
+    document.querySelector('.nav-btn[data-section="connections"]').click();
+    await flush();
+
+    expect(String(document.getElementById('google-drive-connection-status').textContent || '')).toContain('OAuth app not configured');
+    expect(String(document.getElementById('facebook-connection-status').textContent || '')).toContain('OAuth app not configured');
+    expect(String(document.getElementById('x-connection-status').textContent || '')).toContain('OAuth app not configured');
+    expect(document.getElementById('google-drive-auto-save').disabled).toBe(true);
+    expect(document.getElementById('google-drive-auto-save-item').style.display).toBe('none');
+    expect(document.getElementById('connect-google-drive-btn').disabled).toBe(true);
+    expect(document.getElementById('disconnect-google-drive-btn').classList.contains('hidden')).toBe(true);
+  });
+
+  it('shows one relevant connection action at a time (connect vs disconnect)', async () => {
+    let connected = false;
+    chrome.runtime.sendMessage.mockImplementation(async (msg) => {
+      if (msg?.type === 'GOOGLE_DRIVE_GET_STATUS') return { success: true, status: { connected, hasClientId: true } };
+      if (msg?.type === 'FACEBOOK_GET_STATUS') return { success: true, status: { connected: false, hasAppId: true } };
+      if (msg?.type === 'X_GET_STATUS') return { success: true, status: { connected: false, hasClientId: true } };
+      if (msg?.type === 'GOOGLE_DRIVE_CONNECT') {
+        connected = true;
+        return { success: true, status: { connected: true } };
+      }
+      if (msg?.type === 'GOOGLE_DRIVE_DISCONNECT') {
+        connected = false;
+        return { success: true, status: { connected: false } };
+      }
+      return { success: true };
+    });
+
+    await import('../../options/options.js');
+    document.dispatchEvent(new Event('DOMContentLoaded'));
+    await flush();
+    document.querySelector('.nav-btn[data-section="connections"]').click();
+    await flush();
+
+    const connectBtn = document.getElementById('connect-google-drive-btn');
+    const disconnectBtn = document.getElementById('disconnect-google-drive-btn');
+    expect(connectBtn.classList.contains('hidden')).toBe(false);
+    expect(disconnectBtn.classList.contains('hidden')).toBe(true);
+
+    connectBtn.click();
+    await flush();
+    await flush();
+    expect(connectBtn.classList.contains('hidden')).toBe(true);
+    expect(disconnectBtn.classList.contains('hidden')).toBe(false);
+  });
+
+  it('renders connections as compact UI-only OAuth controls with no manual id/token fields', async () => {
+    await import('../../options/options.js');
+    document.dispatchEvent(new Event('DOMContentLoaded'));
+    await flush();
+
+    document.querySelector('.nav-btn[data-section="connections"]').click();
+    await flush();
+
+    expect(document.getElementById('google-drive-client-id')).toBeNull();
+    expect(document.getElementById('facebook-app-id')).toBeNull();
+    expect(document.getElementById('x-client-id')).toBeNull();
+
+    const compactButtons = [
+      document.getElementById('connect-google-drive-btn'),
+      document.getElementById('disconnect-google-drive-btn'),
+      document.getElementById('connect-facebook-btn'),
+      document.getElementById('disconnect-facebook-btn'),
+      document.getElementById('connect-x-btn'),
+      document.getElementById('disconnect-x-btn')
+    ];
+    compactButtons.forEach((btn) => {
+      expect(btn).toBeTruthy();
+      expect(btn.classList.contains('icon-control')).toBe(true);
+      const glyph = btn.querySelector('.icon-control-glyph');
+      expect(glyph).toBeTruthy();
+    });
+  });
+
+  it('connects and disconnects Instagram via local authorization state', async () => {
+    await import('../../options/options.js');
+    document.dispatchEvent(new Event('DOMContentLoaded'));
+    await flush();
+
+    document.querySelector('.nav-btn[data-section="connections"]').click();
+    await flush();
+
+    document.getElementById('connect-instagram-btn').click();
+    await flush();
+
+    expect(chrome.tabs.create).toHaveBeenCalledWith(expect.objectContaining({ url: expect.stringContaining('instagram.com') }));
+    expect(chrome.storage.local.set).toHaveBeenCalledWith(expect.objectContaining({
+      connectionStates: expect.objectContaining({ instagram: true })
+    }));
+    expect(String(document.getElementById('instagram-connection-status').textContent || '')).toContain('Connected');
+
+    document.getElementById('disconnect-instagram-btn').click();
+    await flush();
+    expect(chrome.storage.local.set).toHaveBeenCalledWith(expect.objectContaining({
+      connectionStates: expect.objectContaining({ instagram: false })
+    }));
+  });
+
+  it('connects selected other share target and updates status label', async () => {
+    await import('../../options/options.js');
+    document.dispatchEvent(new Event('DOMContentLoaded'));
+    await flush();
+
+    document.querySelector('.nav-btn[data-section="connections"]').click();
+    await flush();
+
+    const target = document.getElementById('other-share-target-select');
+    target.value = 'linkedin';
+    target.dispatchEvent(new Event('change', { bubbles: true }));
+    await flush();
+
+    document.getElementById('connect-other-share-btn').click();
+    await flush();
+
+    expect(chrome.tabs.create).toHaveBeenCalledWith(expect.objectContaining({ url: expect.stringContaining('linkedin') }));
+    expect(String(document.getElementById('other-share-connection-status').textContent || '')).toContain('Connected (linkedin)');
+  });
+
+  it('does not include whatsapp or telegram in other share target connection options', async () => {
+    await import('../../options/options.js');
+    document.dispatchEvent(new Event('DOMContentLoaded'));
+    await flush();
+
+    document.querySelector('.nav-btn[data-section="connections"]').click();
+    await flush();
+
+    const target = document.getElementById('other-share-target-select');
+    const optionValues = Array.from(target.querySelectorAll('option')).map((opt) => opt.value);
+    expect(optionValues).toEqual(expect.arrayContaining(['linkedin', 'reddit', 'email']));
+    expect(optionValues).not.toContain('whatsapp');
+    expect(optionValues).not.toContain('telegram');
   });
 });
