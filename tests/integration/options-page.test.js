@@ -221,13 +221,16 @@ describe('Options Page Navigation', () => {
     const debugFlag = document.getElementById('debug-flag');
     const rewriteBadge = document.getElementById('show-rewritten-badge');
     const logRewrites = document.getElementById('log-rewritten-prompts');
+    const defaultLanguage = document.getElementById('default-language');
     const refusalModeSelect = document.getElementById('image-refusal-handling-select');
     expect(debugFlag).toBeTruthy();
+    expect(defaultLanguage).toBeTruthy();
     expect(refusalModeSelect).toBeTruthy();
 
     debugFlag.checked = true;
     rewriteBadge.checked = false;
     logRewrites.checked = true;
+    defaultLanguage.value = 'es';
     refusalModeSelect.value = 'replace_people_and_triggers';
     document.getElementById('save-general-btn').click();
     await flush();
@@ -236,6 +239,7 @@ describe('Options Page Navigation', () => {
     const settingsSaveCall = setCalls.find((call) => call[0] && call[0].settings);
     expect(settingsSaveCall).toBeTruthy();
     expect(settingsSaveCall[0].settings.debugFlag).toBe(true);
+    expect(settingsSaveCall[0].settings.outputLanguage).toBe('es');
     expect(settingsSaveCall[0].settings.imageRefusalHandling).toBe('replace_people_and_triggers');
     expect(settingsSaveCall[0].settings.showRewrittenBadge).toBe(false);
     expect(settingsSaveCall[0].settings.logRewrittenPrompts).toBe(true);
@@ -732,6 +736,27 @@ describe('Options Page Navigation', () => {
     expect(validation.classList.contains('warn')).toBe(true);
   });
 
+  it('accepts objective placeholders in storyboard templates without warning', async () => {
+    await import('../../options/options.js');
+    document.dispatchEvent(new Event('DOMContentLoaded'));
+    await flush();
+
+    document.querySelector('.nav-btn[data-section="prompts"]').click();
+    await flush();
+
+    const storyboard = document.getElementById('storyboard-template');
+    const image = document.getElementById('image-template');
+    const validation = document.getElementById('prompt-template-validation');
+
+    storyboard.value = 'Panels {{panel_count}} {{content}} Objective {{objective_label}} Guidance {{objective_guidance}}';
+    image.value = 'Caption {{panel_caption}} style {{style_prompt}}';
+    storyboard.dispatchEvent(new Event('input', { bubbles: true }));
+    await flush();
+
+    expect(String(validation.textContent || '').toLowerCase()).not.toContain('unknown placeholders');
+    expect(validation.classList.contains('error')).toBe(false);
+  });
+
   it('shows prompt template scopes for all providers and supports editing a non-OpenAI/Gemini scope', async () => {
     await import('../../options/options.js');
     document.dispatchEvent(new Event('DOMContentLoaded'));
@@ -768,5 +793,304 @@ describe('Options Page Navigation', () => {
     expect(saveCall).toBeTruthy();
     expect(saveCall[0].promptTemplates.openrouter.storyboard).toContain('OR {{panel_count}}');
     expect(saveCall[0].promptTemplates.openrouter.image).toContain('OR-IMG {{panel_caption}}');
+  });
+
+  it('shows grouped prompt library presets and applies selected preset to current provider editor', async () => {
+    await import('../../options/options.js');
+    document.dispatchEvent(new Event('DOMContentLoaded'));
+    await flush();
+
+    document.querySelector('.nav-btn[data-section="prompts"]').click();
+    await flush();
+
+    const group = document.getElementById('prompt-library-group');
+    const preset = document.getElementById('prompt-library-preset');
+    const applyCurrentBtn = document.getElementById('apply-prompt-preset-current-btn');
+    const storyboard = document.getElementById('storyboard-template');
+    const image = document.getElementById('image-template');
+    const description = document.getElementById('prompt-library-description');
+
+    expect(group).toBeTruthy();
+    expect(preset).toBeTruthy();
+    expect(applyCurrentBtn).toBeTruthy();
+    expect(preset.options.length).toBeGreaterThan(0);
+
+    group.value = 'work';
+    group.dispatchEvent(new Event('change', { bubbles: true }));
+    await flush();
+
+    preset.value = 'work_meeting_notes';
+    preset.dispatchEvent(new Event('change', { bubbles: true }));
+    applyCurrentBtn.click();
+    await flush();
+
+    expect(storyboard.value).toContain('{{panel_count}}');
+    expect(storyboard.value).toContain('{{content}}');
+    expect(storyboard.value).toContain('{{objective_label}}');
+    expect(image.value).toContain('{{panel_caption}}');
+    expect(image.value).toContain('{{style_prompt}}');
+    expect(String(description.textContent || '')).toContain('Objective: Meeting Recap');
+  });
+
+  it('applies selected prompt library preset to all provider scopes and persists templates', async () => {
+    await import('../../options/options.js');
+    document.dispatchEvent(new Event('DOMContentLoaded'));
+    await flush();
+
+    document.querySelector('.nav-btn[data-section="prompts"]').click();
+    await flush();
+
+    const group = document.getElementById('prompt-library-group');
+    const preset = document.getElementById('prompt-library-preset');
+    const applyAllBtn = document.getElementById('apply-prompt-preset-all-btn');
+
+    group.value = 'social';
+    group.dispatchEvent(new Event('change', { bubbles: true }));
+    await flush();
+
+    preset.value = 'social_quick_summary';
+    preset.dispatchEvent(new Event('change', { bubbles: true }));
+    applyAllBtn.click();
+    await flush();
+
+    const saveCall = chrome.storage.local.set.mock.calls.find((call) => call[0]?.promptTemplates?.openai);
+    expect(saveCall).toBeTruthy();
+    expect(saveCall[0].promptTemplates.openai.storyboard).toContain('Panel 1 hook/context');
+    expect(saveCall[0].promptTemplates.gemini.storyboard).toContain('Panel 1 hook/context');
+    expect(saveCall[0].promptTemplates.cloudflare.storyboard).toContain('Panel 1 hook/context');
+    expect(saveCall[0].promptTemplates.openrouter.storyboard).toContain('Panel 1 hook/context');
+    expect(saveCall[0].promptTemplates.huggingface.storyboard).toContain('Panel 1 hook/context');
+  });
+
+  it('imports prompt library presets from JSON and persists for next sessions', async () => {
+    await import('../../options/options.js');
+    document.dispatchEvent(new Event('DOMContentLoaded'));
+    await flush();
+
+    document.querySelector('.nav-btn[data-section="prompts"]').click();
+    await flush();
+
+    const group = document.getElementById('prompt-library-group');
+    const preset = document.getElementById('prompt-library-preset');
+
+    const importedPreset = {
+      group: 'custom',
+      id: 'custom_case_1',
+      name: 'Custom Case 1',
+      objective: 'Quick Summary',
+      useCase: 'Imported custom use case',
+      storyboard: 'CUSTOM {{panel_count}} {{content}}',
+      image: 'CUSTOM IMG {{panel_caption}} {{style_prompt}}'
+    };
+    await window.__optionsController.importPromptLibraryEntries([importedPreset]);
+    await flush();
+
+    const customSaveCall = chrome.storage.local.set.mock.calls.find(
+      (call) => Array.isArray(call[0]?.promptLibraryCustomPresets)
+    );
+    expect(customSaveCall).toBeTruthy();
+    expect(customSaveCall[0].promptLibraryCustomPresets).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          group: 'custom',
+          id: 'custom_case_1',
+          storyboard: importedPreset.storyboard,
+          image: importedPreset.image
+        })
+      ])
+    );
+
+    group.value = 'custom';
+    group.dispatchEvent(new Event('change', { bubbles: true }));
+    await flush();
+
+    const optionValues = Array.from(preset.options).map((option) => option.value);
+    expect(optionValues).toContain('custom_case_1');
+  });
+
+  it('import normalizes duplicates and skips invalid prompt-library entries', async () => {
+    await import('../../options/options.js');
+    document.dispatchEvent(new Event('DOMContentLoaded'));
+    await flush();
+
+    document.querySelector('.nav-btn[data-section="prompts"]').click();
+    await flush();
+
+    const entries = [
+      {
+        group: 'custom',
+        id: 'dup_case',
+        name: 'Duplicate A',
+        objective: 'Quick Summary',
+        useCase: 'Valid A',
+        storyboard: 'A {{panel_count}} {{content}}',
+        image: 'A {{panel_caption}} {{style_prompt}}'
+      },
+      {
+        group: 'custom',
+        id: 'dup_case',
+        name: 'Duplicate B',
+        objective: 'Quick Summary',
+        useCase: 'Valid B',
+        storyboard: 'B {{panel_count}} {{content}}',
+        image: 'B {{panel_caption}} {{style_prompt}}'
+      },
+      {
+        group: 'custom',
+        id: 'invalid_missing_image',
+        name: 'Invalid',
+        objective: 'Quick Summary',
+        useCase: 'Missing image',
+        storyboard: 'Invalid {{panel_count}} {{content}}'
+      }
+    ];
+
+    await window.__optionsController.importPromptLibraryEntries(entries);
+    await flush();
+
+    const customSaveCall = chrome.storage.local.set.mock.calls
+      .filter((call) => Array.isArray(call[0]?.promptLibraryCustomPresets))
+      .pop();
+    expect(customSaveCall).toBeTruthy();
+
+    const saved = customSaveCall[0].promptLibraryCustomPresets.filter((p) => p.id === 'dup_case');
+    expect(saved).toHaveLength(1);
+    expect(saved[0].name).toBe('Duplicate B');
+    expect(saved[0].storyboard).toContain('B {{panel_count}}');
+    expect(saved[0].image).toContain('B {{panel_caption}}');
+    expect(customSaveCall[0].promptLibraryCustomPresets.some((p) => p.id === 'invalid_missing_image')).toBe(false);
+  });
+
+  it('saves Google Drive backup settings from Storage section', async () => {
+    await import('../../options/options.js');
+    document.dispatchEvent(new Event('DOMContentLoaded'));
+    await flush();
+
+    document.querySelector('.nav-btn[data-section="storage"]').click();
+    await flush();
+
+    const autoSave = document.getElementById('google-drive-auto-save');
+    const clientId = document.getElementById('google-drive-client-id');
+    autoSave.checked = true;
+    clientId.value = 'test-client-id.apps.googleusercontent.com';
+
+    document.getElementById('save-drive-settings-btn').click();
+    await flush();
+
+    const settingsSaveCall = chrome.storage.local.set.mock.calls.find((call) => call[0]?.settings);
+    expect(settingsSaveCall).toBeTruthy();
+    expect(settingsSaveCall[0].settings.googleDriveAutoSave).toBe(true);
+    expect(settingsSaveCall[0].settings.googleDriveClientId).toBe('test-client-id.apps.googleusercontent.com');
+  });
+
+  it('connects and disconnects Google Drive via runtime message handlers', async () => {
+    chrome.runtime.sendMessage.mockImplementation(async (msg) => {
+      if (msg?.type === 'GOOGLE_DRIVE_GET_STATUS') {
+        return { success: true, status: { connected: false } };
+      }
+      if (msg?.type === 'GOOGLE_DRIVE_CONNECT') {
+        return { success: true, status: { connected: true } };
+      }
+      if (msg?.type === 'GOOGLE_DRIVE_DISCONNECT') {
+        return { success: true, status: { connected: false } };
+      }
+      return { success: true, result: { summary: 'OK' } };
+    });
+
+    await import('../../options/options.js');
+    document.dispatchEvent(new Event('DOMContentLoaded'));
+    await flush();
+
+    document.querySelector('.nav-btn[data-section="storage"]').click();
+    await flush();
+
+    const clientId = document.getElementById('google-drive-client-id');
+    clientId.value = 'test-client-id.apps.googleusercontent.com';
+
+    document.getElementById('connect-google-drive-btn').click();
+    await flush();
+    await flush();
+
+    const connectCall = chrome.runtime.sendMessage.mock.calls.find((call) => call[0]?.type === 'GOOGLE_DRIVE_CONNECT');
+    expect(connectCall).toBeTruthy();
+
+    document.getElementById('disconnect-google-drive-btn').click();
+    await flush();
+    await flush();
+
+    const disconnectCall = chrome.runtime.sendMessage.mock.calls.find((call) => call[0]?.type === 'GOOGLE_DRIVE_DISCONNECT');
+    expect(disconnectCall).toBeTruthy();
+  });
+
+  it('connects and disconnects X via runtime message handlers', async () => {
+    chrome.runtime.sendMessage.mockImplementation(async (msg) => {
+      if (msg?.type === 'GOOGLE_DRIVE_GET_STATUS') return { success: true, status: { connected: false } };
+      if (msg?.type === 'FACEBOOK_GET_STATUS') return { success: true, status: { connected: false } };
+      if (msg?.type === 'X_GET_STATUS') return { success: true, status: { connected: false } };
+      if (msg?.type === 'X_CONNECT') return { success: true, status: { connected: true } };
+      if (msg?.type === 'X_DISCONNECT') return { success: true, status: { connected: false } };
+      return { success: true, result: { summary: 'OK' } };
+    });
+
+    await import('../../options/options.js');
+    document.dispatchEvent(new Event('DOMContentLoaded'));
+    await flush();
+
+    document.querySelector('.nav-btn[data-section="storage"]').click();
+    await flush();
+
+    const clientId = document.getElementById('x-client-id');
+    clientId.value = 'x-client-id-test';
+
+    document.getElementById('connect-x-btn').click();
+    await flush();
+    await flush();
+
+    const connectCall = chrome.runtime.sendMessage.mock.calls.find((call) => call[0]?.type === 'X_CONNECT');
+    expect(connectCall).toBeTruthy();
+    expect(connectCall[0].payload.clientId).toBe('x-client-id-test');
+
+    document.getElementById('disconnect-x-btn').click();
+    await flush();
+    await flush();
+
+    const disconnectCall = chrome.runtime.sendMessage.mock.calls.find((call) => call[0]?.type === 'X_DISCONNECT');
+    expect(disconnectCall).toBeTruthy();
+  });
+
+  it('connects and disconnects Facebook via runtime message handlers', async () => {
+    chrome.runtime.sendMessage.mockImplementation(async (msg) => {
+      if (msg?.type === 'GOOGLE_DRIVE_GET_STATUS') return { success: true, status: { connected: false } };
+      if (msg?.type === 'FACEBOOK_GET_STATUS') return { success: true, status: { connected: false } };
+      if (msg?.type === 'X_GET_STATUS') return { success: true, status: { connected: false } };
+      if (msg?.type === 'FACEBOOK_CONNECT') return { success: true, status: { connected: true } };
+      if (msg?.type === 'FACEBOOK_DISCONNECT') return { success: true, status: { connected: false } };
+      return { success: true, result: { summary: 'OK' } };
+    });
+
+    await import('../../options/options.js');
+    document.dispatchEvent(new Event('DOMContentLoaded'));
+    await flush();
+
+    document.querySelector('.nav-btn[data-section="storage"]').click();
+    await flush();
+
+    const appId = document.getElementById('facebook-app-id');
+    appId.value = '123456789012345';
+
+    document.getElementById('connect-facebook-btn').click();
+    await flush();
+    await flush();
+
+    const connectCall = chrome.runtime.sendMessage.mock.calls.find((call) => call[0]?.type === 'FACEBOOK_CONNECT');
+    expect(connectCall).toBeTruthy();
+    expect(connectCall[0].payload.appId).toBe('123456789012345');
+
+    document.getElementById('disconnect-facebook-btn').click();
+    await flush();
+    await flush();
+
+    const disconnectCall = chrome.runtime.sendMessage.mock.calls.find((call) => call[0]?.type === 'FACEBOOK_DISCONNECT');
+    expect(disconnectCall).toBeTruthy();
   });
 });

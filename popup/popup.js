@@ -2,11 +2,13 @@
 // TypeScript-only declarations and is not executable as a browser module.
 const DEFAULT_SETTINGS = {
   panelCount: 3,
+  objective: 'summarize',
   detailLevel: 'low',
   styleId: 'default',
   customStyleTheme: '',
   customStyleName: '',
   captionLength: 'short',
+  outputLanguage: 'en',
   activeTextProvider: 'gemini-free',
   activeImageProvider: 'gemini-free',
   textModel: 'gpt-4o-mini',
@@ -74,7 +76,7 @@ class PopupController {
     this.isGenerating = false;
     this.currentJobId = null;
     this.advancedSettingsExpanded = false;
-    this.providerIsReady = false;
+    this.providerIsReady = null;
     this.hasAnyConfiguredProviders = false;
     this.lastWizardReadiness = {
       contentReady: false,
@@ -88,13 +90,30 @@ class PopupController {
     this.progressStartedAtMs = 0;
     this.progressFirstPanelAtMs = 0;
     this.cancelRequestedByUser = false;
+    this.extractionCandidates = [];
+    this.selectedExtractionCandidateId = '';
+    this.selectionFallbackActive = false;
+    this.userCollapsedContent = false;
+    this.userCollapsedOptions = false;
+    this.autoExpandedContentOnce = false;
+    this.autoExpandedOptionsOnce = false;
+    this.suppressExtraIntentTracking = false;
+    this.lastReadinessState = null;
+    this.lastOptionsOpenTs = 0;
+    this.extractionQuality = null;
+    this.selectedCandidateSummary = '';
+    this.selectedCandidateScore = 0;
+    this.currentPageUrl = '';
+    this.currentSiteProfile = 'generic';
+    this.hasCompletedFirstGeneration = false;
     
     this.init();
   }
 
   async appendDebugLog(event, data) {
     try {
-      if (!this.settings.debugFlag) return;
+      const verboseTestLogs = Boolean(globalThis && globalThis.__WEB2COMICS_TEST_LOGS__);
+      if (!this.settings.debugFlag && !verboseTestLogs) return;
       const entry = {
         ts: new Date().toISOString(),
         scope: 'popup',
@@ -102,6 +121,9 @@ class PopupController {
         jobId: this.currentJobId || null,
         data: data || null
       };
+      if (verboseTestLogs) {
+        try { console.info('[Web2Comics:test][popup]', event, data || null); } catch (_) {}
+      }
       const { debugLogs } = await chrome.storage.local.get('debugLogs');
       const logs = Array.isArray(debugLogs) ? debugLogs : [];
       logs.push(entry);
@@ -125,10 +147,75 @@ class PopupController {
     await this.loadRecommendedDefaults();
     await this.loadSettings();
     await this.loadCustomStyles();
+    await this.loadFirstSuccessState();
     await this.checkOnboarding();
-    await this.extractContent();
+    const consumedContextSelection = await this.consumePendingComposerPrefill();
+    if (!consumedContextSelection) {
+      await this.extractContent();
+    }
     this.bindEvents();
     this.updateUI();
+  }
+
+  async consumePendingComposerPrefill() {
+    try {
+      const stored = await chrome.storage.local.get('pendingComposerPrefill');
+      const payload = stored && stored.pendingComposerPrefill ? stored.pendingComposerPrefill : null;
+      if (!payload || typeof payload !== 'object') return false;
+      const selectedText = String(payload.text || '').trim();
+      await chrome.storage.local.remove('pendingComposerPrefill');
+      if (!selectedText) return false;
+
+      this.currentPageUrl = String(payload.sourceUrl || this.currentPageUrl || '');
+      this.currentSiteProfile = this.classifySiteProfile(this.currentPageUrl);
+      this.updateSiteProfileHint();
+      this.setSelectedContentSource('selection');
+      this.selectionFallbackActive = false;
+      this.extractFallbackTried = true;
+      this.extractedText = selectedText;
+      this.extractionCandidates = [];
+      this.selectedExtractionCandidateId = '';
+      this.selectedCandidateSummary = '';
+      this.selectedCandidateScore = 0;
+      this.extractionQuality = {
+        confidence: 'high',
+        score: 0.96,
+        reason: 'User-selected text from context menu'
+      };
+      this.updateCandidateSelector();
+      this.updatePreview(selectedText);
+      this.showCreateComposer();
+      void this.appendDebugLog('content.prefill.context_menu_selection', {
+        chars: selectedText.length,
+        source: payload.source || 'context-menu-selection'
+      });
+      return true;
+    } catch (error) {
+      console.error('Failed to consume pending composer prefill:', error);
+      return false;
+    }
+  }
+
+  async trackMetric(eventName, payload) {
+    try {
+      await chrome.runtime.sendMessage({
+        type: 'TRACK_METRIC',
+        payload: {
+          event: eventName,
+          ts: Date.now(),
+          ...(payload || {})
+        }
+      });
+    } catch (_) {}
+  }
+
+  async loadFirstSuccessState() {
+    try {
+      const stored = await chrome.storage.local.get('firstSuccessfulGenerationAt');
+      this.hasCompletedFirstGeneration = !!stored.firstSuccessfulGenerationAt;
+    } catch (_) {
+      this.hasCompletedFirstGeneration = false;
+    }
   }
 
   async loadRecommendedDefaults() {
@@ -182,6 +269,116 @@ class PopupController {
     mainSection?.classList.add('hidden');
   }
 
+  classifySiteProfile(url) {
+    const value = String(url || '').toLowerCase();
+    if (!value) return 'generic';
+    if (/wikipedia\.org\/wiki\//.test(value)) return 'wikipedia';
+    if (/(cnn\.com|bbc\.com|apnews\.com|reuters\.com|npr\.org|nytimes\.com|wsj\.com|theguardian\.com)/.test(value)) return 'news';
+    if (/(facebook\.com|x\.com|twitter\.com|reddit\.com|linkedin\.com)/.test(value)) return 'social';
+    return 'generic';
+  }
+
+  updateSiteProfileHint() {
+    const hint = document.getElementById('site-profile-hint');
+    if (!hint) return;
+    const profile = this.currentSiteProfile || 'generic';
+    const messages = {
+      wikipedia: 'Wikipedia mode is active: lead + key sections are prioritized for better grounding.',
+      news: 'News mode is active: narrative article body is prioritized over side rails and navigation.',
+      social: 'Social mode is active: likely post bodies are prioritized and UI chrome is filtered.',
+      generic: 'General mode is active: auto-scoring ranks high-signal text blocks before generation.'
+    };
+    hint.textContent = messages[profile] || messages.generic;
+    hint.classList.remove('hidden');
+  }
+
+  updateFirstRunVisibility() {
+    const optionsSection = document.getElementById('options-extra-section');
+    const advancedToggle = document.getElementById('advanced-settings-toggle');
+    if (!optionsSection || !advancedToggle) return;
+    const isFirstRun = !this.hasCompletedFirstGeneration;
+    optionsSection.classList.toggle('hidden', isFirstRun);
+    if (isFirstRun) this.setAdvancedSettingsExpanded(false);
+  }
+
+  getCandidateIndexFromId(candidateId) {
+    const id = String(candidateId || '');
+    if (!/^candidate_\d+$/i.test(id)) return -1;
+    const idx = Number(id.replace('candidate_', ''));
+    return Number.isInteger(idx) ? idx : -1;
+  }
+
+  getSelectedCandidateOption() {
+    const idx = this.getCandidateIndexFromId(this.selectedExtractionCandidateId);
+    if (idx < 0 || !Array.isArray(this.extractionCandidates)) return null;
+    return this.extractionCandidates[idx] || null;
+  }
+
+  evaluateGroundingConfidence() {
+    const quality = this.extractionQuality || {};
+    const option = this.getSelectedCandidateOption();
+    const score = Number(option?.score || this.selectedCandidateScore || 0);
+    const words = Number(quality.words || 0);
+    const boilerplate = Number(quality.boilerplateHits || 0);
+    const uniqueRatio = Number(quality.uniqueRatio || 0);
+    const shortLines = Number(quality.shortLineRatio || 1);
+    const pass = !!quality.pass;
+
+    if (pass && words >= 180 && score >= 120 && uniqueRatio >= 0.22 && shortLines <= 0.55 && boilerplate <= 6) {
+      return { level: 'high', text: 'High grounding confidence. Content looks focused and fact-dense.' };
+    }
+    if (pass && words >= 90 && score >= 60 && shortLines <= 0.8 && boilerplate <= 12) {
+      return { level: 'medium', text: 'Medium grounding confidence. Generate now, or narrow to a more focused section.' };
+    }
+    return { level: 'low', text: 'Low grounding confidence. Auto-pick a tighter section before generating.' };
+  }
+
+  updateQualityConfidenceUI() {
+    const shell = document.getElementById('quality-confidence');
+    const badge = document.getElementById('quality-confidence-badge');
+    const text = document.getElementById('quality-confidence-text');
+    const selectedSummary = document.getElementById('selected-block-summary');
+    if (!shell || !badge || !text) return;
+    if (!this.extractedText) {
+      shell.classList.add('hidden');
+      if (selectedSummary) selectedSummary.classList.add('hidden');
+      return;
+    }
+    const confidence = this.evaluateGroundingConfidence();
+    badge.classList.remove('high', 'medium', 'low');
+    badge.classList.add(confidence.level);
+    badge.textContent = confidence.level.charAt(0).toUpperCase() + confidence.level.slice(1);
+    text.textContent = confidence.text;
+    shell.classList.remove('hidden');
+
+    const option = this.getSelectedCandidateOption();
+    if (selectedSummary && option?.summary) {
+      selectedSummary.textContent = 'Using section: ' + option.summary;
+      selectedSummary.classList.remove('hidden');
+    } else if (selectedSummary) {
+      selectedSummary.classList.add('hidden');
+    }
+  }
+
+  async autoPickBestStorySection() {
+    const candidates = Array.isArray(this.extractionCandidates) ? this.extractionCandidates : [];
+    if (!candidates.length) return;
+    let bestIndex = 0;
+    let bestScore = Number(candidates[0]?.score || -Infinity);
+    for (let i = 1; i < candidates.length; i++) {
+      const score = Number(candidates[i]?.score || -Infinity);
+      if (score > bestScore) {
+        bestScore = score;
+        bestIndex = i;
+      }
+    }
+    const candidateId = 'candidate_' + bestIndex;
+    this.selectedExtractionCandidateId = candidateId;
+    const select = document.getElementById('content-candidate-select');
+    if (select) select.value = candidateId;
+    await this.extractContent({ selectedCandidateId: candidateId });
+  }
+
   clearExtractRetry() {
     if (this.extractRetryTimer) {
       clearTimeout(this.extractRetryTimer);
@@ -216,9 +413,13 @@ class PopupController {
   tryFallbackContentExtraction(contentSource, failureReason) {
     if (contentSource !== 'full' || this.extractFallbackTried) return false;
     this.extractFallbackTried = true;
+    this.selectionFallbackActive = true;
     this.clearExtractRetry();
     this.extractRetryCount = 0;
     this.setSelectedContentSource('selection');
+    this.selectedExtractionCandidateId = '';
+    this.extractionCandidates = [];
+    this.updateCandidateSelector();
     this.updatePreview('Full-page extraction failed. Trying selected text mode...');
     void this.appendDebugLog('content.extract.fallback_to_selection', {
       reason: failureReason || 'unknown'
@@ -240,6 +441,9 @@ class PopupController {
     
     try {
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      this.currentPageUrl = String(tab?.url || '');
+      this.currentSiteProfile = this.classifySiteProfile(this.currentPageUrl);
+      this.updateSiteProfileHint();
       const tabStatus = tab?.status || 'unknown';
       const shouldRetryForLoading = contentSource === 'full' && tabStatus !== 'complete';
       if (shouldRetryForLoading && !isRetry) {
@@ -248,14 +452,28 @@ class PopupController {
       
       const response = await chrome.tabs.sendMessage(tab.id, {
         type: 'EXTRACT_CONTENT',
-        payload: { mode: contentSource }
+        payload: {
+          mode: contentSource,
+          selectedCandidateId: options.selectedCandidateId || this.selectedExtractionCandidateId || ''
+        }
       });
       
       if (response && response.success) {
         this.extractedText = response.text;
+        this.extractionQuality = response.quality || null;
+        if (contentSource === 'full') {
+          this.selectionFallbackActive = false;
+        }
+        this.selectedExtractionCandidateId = response.selectedCandidateId || '';
+        this.extractionCandidates = Array.isArray(response.candidates) ? response.candidates : [];
+        const selectedOption = this.getSelectedCandidateOption();
+        this.selectedCandidateSummary = selectedOption?.summary || '';
+        this.selectedCandidateScore = Number(selectedOption?.score || 0);
+        this.updateCandidateSelector();
         this.clearExtractRetry();
         this.extractRetryCount = 0;
         this.updatePreview(response.text);
+        this.updateQualityConfidenceUI();
         void this.appendDebugLog('content.extract.success', {
           chars: response.text ? response.text.length : 0,
           mode: contentSource,
@@ -264,8 +482,16 @@ class PopupController {
         });
       } else {
         var failureMessage = response?.error || 'Failed to extract content';
+        const notEnoughContent = /could not extract enough readable content/i.test(failureMessage);
         this.extractedText = '';
+        this.extractionQuality = response?.quality || null;
+        if (contentSource !== 'full') {
+          this.extractionCandidates = [];
+          this.selectedExtractionCandidateId = '';
+          this.updateCandidateSelector();
+        }
         this.updatePreview(response?.error || 'Failed to extract content');
+        this.updateQualityConfidenceUI();
         void this.appendDebugLog('content.extract.failure', {
           mode: contentSource,
           error: failureMessage,
@@ -273,26 +499,39 @@ class PopupController {
           retry: isRetry
         });
 
-        if (
-          contentSource === 'full' &&
-          /could not extract enough readable content/i.test(failureMessage)
-        ) {
-          if (this.tryFallbackContentExtraction(contentSource, 'not-enough-content')) {
+        if (contentSource === 'full') {
+          if (tabStatus !== 'complete') {
+            this.scheduleExtractRetry('tab-loading', 1200);
             return;
           }
-        }
 
-        if (
-          contentSource === 'full' &&
-          (tabStatus !== 'complete' || /could not extract enough readable content/i.test(failureMessage))
-        ) {
-          this.scheduleExtractRetry(tabStatus !== 'complete' ? 'tab-loading' : 'not-enough-content', 1200);
+          if (notEnoughContent) {
+            // Retry immediately a couple of times before switching modes.
+            if (this.extractRetryCount < 2) {
+              this.extractRetryCount += 1;
+              void this.appendDebugLog('content.extract.retry_inline', {
+                reason: 'not-enough-content',
+                attempt: this.extractRetryCount
+              });
+              await this.extractContent({ isRetry: true });
+              return;
+            }
+            if (this.tryFallbackContentExtraction(contentSource, 'not-enough-content')) {
+              return;
+            }
+          }
         }
       }
     } catch (error) {
       console.error('Extraction error:', error);
       var message = error && error.message ? error.message : String(error);
       this.extractedText = '';
+      this.extractionQuality = null;
+      if (contentSource !== 'full') {
+        this.extractionCandidates = [];
+        this.selectedExtractionCandidateId = '';
+        this.updateCandidateSelector();
+      }
       void this.appendDebugLog('content.extract.error', { message: message, retry: isRetry });
 
       if (/Receiving end does not exist|Could not establish connection|The message port closed/i.test(message)) {
@@ -302,11 +541,15 @@ class PopupController {
         return;
       }
 
-      if (this.tryFallbackContentExtraction(contentSource, message)) {
+      if (
+        /could not extract enough readable content/i.test(message) &&
+        this.tryFallbackContentExtraction(contentSource, message)
+      ) {
         return;
       }
 
       this.updatePreview('Unable to extract content. Try selecting text on the page.');
+      this.updateQualityConfidenceUI();
     }
   }
 
@@ -334,18 +577,53 @@ class PopupController {
   updatePreview(text) {
     const previewEl = document.getElementById('preview-text');
     const charCountEl = document.getElementById('char-count');
+    const modelPreviewEl = document.getElementById('model-context-preview-text');
     
     if (!text || text.length === 0) {
       previewEl.innerHTML = '<span class="loading">No content found</span>';
       charCountEl.textContent = '0';
+      if (modelPreviewEl) {
+        modelPreviewEl.innerHTML = '<span class="loading">No model context yet</span>';
+      }
+      this.updateQualityConfidenceUI();
       this.updateWizardReadiness();
       return;
     }
     
     const truncated = text.length > 500 ? text.substring(0, 500) + '...' : text;
+    const modelSnippet = text.length > 1000 ? text.substring(0, 1000) + '...' : text;
     previewEl.textContent = truncated;
     charCountEl.textContent = text.length.toLocaleString();
+    if (modelPreviewEl) modelPreviewEl.textContent = modelSnippet;
+    this.updateQualityConfidenceUI();
     this.updateWizardReadiness();
+  }
+
+  updateCandidateSelector() {
+    const wrap = document.getElementById('content-candidate-wrap');
+    const select = document.getElementById('content-candidate-select');
+    const mode = this.getSelectedContentSource();
+    if (!wrap || !select) return;
+
+    const candidates = Array.isArray(this.extractionCandidates) ? this.extractionCandidates : [];
+    const confidence = this.evaluateGroundingConfidence();
+    const shouldShow = mode === 'full' && candidates.length > 1 && confidence.level === 'low';
+    wrap.classList.toggle('hidden', !shouldShow);
+    if (!shouldShow) return;
+
+    const current = this.selectedExtractionCandidateId || (candidates[0] && candidates[0].id) || '';
+    select.innerHTML = candidates.map((c, idx) => {
+      const label = `${String(c.summary || 'Suggested section').slice(0, 140)} (${Number(c.chars || 0).toLocaleString()} chars)`;
+      return `<option value="${this.escapeHtml(c.id || '')}">${this.escapeHtml(label)}</option>`;
+    }).join('');
+    select.value = current;
+    if (select.value !== current && candidates[0]) {
+      select.value = candidates[0].id || '';
+      this.selectedExtractionCandidateId = select.value;
+    }
+    const selectedOption = this.getSelectedCandidateOption();
+    this.selectedCandidateSummary = selectedOption?.summary || '';
+    this.selectedCandidateScore = Number(selectedOption?.score || 0);
   }
 
   bindEvents() {
@@ -354,18 +632,51 @@ class PopupController {
     document.getElementById('create-comic-btn')?.addEventListener('click', () => this.showCreateComposer());
     document.getElementById('view-history-btn')?.addEventListener('click', () => this.showHistory());
     document.getElementById('back-home-btn')?.addEventListener('click', () => this.showHome());
+    document.getElementById('content-extra-section')?.addEventListener('toggle', (e) => {
+      if (this.suppressExtraIntentTracking) return;
+      this.userCollapsedContent = !(e && e.target && e.target.open);
+    });
+    document.getElementById('options-extra-section')?.addEventListener('toggle', (e) => {
+      if (this.suppressExtraIntentTracking) return;
+      this.userCollapsedOptions = !(e && e.target && e.target.open);
+    });
     
     // Content source change
     document.querySelectorAll('input[name="contentSource"]').forEach(radio => {
-      radio.addEventListener('change', () => this.extractContent());
+      radio.addEventListener('change', () => {
+        if (this.getSelectedContentSource() !== 'full') {
+          this.selectedExtractionCandidateId = '';
+          this.extractionCandidates = [];
+          this.updateCandidateSelector();
+        }
+        this.refreshSelectionFallbackUI();
+        this.extractContent();
+      });
+    });
+    document.getElementById('content-candidate-select')?.addEventListener('change', (e) => {
+      const candidateId = e && e.target ? e.target.value : '';
+      this.selectedExtractionCandidateId = candidateId || '';
+      this.extractContent({ selectedCandidateId: this.selectedExtractionCandidateId });
     });
     
     // Refresh preview
     document.getElementById('refresh-preview-btn')?.addEventListener('click', () => this.extractContent());
+    document.getElementById('auto-pick-best-btn')?.addEventListener('click', () => this.autoPickBestStorySection());
     
     // Settings changes
     document.getElementById('panel-count').addEventListener('change', (e) => {
       this.settings.panelCount = parseInt(e.target.value);
+      this.saveSettings();
+      this.updateWizardReadiness();
+    });
+
+    document.getElementById('objective').addEventListener('change', (e) => {
+      this.settings.objective = e.target.value || 'summarize';
+      this.saveSettings();
+      this.updateWizardReadiness();
+    });
+    document.getElementById('output-language')?.addEventListener('change', (e) => {
+      this.settings.outputLanguage = e.target.value || 'en';
       this.saveSettings();
       this.updateWizardReadiness();
     });
@@ -430,6 +741,20 @@ class PopupController {
       if (opened) this.closePopupWindow();
     });
     document.getElementById('configure-providers-btn')?.addEventListener('click', () => this.openOptions());
+    document.getElementById('readiness-next-btn')?.addEventListener('click', () => this.handleReadinessNextAction());
+    document.getElementById('retry-providers-btn')?.addEventListener('click', async () => {
+      await this.refreshProviderOptions();
+      await this.updateProviderWarning();
+      this.updateWizardReadiness();
+    });
+    document.getElementById('selection-hint-btn')?.addEventListener('click', () => this.showSelectionHintOnPage());
+    document.getElementById('retry-full-extract-btn')?.addEventListener('click', () => {
+      this.selectionFallbackActive = false;
+      this.extractFallbackTried = false;
+      this.setSelectedContentSource('full');
+      this.refreshSelectionFallbackUI();
+      this.extractContent({ isRetry: false });
+    });
     
     // Cancel button
     document.getElementById('cancel-btn')?.addEventListener('click', () => this.cancelGeneration());
@@ -453,6 +778,8 @@ class PopupController {
   updateUI() {
     // Update form values from settings
     document.getElementById('panel-count').value = this.settings.panelCount;
+    document.getElementById('objective').value = this.settings.objective || 'summarize';
+    document.getElementById('output-language').value = this.settings.outputLanguage || 'en';
     this.normalizePanelCountSetting();
     document.getElementById('detail-level').value = this.settings.detailLevel;
     this.renderStyleOptions();
@@ -464,6 +791,8 @@ class PopupController {
     void this.refreshProviderOptions().then(() => this.updateProviderWarning());
     
     this.toggleLegacyCustomStyleEditor();
+    this.updateFirstRunVisibility();
+    this.refreshSelectionFallbackUI();
     this.updateWizardReadiness();
   }
 
@@ -521,6 +850,149 @@ class PopupController {
     this.advancedSettingsExpanded = Boolean(expanded);
     panel.classList.toggle('hidden', !this.advancedSettingsExpanded);
     toggle.setAttribute('aria-expanded', this.advancedSettingsExpanded ? 'true' : 'false');
+  }
+
+  setExtraSectionOpen(sectionId, isOpen) {
+    const section = document.getElementById(sectionId);
+    if (!section || section.tagName !== 'DETAILS') return;
+    this.suppressExtraIntentTracking = true;
+    section.open = Boolean(isOpen);
+    setTimeout(() => { this.suppressExtraIntentTracking = false; }, 0);
+  }
+
+  updateQuickReadinessChips(state, canonicalText) {
+    const contentChip = document.getElementById('chip-content');
+    const providerChip = document.getElementById('chip-provider');
+    const readyChip = document.getElementById('chip-ready');
+    const applyChip = (el, text, cls) => {
+      if (!el) return;
+      el.classList.remove('pending', 'ready', 'warn');
+      el.classList.add(cls);
+      el.textContent = text;
+    };
+
+    applyChip(
+      contentChip,
+      state.contentReady ? 'Source: ready' : 'Source: action needed',
+      state.contentReady ? 'ready' : 'warn'
+    );
+    applyChip(
+      providerChip,
+      state.settingsReady ? 'Provider: ready' : 'Provider: action needed',
+      state.settingsReady ? 'ready' : 'warn'
+    );
+    applyChip(
+      readyChip,
+      state.canGenerate ? 'Generate: ready' : 'Generate: action needed',
+      state.canGenerate ? 'ready' : 'warn'
+    );
+    if (canonicalText) {
+      const quick = document.getElementById('quick-readiness-chips');
+      if (quick) quick.title = canonicalText;
+    }
+  }
+
+  getReadinessNextAction(readinessState) {
+    if (!readinessState || readinessState.canGenerate) return null;
+    if (!readinessState.contentReady) {
+      return {
+        id: 'open-content',
+        label: 'Open Source Text',
+        handler: () => this.setExtraSectionOpen('content-extra-section', true)
+      };
+    }
+    if (!this.hasAnyConfiguredProviders) {
+      return {
+        id: 'open-settings',
+        label: 'Open Settings',
+        handler: () => this.openOptions()
+      };
+    }
+    if (!readinessState.settingsReady) {
+      return {
+        id: 'open-customize',
+        label: 'Open Customize',
+        handler: () => this.setExtraSectionOpen('options-extra-section', true)
+      };
+    }
+    return null;
+  }
+
+  updateReadinessActionControl(readinessState) {
+    const nextBtn = document.getElementById('readiness-next-btn');
+    if (!nextBtn) return;
+    const action = this.getReadinessNextAction(readinessState);
+    if (!action) {
+      nextBtn.classList.add('hidden');
+      nextBtn.dataset.actionId = '';
+      return;
+    }
+    nextBtn.textContent = action.label;
+    nextBtn.dataset.actionId = action.id;
+    nextBtn.classList.remove('hidden');
+  }
+
+  handleReadinessNextAction() {
+    const actionId = String(document.getElementById('readiness-next-btn')?.dataset?.actionId || '');
+    if (!actionId) return;
+    if (actionId === 'open-content') {
+      this.setExtraSectionOpen('content-extra-section', true);
+      return;
+    }
+    if (actionId === 'open-settings') {
+      this.openOptions();
+      return;
+    }
+    if (actionId === 'open-customize') {
+      this.setExtraSectionOpen('options-extra-section', true);
+    }
+  }
+
+  refreshSelectionFallbackUI() {
+    const note = document.getElementById('selection-fallback-note');
+    if (!note) return;
+    const show = this.selectionFallbackActive || this.getSelectedContentSource() === 'selection';
+    note.classList.toggle('hidden', !show);
+  }
+
+  async showSelectionHintOnPage() {
+    try {
+      if (!chrome?.scripting?.executeScript) return;
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (!tab?.id) return;
+      await chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        func: () => {
+          const id = '__web2comics_selection_hint__';
+          document.getElementById(id)?.remove();
+          const el = document.createElement('div');
+          el.id = id;
+          el.textContent = 'Web2Comics: highlight relevant text, then reopen the extension and click Re-scan.';
+          Object.assign(el.style, {
+            position: 'fixed',
+            zIndex: '2147483647',
+            top: '12px',
+            right: '12px',
+            maxWidth: '320px',
+            padding: '10px 12px',
+            borderRadius: '8px',
+            border: '1px solid #d18b00',
+            background: '#fff7e6',
+            color: '#7c2d12',
+            fontSize: '13px',
+            fontFamily: 'Arial, sans-serif',
+            boxShadow: '0 4px 10px rgba(0,0,0,0.18)'
+          });
+          document.body.appendChild(el);
+          setTimeout(() => el.remove(), 5000);
+        }
+      });
+      this.closePopupWindow();
+    } catch (error) {
+      void this.appendDebugLog('content.selection_hint.error', {
+        message: error && error.message ? error.message : String(error)
+      });
+    }
   }
 
   getCurrentStyleSelectValue() {
@@ -818,7 +1290,7 @@ class PopupController {
     const generateStep = document.getElementById('wizard-step-generate');
     const readinessBox = document.getElementById('wizard-readiness');
     const readinessText = document.getElementById('wizard-readiness-text');
-    if (!contentStep || !settingsStep || !generateStep || !readinessBox || !readinessText) return;
+    if (!readinessBox || !readinessText) return;
 
     const contentReady = Boolean(this.extractedText && this.extractedText.length >= 50);
     const styleReady = true;
@@ -826,43 +1298,84 @@ class PopupController {
     const settingsReady = providerReady && styleReady;
     const canGenerate = contentReady && settingsReady;
     const issues = [];
-    if (!contentReady) issues.push('extract more page content');
-    if (!this.hasAnyConfiguredProviders) issues.push('configure model providers');
-    else if (!providerReady) issues.push('validate the selected provider');
-    if (!styleReady) issues.push('complete custom style name and description');
+    if (!contentReady) issues.push('Select source text to continue');
+    if (!this.hasAnyConfiguredProviders) issues.push('Connect a model provider in Settings');
+    else if (!providerReady) issues.push('Finish provider setup in Settings');
+    if (!styleReady) issues.push('Complete style details');
     this.lastWizardReadiness = { contentReady, settingsReady, canGenerate, issues };
+    const canonicalText = canGenerate
+      ? 'Ready. Click Generate Comic.'
+      : ('Next step: ' + issues.join('; ') + '.');
+    this.updateQuickReadinessChips({ contentReady, settingsReady, canGenerate }, canonicalText);
+    this.updateReadinessActionControl(this.lastWizardReadiness);
+    const quickChips = document.getElementById('quick-readiness-chips');
+    if (quickChips) quickChips.classList.toggle('hidden', canGenerate);
 
-    [contentStep, settingsStep, generateStep].forEach((step) => {
-      step.classList.remove('is-complete', 'is-warning');
-    });
+    [contentStep, settingsStep, generateStep]
+      .filter(Boolean)
+      .forEach((step) => {
+        step.classList.remove('is-complete', 'is-warning');
+      });
 
-    if (contentReady) contentStep.classList.add('is-complete');
-    else contentStep.classList.add('is-warning');
-
-    if (settingsReady) settingsStep.classList.add('is-complete');
-    else settingsStep.classList.add('is-warning');
-
-    if (canGenerate) generateStep.classList.add('is-complete');
-    else generateStep.classList.add('is-warning');
+    if (contentStep) {
+      if (contentReady) contentStep.classList.add('is-complete');
+      else contentStep.classList.add('is-warning');
+    }
+    if (settingsStep) {
+      if (settingsReady) settingsStep.classList.add('is-complete');
+      else settingsStep.classList.add('is-warning');
+    }
+    if (generateStep) {
+      if (canGenerate) generateStep.classList.add('is-complete');
+      else generateStep.classList.add('is-warning');
+    }
 
     readinessBox.classList.remove('ready', 'warn');
     const generateBtn = document.getElementById('generate-btn');
     const configureProvidersCta = document.getElementById('configure-providers-cta');
     if (generateBtn && !this.isGenerating) {
       generateBtn.disabled = !canGenerate;
-      generateBtn.title = canGenerate ? '' : ('Before generating: ' + issues.join('; '));
+      generateBtn.title = canGenerate ? '' : ('Next step: ' + issues.join('; '));
     }
     if (configureProvidersCta) {
       configureProvidersCta.classList.toggle('hidden', this.hasAnyConfiguredProviders);
     }
+    const providersHint = document.getElementById('configure-providers-hint');
+    if (providersHint) providersHint.classList.toggle('hidden', this.hasAnyConfiguredProviders);
+    this.refreshSelectionFallbackUI();
+
+    const mainVisible = !document.getElementById('main-section')?.classList.contains('hidden');
+    const criticalWorsening = Boolean(this.lastReadinessState && this.lastReadinessState.canGenerate && !canGenerate);
+    if (mainVisible && !this.isGenerating) {
+      const shouldOpenContent = !contentReady && (
+        criticalWorsening ||
+        this.selectionFallbackActive ||
+        (!this.userCollapsedContent && !this.autoExpandedContentOnce)
+      );
+      const shouldOpenOptions = !settingsReady && (
+        criticalWorsening ||
+        !this.hasAnyConfiguredProviders ||
+        (!this.userCollapsedOptions && !this.autoExpandedOptionsOnce)
+      );
+      if (shouldOpenContent) {
+        this.setExtraSectionOpen('content-extra-section', true);
+        this.autoExpandedContentOnce = true;
+      } else if (shouldOpenOptions) {
+        this.setExtraSectionOpen('options-extra-section', true);
+        this.autoExpandedOptionsOnce = true;
+      }
+    }
+
     if (canGenerate) {
       readinessBox.classList.add('ready');
-      readinessText.textContent = 'Ready to generate. Your page content and provider settings look good.';
+      readinessText.textContent = canonicalText;
+      this.lastReadinessState = { contentReady, settingsReady, canGenerate };
       return;
     }
 
     readinessBox.classList.add('warn');
-    readinessText.textContent = 'Before generating: ' + issues.join('; ') + '.';
+    readinessText.textContent = canonicalText;
+    this.lastReadinessState = { contentReady, settingsReady, canGenerate };
   }
 
   async saveSettings() {
@@ -885,12 +1398,13 @@ class PopupController {
   reportCompletedWithWarnings(job) {
     var panelErrors = (job && job.panelErrors) || [];
     if (!panelErrors.length) return;
+    var verboseTestLogs = Boolean(globalThis && globalThis.__WEB2COMICS_TEST_LOGS__);
     void this.appendDebugLog('generation.completed_with_warnings', {
       panelErrors: panelErrors
     });
 
     var summary = 'Comic created, but some panels failed to render (' + panelErrors.length + ').';
-    if (!this.settings.debugFlag) {
+    if (!this.settings.debugFlag && !verboseTestLogs) {
       summary += '\n\nEnable "Debug flag" in Settings to see error details.';
       alert(summary);
       return;
@@ -925,7 +1439,14 @@ class PopupController {
     document.getElementById('home-section')?.classList.add('hidden');
     document.getElementById('progress-section')?.classList.add('hidden');
     document.getElementById('main-section')?.classList.remove('hidden');
+    if (!this.lastReadinessState) {
+      this.setExtraSectionOpen('content-extra-section', false);
+      this.setExtraSectionOpen('options-extra-section', false);
+    }
+    this.updateFirstRunVisibility();
+    this.refreshSelectionFallbackUI();
     this.updateWizardReadiness();
+    document.getElementById('generate-btn')?.focus();
   }
 
   async startGeneration() {
@@ -943,9 +1464,9 @@ class PopupController {
     if (!this.lastWizardReadiness.canGenerate) {
       const issues = (this.lastWizardReadiness.issues || []).length
         ? this.lastWizardReadiness.issues
-        : ['review content and settings'];
+        : ['Select article content and provider settings'];
       this.reportUserError(
-        'Cannot start generation yet. Before generating: ' + issues.join('; '),
+        'Cannot start generation yet. Next step: ' + issues.join('; '),
         'Fix these items first:\n- ' + issues.join('\n- ')
       );
       return;
@@ -958,6 +1479,14 @@ class PopupController {
     
     this.isGenerating = true;
     this.showProgress();
+    void this.trackMetric('generation_start', {
+      objective: this.settings.objective || 'summarize',
+      provider_text: this.settings.activeTextProvider,
+      provider_image: this.settings.activeImageProvider,
+      domain: (() => {
+        try { return new URL(String(this.currentPageUrl || '')).hostname || ''; } catch (_) { return ''; }
+      })()
+    });
     void this.appendDebugLog('generation.start.clicked', {
       providerText: this.settings.activeTextProvider,
       providerImage: this.settings.activeImageProvider,
@@ -980,6 +1509,8 @@ class PopupController {
           title: tab.title,
           settings: {
             panel_count: this.settings.panelCount,
+            objective: this.settings.objective || 'summarize',
+            output_language: this.settings.outputLanguage || 'en',
             detail_level: this.settings.detailLevel,
             style_id: resolvedStyle.styleId,
             caption_len: 'short',
@@ -1251,6 +1782,10 @@ class PopupController {
         
         if (currentJob.status === 'completed') {
           clearInterval(pollInterval);
+          if (!this.hasCompletedFirstGeneration) {
+            this.hasCompletedFirstGeneration = true;
+            await chrome.storage.local.set({ firstSuccessfulGenerationAt: new Date().toISOString() });
+          }
           this.reportCompletedWithWarnings(currentJob);
           this.hideProgress();
           this.isGenerating = false;
@@ -1259,19 +1794,17 @@ class PopupController {
             document.getElementById('open-viewer-btn').disabled = false;
           }
           await this.addToHistory(currentJob);
-          if (this.settings.autoOpenSidePanel !== false) {
-            try {
-              const opened = await this.openSidePanel({ userInitiated: false });
-              if (opened) {
-                this.closePopupWindow();
-              }
-              void this.appendDebugLog('generation.viewer_opened_auto', { jobId: currentJob.id || null, opened: !!opened });
-            } catch (openError) {
-              console.error('Failed to auto-open comic viewer:', openError);
-              void this.appendDebugLog('generation.viewer_opened_auto.error', {
-                message: openError && openError.message ? openError.message : String(openError)
-              });
-            }
+          try {
+            // Completion behavior: move user to viewer-only mode.
+            const opened = await this.openSidePanel({ userInitiated: false });
+            void this.appendDebugLog('generation.viewer_opened_auto', { jobId: currentJob.id || null, opened: !!opened });
+          } catch (openError) {
+            console.error('Failed to auto-open comic viewer:', openError);
+            void this.appendDebugLog('generation.viewer_opened_auto.error', {
+              message: openError && openError.message ? openError.message : String(openError)
+            });
+          } finally {
+            this.closePopupWindow();
           }
           void this.appendDebugLog('generation.completed', {
             panels: currentJob.storyboard?.panels?.length || 0,
@@ -1480,6 +2013,7 @@ class PopupController {
   }
 
   openOptions() {
+    this.lastOptionsOpenTs = Date.now();
     chrome.runtime.openOptionsPage();
   }
 

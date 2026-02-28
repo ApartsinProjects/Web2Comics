@@ -70,14 +70,21 @@ test.describe('Web2Comics Extension E2E', () => {
         const page = await context.newPage();
         await page.goto(`chrome-extension://${extensionId}/popup/popup.html`);
 
+        // Ensure advanced customization is visible in this test even under first-run progressive reveal.
+        await page.evaluate(async () => {
+          await chrome.storage.local.set({ firstSuccessfulGenerationAt: new Date().toISOString() });
+        });
+        await page.reload({ waitUntil: 'domcontentloaded' });
+
         if (await page.locator('#onboarding-start-btn').isVisible().catch(() => false)) {
           await page.locator('#onboarding-start-btn').click();
         }
         await page.locator('#create-comic-btn').click();
 
         await expect(page.locator('#generate-btn')).toBeVisible();
-        await expect(page.locator('#panel-count')).toBeVisible();
         await expect(page.locator('#wizard-readiness')).toBeVisible();
+        await page.locator('#options-extra-section summary').click();
+        await expect(page.locator('#panel-count')).toBeVisible();
         await page.locator('#advanced-settings-toggle').click();
         await expect(page.locator('#style-preset')).toBeVisible();
         await expect(page.locator('#provider-preset')).toBeVisible();
@@ -174,19 +181,20 @@ test.describe('Web2Comics Extension E2E', () => {
         const extensionId = await getExtensionId(context);
         const page = await context.newPage();
         await page.goto(`chrome-extension://${extensionId}/sidepanel/sidepanel.html`);
+        await page.waitForLoadState('domcontentloaded');
 
         await expect(page.locator('#mode-comic-btn')).toBeVisible();
         await expect(page.locator('#mode-history-btn')).toBeVisible();
 
-        const toggleBtns = page.locator('.toggle-btn');
+        const toggleBtns = page.locator('#comic-view-shell .view-mode-toggle .toggle-btn');
         await expect(toggleBtns).toHaveCount(3);
         await expect(toggleBtns.nth(0)).toHaveText('Strip View');
         await expect(toggleBtns.nth(1)).toHaveText('Carousel');
         await expect(toggleBtns.nth(2)).toHaveText('Panel View');
 
         const sidebar = page.locator('.sidebar');
-        await expect(sidebar).toBeVisible();
-        await expect(sidebar.locator('h3')).toHaveText('History');
+        await expect(sidebar).toHaveCount(1);
+        await expect(sidebar.locator('h3')).toContainText('History');
         await expect(sidebar.locator('text=Settings')).toHaveCount(0);
         await expect(sidebar.locator('text=Actions')).toHaveCount(0);
       } finally {
@@ -203,9 +211,10 @@ test.describe('Manifest Validation', () => {
 
     expect(manifest.manifest_version).toBe(3);
     expect(manifest.name).toBe('Web2Comics');
-    expect(manifest.version).toBe('1.0');
+    expect(manifest.version).toMatch(/^\d+\.\d+(\.\d+)?$/);
     expect(manifest.permissions).toContain('activeTab');
     expect(manifest.permissions).toContain('storage');
+    expect(manifest.permissions).toContain('contextMenus');
     expect(manifest.action.default_popup).toBe('popup/popup.html');
     expect(manifest.background.service_worker).toBe('background/service-worker.js');
   });

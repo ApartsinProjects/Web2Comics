@@ -13,6 +13,7 @@ export interface SourceInfo {
 
 export interface StoryboardSettings {
   panel_count: number;
+  objective?: 'summarize' | 'fun' | 'learn-step-by-step' | 'news-recap' | 'timeline' | 'key-facts' | 'compare-views' | 'explain-like-im-five' | 'study-guide' | 'meeting-recap' | 'how-to-guide' | 'debate-map';
   detail_level: 'low' | 'medium' | 'high';
   style_id: string;
   caption_len: 'short' | 'medium' | 'long';
@@ -102,6 +103,7 @@ export interface Provider {
 
 export interface SummarizationOptions {
   panelCount: number;
+  objective?: 'summarize' | 'fun' | 'learn-step-by-step' | 'news-recap' | 'timeline' | 'key-facts' | 'compare-views' | 'explain-like-im-five' | 'study-guide' | 'meeting-recap' | 'how-to-guide' | 'debate-map';
   detailLevel: 'low' | 'medium' | 'high';
   styleId: string;
   captionLength: 'short' | 'medium' | 'long';
@@ -124,6 +126,7 @@ export interface ImageResult {
 
 export interface ExtensionSettings {
   panelCount: number;
+  objective?: 'summarize' | 'fun' | 'learn-step-by-step' | 'news-recap' | 'timeline' | 'key-facts' | 'compare-views' | 'explain-like-im-five' | 'study-guide' | 'meeting-recap' | 'how-to-guide' | 'debate-map';
   detailLevel: 'low' | 'medium' | 'high';
   styleId: string;
   captionLength: 'short' | 'medium' | 'long';
@@ -222,8 +225,9 @@ export const DEFAULT_STYLE_PRESETS: StylePreset[] = [
 // ============ Default Settings ============
 
 export const DEFAULT_SETTINGS: ExtensionSettings = {
-  panelCount: 6,
-  detailLevel: 'medium',
+  panelCount: 3,
+  objective: 'summarize',
+  detailLevel: 'low',
   styleId: 'default',
   captionLength: 'short',
   activeTextProvider: 'gemini-free',

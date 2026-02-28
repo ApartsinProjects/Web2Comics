@@ -5,6 +5,7 @@ Local utility scripts for provider probing, diagnostics, and maintenance tasks.
 
 ## Contents
 - `provider-model-probe.js` : JavaScript source code.
+- `provider-model-probe-extension.js` : JavaScript source code.
 
 ## Artifacts
 - No obvious generated artifacts in this directory (or artifacts are stored elsewhere).

@@ -17,12 +17,42 @@
         </div>
         <div class="header-mode-toggle" role="tablist" aria-label="Primary views">
           <button id="mode-comic-btn" class="header-mode-btn active" data-view="comic" role="tab" aria-selected="true">Comic View</button>
-          <button id="mode-history-btn" class="header-mode-btn" data-view="history" role="tab" aria-selected="false">History Browser</button>
+          <button id="mode-history-btn" class="header-mode-btn" data-view="history" role="tab" aria-selected="false">History</button>
+        </div>
+        <div id="viewer-stats" class="viewer-stats" aria-label="Viewer counters">
+          <span class="viewer-stat"><strong id="viewer-stat-comics">0</strong> comics</span>
+          <span class="viewer-stat"><strong id="viewer-stat-panels">0</strong> panels</span>
+          <span class="viewer-stat"><strong id="viewer-stat-pages">0</strong> pages</span>
+          <span class="viewer-stat"><strong id="viewer-stat-storage">0 B</strong> storage</span>
+        </div>
+        <div class="header-meta-links">
+          <a class="meta-link" href="../docs/privacy.html" target="_blank" rel="noopener noreferrer">Privacy</a>
+          <a class="meta-link" href="../README.md" target="_blank" rel="noopener noreferrer">Home Repo</a>
         </div>
       </div>
       <div class="header-actions">
         <button id="new-comic-btn" class="btn small secondary">New Comic</button>
+        <button id="open-tab-btn" class="btn small secondary" disabled>Open in Tab</button>
         <button id="download-btn" class="btn small primary" disabled>Download</button>
+        <div class="share-controls">
+          <select id="share-target-select" class="share-target-select" aria-label="Share target" disabled>
+            <option value="facebook">Facebook</option>
+            <option value="instagram">Instagram</option>
+            <option value="x">X</option>
+            <option value="x-card">X (image card)</option>
+            <option value="linkedin">LinkedIn</option>
+            <option value="linkedin-post">LinkedIn (image post)</option>
+            <option value="story">Story / Reel cover</option>
+            <option value="whatsapp">WhatsApp</option>
+            <option value="telegram">Telegram</option>
+            <option value="reddit">Reddit</option>
+            <option value="email">Email</option>
+            <option value="email-card">Email (with image)</option>
+            <option value="copy-link">Copy source link</option>
+            <option value="copy-caption">Copy caption text</option>
+          </select>
+          <button id="share-btn" class="btn small secondary" disabled>Share</button>
+        </div>
       </div>
     </header>
 
@@ -35,7 +65,7 @@
           </svg>
           <h2>No Comic Generated</h2>
           <p>Generate a comic from any web page using the extension popup.</p>
-          <button id="open-popup-btn" class="btn secondary">Open Extension</button>
+          <button id="open-popup-btn" class="btn secondary">Create Comic</button>
         </div>
 
         <div id="comic-display" class="comic-display hidden">
@@ -127,10 +157,10 @@
         </div>
       </section>
 
-      <section id="history-browser-view" class="primary-view-shell hidden" aria-label="Historical Comics Browser">
+      <section id="history-browser-view" class="primary-view-shell hidden" aria-label="History">
         <div class="history-browser-header">
           <div class="section-title-row">
-            <h2>Historical Comics Browser</h2>
+            <h2>History</h2>
             <a class="help-link-icon inline" href="../docs/user-manual.html#sidepanel-history-browser" target="_blank" rel="noopener noreferrer" title="History browser help">?</a>
           </div>
           <p>Browse previous comics and open any item in Comic View.</p>

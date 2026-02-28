@@ -4,6 +4,7 @@ const fs = require('fs');
 const os = require('os');
 
 const EXTENSION_PATH = path.resolve(__dirname, '../..');
+const RUN_CHROME_DIAGNOSTICS = process.env.RUN_CHROME_DIAGNOSTICS === '1';
 
 async function collectChromeInternals(testInfo, context, label) {
   const pages = context.pages().map((page) => page.url());
@@ -100,6 +101,7 @@ async function runChromeRegistrationAttempt(testInfo, attempt) {
 }
 
 test.describe('Windows Chrome extension diagnostics', () => {
+  test.skip(!RUN_CHROME_DIAGNOSTICS, 'Set RUN_CHROME_DIAGNOSTICS=1 to run Chrome diagnostics suite.');
   test('DIAG-CHROME-00: diagnose unpacked extension registration in real Chrome', async ({}, testInfo) => {
     test.setTimeout(90000);
 

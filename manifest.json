@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Web2Comics",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Transform any web page into an engaging comic strip summary",
   "icons": {
     "16": "icons/icon16.png",
@@ -23,28 +23,25 @@
   "permissions": [
     "activeTab",
     "storage",
-    "unlimitedStorage",
     "scripting",
     "sidePanel",
-    "alarms"
+    "contextMenus",
+    "alarms",
+    "identity"
   ],
   "host_permissions": [
-    "<all_urls>"
+    "https://www.googleapis.com/*",
+    "https://*/*",
+    "http://*/*"
   ],
   "background": {
     "service_worker": "background/service-worker.js"
   },
   "content_scripts": [
     {
-      "matches": ["<all_urls>"],
+      "matches": ["https://*/*", "http://*/*"],
       "js": ["content/content-script.js"],
       "run_at": "document_idle"
-    }
-  ],
-  "web_accessible_resources": [
-    {
-      "resources": ["icons/*", "images/*"],
-      "matches": ["<all_urls>"]
     }
   ]
 }

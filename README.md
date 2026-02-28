@@ -10,20 +10,21 @@ Web2Comics is a Chrome extension that:
 - generates panel images
 - shows the result in a comic viewer side panel
 - saves history and exports a single composite comic image
+- supports right-click selected-text flows (instant generate or open composer prefilled)
 
 ## Install (Release ZIP)
 
 Release links:
 - [Releases page](https://github.com/ApartsinProjects/Web2Comics/releases)
-- [Current release (`v1.0.1`) ZIP](https://github.com/ApartsinProjects/Web2Comics/releases/download/v1.0.1/Web2Comics-v1.0.1-extension.zip)
+- [Current release (`v1.0.2`) ZIP](https://github.com/ApartsinProjects/Web2Comics/releases/download/v1.0.2/Web2Comics-v1.0.2-extension.zip)
 
 1. Open the repository `Releases` page on GitHub (link above).
-2. Download the latest release asset ZIP (for example `Web2Comics-v1.0.1-extension.zip`).
+2. Download the latest release asset ZIP (for example `Web2Comics-v1.0.2-extension.zip`).
 3. Extract the ZIP to a folder (for example `C:\Web2Comics`).
 4. Open Chrome and go to `chrome://extensions`.
 5. Turn on `Developer mode` (top-right).
 6. Click `Load unpacked`.
-7. Select the extracted folder that contains `manifest.json` (for example `Web2Comics-v1.0.1`).
+7. Select the extracted folder that contains `manifest.json` (for example `Web2Comics-v1.0.2`).
 8. In `chrome://extensions`, confirm the `Web2Comics` card is enabled (toggle ON).
 9. Open the Chrome Extensions menu (puzzle icon), find `Web2Comics`, and click the pin icon to show it in the toolbar.
 10. Open the extension and configure a [`Google Gemini` API key (free tier)](docs/Gemini_key.md) in `Options -> Providers` (recommended first-run setup).
@@ -39,13 +40,14 @@ Note: `Code -> Download ZIP` downloads the full source repository. Use the relea
 - Track live progress (elapsed time + ETA)
 - Review history of generated comics
 - Export a single PNG comic sheet with captions and source URL
+- Share to Facebook, X, LinkedIn, WhatsApp, Telegram, Reddit, or Email (plus copy-link/caption flows)
 
 ## Supported Providers
 
 Current provider support:
 - OpenAI
 - Google Gemini
-- Cloudflare Workers AI (text only in current extension build)
+- Cloudflare Workers AI (text + image)
 - OpenRouter (model/account dependent)
 - Hugging Face Inference API
 
@@ -85,7 +87,7 @@ Some sample outputs may come from earlier probe/test runs and may not exactly ma
 
 ### Cloudflare Workers AI
 
-Cloudflare support in the current extension is text generation only. This sample is kept as a reference artifact from prior provider testing/output workflows.
+Cloudflare Workers AI supports both text and image generation in the current extension build (account/token and model availability dependent).
 
 ![Cloudflare CNN comic sample](samplecomics/2026-02-25_13-38-32/cloudflare-cnn-comic-sheet.png)
 
@@ -140,6 +142,11 @@ For step-by-step key/token instructions, see:
 6. Watch live progress in popup/sidepanel.
 7. Review the comic in the side panel.
 8. Click `Download` to export a single comic sheet PNG.
+
+Optional selected-text right-click flow:
+1. Highlight text on any page.
+2. Right-click.
+3. Choose `Generate comic from selected text (Default)` for instant generation, or `Open Create Comic with selected text` to review/customize before generating.
 
 ## Project Structure (Quick Overview)
 

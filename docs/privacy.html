@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Web2Comics Privacy Note</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --bg: #ffffff;
+      --fg: #0f172a;
+      --muted: #475569;
+      --border: #e2e8f0;
+      --link: #2563eb;
+    }
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+      background: var(--bg);
+      color: var(--fg);
+      line-height: 1.5;
+    }
+    main {
+      max-width: 760px;
+      margin: 0 auto;
+      padding: 24px 16px 40px;
+    }
+    h1 { margin-top: 0; }
+    .note {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px 14px;
+      color: var(--muted);
+      background: rgba(148, 163, 184, 0.08);
+    }
+    a { color: var(--link); }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Web2Comics Privacy Note</h1>
+    <p class="note">This extension processes page text and sends generation prompts to the model providers you configure.</p>
+    <p>Do not use sensitive or regulated data unless your configured provider and workflow comply with your privacy requirements.</p>
+    <p>Optional integrations (Google Drive backup, Facebook connection, X connection) use OAuth tokens stored in extension local storage and are used only after explicit user connect actions.</p>
+    <p>Review provider and platform privacy terms in extension settings before production use.</p>
+  </main>
+</body>
+</html>

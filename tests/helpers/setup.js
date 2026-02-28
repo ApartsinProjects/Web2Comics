@@ -1,6 +1,7 @@
 // Test setup and global mocks
 global.TEST_OPENAI_API_KEY = process.env.OPENAI_API_KEY || 'sk-test-openai-key';
 global.TEST_DEFAULT_PROVIDER = 'openai';
+global.__WEB2COMICS_TEST_LOGS__ = true;
 
 // Mock chrome API for browser extension
 global.chrome = {
@@ -43,6 +44,15 @@ global.chrome = {
   alarms: {
     create: vi.fn(),
     onAlarm: {
+      addListener: vi.fn()
+    }
+  },
+  contextMenus: {
+    create: vi.fn(),
+    removeAll: vi.fn((cb) => {
+      if (typeof cb === 'function') cb();
+    }),
+    onClicked: {
       addListener: vi.fn()
     }
   },

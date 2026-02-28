@@ -34,10 +34,10 @@
           <div class="setting-item">
             <label for="default-panel-count">Default Panel Count</label>
             <select id="default-panel-count">
-              <option value="3">3 panels</option>
+              <option value="3" selected>3 panels</option>
               <option value="4">4 panels</option>
               <option value="5">5 panels</option>
-              <option value="6" selected>6 panels</option>
+              <option value="6">6 panels</option>
               <option value="8">8 panels</option>
               <option value="10">10 panels</option>
               <option value="12">12 panels</option>
@@ -86,6 +86,23 @@
               <option value="medium">Medium</option>
               <option value="long">Long</option>
             </select>
+          </div>
+
+          <div class="setting-item">
+            <label for="default-language">Default Output Language</label>
+            <select id="default-language">
+              <option value="en" selected>English</option>
+              <option value="auto">Auto (Match source language)</option>
+              <option value="es">Spanish</option>
+              <option value="fr">French</option>
+              <option value="de">German</option>
+              <option value="it">Italian</option>
+              <option value="pt">Portuguese</option>
+              <option value="ja">Japanese</option>
+              <option value="ko">Korean</option>
+              <option value="zh">Chinese</option>
+            </select>
+            <p class="setting-description">Language used for captions and narrative text by default.</p>
           </div>
         </div>
 
@@ -443,11 +460,41 @@
         </div>
 
         <div class="setting-group">
+          <h3>Prompt Library</h3>
+          <div class="setting-item">
+            <label for="prompt-library-group">Use Case Group</label>
+            <select id="prompt-library-group">
+              <option value="news">News & Analysis</option>
+              <option value="learning">Learning & Education</option>
+              <option value="work">Work & Productivity</option>
+              <option value="social">Social & Creator</option>
+              <option value="research">Research & Evidence</option>
+              <option value="marketing">Marketing & Communication</option>
+              <option value="product">Product & UX</option>
+              <option value="study">Study & Memory</option>
+              <option value="fun">Fun & Story Play</option>
+              <option value="styles">Style-Driven Presets</option>
+            </select>
+          </div>
+          <div class="setting-item">
+            <label for="prompt-library-preset">Preset</label>
+            <select id="prompt-library-preset"></select>
+            <p class="setting-description" id="prompt-library-description">Choose a preset to apply structured storyboard/image templates.</p>
+          </div>
+          <div class="actions compact">
+            <button id="apply-prompt-preset-current-btn" class="btn secondary" type="button">Apply To Current Provider</button>
+            <button id="apply-prompt-preset-all-btn" class="btn secondary" type="button">Apply To All Providers</button>
+            <button id="import-prompt-library-btn" class="btn secondary" type="button">Import Prompt Library JSON</button>
+            <input id="import-prompt-library-file" type="file" accept=".json,application/json" style="display:none" />
+          </div>
+        </div>
+
+        <div class="setting-group">
           <h3>Storyboard Template</h3>
           <div class="setting-item">
             <label for="storyboard-template">Template Text</label>
             <textarea id="storyboard-template" class="textarea prompt-template-textarea" rows="8"></textarea>
-            <p class="setting-description">Available placeholders: <code>{{source_title}}</code>, <code>{{source_url}}</code>, <code>{{panel_count}}</code>, <code>{{detail_level}}</code>, <code>{{style_prompt}}</code>, <code>{{content}}</code></p>
+            <p class="setting-description">Available placeholders: <code>{{source_title}}</code>, <code>{{source_url}}</code>, <code>{{panel_count}}</code>, <code>{{detail_level}}</code>, <code>{{objective}}</code>, <code>{{objective_label}}</code>, <code>{{objective_guidance}}</code>, <code>{{output_language}}</code>, <code>{{output_language_label}}</code>, <code>{{output_language_instruction}}</code>, <code>{{style_prompt}}</code>, <code>{{content}}</code></p>
           </div>
           <div class="actions compact">
             <button id="reset-storyboard-template-btn" class="btn secondary">Reset Storyboard Template</button>
@@ -459,7 +506,7 @@
           <div class="setting-item">
             <label for="image-template">Template Text</label>
             <textarea id="image-template" class="textarea prompt-template-textarea" rows="6"></textarea>
-            <p class="setting-description">Available placeholders: <code>{{panel_caption}}</code>, <code>{{panel_summary}}</code>, <code>{{style_prompt}}</code>, <code>{{panel_index}}</code>, <code>{{panel_count}}</code></p>
+            <p class="setting-description">Available placeholders: <code>{{panel_caption}}</code>, <code>{{panel_summary}}</code>, <code>{{style_prompt}}</code>, <code>{{panel_index}}</code>, <code>{{panel_count}}</code>, <code>{{output_language}}</code>, <code>{{output_language_label}}</code>, <code>{{output_language_instruction}}</code></p>
           </div>
           <div class="actions compact">
             <button id="reset-image-template-btn" class="btn secondary">Reset Image Template</button>
@@ -520,6 +567,85 @@
             <button id="export-debug-logs-btn" class="btn secondary">Export Debug Logs</button>
           </div>
         </div>
+
+        <div class="setting-group">
+          <h3>Google Drive Backup (Optional)</h3>
+
+          <div class="setting-item checkbox">
+            <label>
+              <input type="checkbox" id="google-drive-auto-save">
+              <span>Auto-save every generated comic to Google Drive</span>
+            </label>
+            <p class="setting-description">Saves each comic as interactive HTML in the <code>Web2Comics</code> folder.</p>
+          </div>
+
+          <div class="setting-item">
+            <label for="google-drive-client-id">Google OAuth Client ID</label>
+            <input type="text" id="google-drive-client-id" placeholder="xxxxxx.apps.googleusercontent.com">
+            <p class="setting-description">Create OAuth client in Google Cloud and enable Google Drive API.</p>
+          </div>
+
+          <div class="drive-status-box" id="google-drive-status-box">
+            <div class="storage-item">
+              <span>Connection Status</span>
+              <span id="google-drive-connection-status">Not connected</span>
+            </div>
+            <div class="storage-item">
+              <span>Target Folder</span>
+              <span><code>Web2Comics</code></span>
+            </div>
+          </div>
+
+          <div class="actions">
+            <button id="connect-google-drive-btn" class="btn secondary" type="button">Connect Google Drive</button>
+            <button id="disconnect-google-drive-btn" class="btn secondary" type="button">Disconnect</button>
+            <button id="save-drive-settings-btn" class="btn primary" type="button">Save Connection Settings</button>
+          </div>
+        </div>
+
+        <div class="setting-group">
+          <h3>Facebook Connection (Optional)</h3>
+
+          <div class="setting-item">
+            <label for="facebook-app-id">Facebook App ID</label>
+            <input type="text" id="facebook-app-id" placeholder="123456789012345">
+            <p class="setting-description">Create a Facebook app, enable Login, and add this extension redirect URL in Valid OAuth Redirect URIs.</p>
+          </div>
+
+          <div class="drive-status-box" id="facebook-status-box">
+            <div class="storage-item">
+              <span>Connection Status</span>
+              <span id="facebook-connection-status" class="connection-status">Not connected</span>
+            </div>
+          </div>
+
+          <div class="actions">
+            <button id="connect-facebook-btn" class="btn secondary" type="button">Connect Facebook</button>
+            <button id="disconnect-facebook-btn" class="btn secondary" type="button">Disconnect</button>
+          </div>
+        </div>
+
+        <div class="setting-group">
+          <h3>X Connection (Optional)</h3>
+
+          <div class="setting-item">
+            <label for="x-client-id">X OAuth Client ID</label>
+            <input type="text" id="x-client-id" placeholder="Your X OAuth Client ID">
+            <p class="setting-description">Configure X OAuth2 app and allow this extension redirect URI for posting/sharing workflows.</p>
+          </div>
+
+          <div class="drive-status-box" id="x-status-box">
+            <div class="storage-item">
+              <span>Connection Status</span>
+              <span id="x-connection-status" class="connection-status">Not connected</span>
+            </div>
+          </div>
+
+          <div class="actions">
+            <button id="connect-x-btn" class="btn secondary" type="button">Connect X</button>
+            <button id="disconnect-x-btn" class="btn secondary" type="button">Disconnect</button>
+          </div>
+        </div>
       </section>
 
       <!-- About Section -->
@@ -531,7 +657,7 @@
             <img src="../icons/icon48.png" alt="Web2Comics" width="64" height="64">
           </div>
           <h3>Web2Comics</h3>
-          <p class="version">Version 1.0.0</p>
+          <p class="version">Version 1.0.2</p>
           <p class="description">
             Transform any web page into an engaging comic strip summary. 
             Uses AI to generate panel-by-panel narratives with images.
@@ -542,9 +668,10 @@
           <h4>Links</h4>
           <ul>
             <li><a href="../docs/user-manual.html#options-overview" id="link-user-manual" target="_blank" rel="noopener noreferrer">User Manual</a></li>
-            <li><a href="#" id="link-privacy">Privacy Policy</a></li>
-            <li><a href="#" id="link-terms">Terms of Service</a></li>
-            <li><a href="#" id="link-support">Support</a></li>
+            <li><a href="../docs/privacy.html" id="link-privacy" target="_blank" rel="noopener noreferrer">Privacy Policy</a></li>
+            <li><a href="../docs/terms.html" id="link-terms" target="_blank" rel="noopener noreferrer">Terms of Service</a></li>
+            <li><a href="../docs/support.html" id="link-support" target="_blank" rel="noopener noreferrer">Support</a></li>
+            <li><a href="../README.md" id="link-repo" target="_blank" rel="noopener noreferrer">Home Repo</a></li>
           </ul>
         </div>
 

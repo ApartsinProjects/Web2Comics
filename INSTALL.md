@@ -22,7 +22,7 @@ Simple step-by-step instructions to install and use the Web2Comics Chrome extens
    ```
 
 4. **Select the extracted Web2Comics release folder**
-   - Navigate to the extracted folder (for example `Web2Comics-v1.0.1`)
+   - Navigate to the extracted folder (for example `Web2Comics-v1.0.2`)
    - Select the folder that contains `manifest.json`
    - Click "Select Folder" or "Open"
 
@@ -91,8 +91,8 @@ The extension needs AI providers to generate comics. You must configure at least
    - Click `Save Providers`
 
 4. **Note**
-   - Cloudflare Workers AI is currently supported for text generation in this extension
-   - Use another provider for image generation
+   - Cloudflare Workers AI supports both text and image generation in this extension
+   - Exact model availability may vary by account and region
 
 ---
 
@@ -102,11 +102,7 @@ The extension needs AI providers to generate comics. You must configure at least
 
 1. **Navigate to any article** (news, blog, etc.)
 2. **Click the Web2Comics extension icon** in the toolbar
-3. You'll see:
-   - Extracted content preview
-   - Panel count selector (3-12 panels)
-   - Style presets (Noir, Manga, etc.)
-   - Provider selection
+3. Click **Create Comic** in the launcher and use defaults for a fast first run, or expand options to customize.
 4. **Click "Generate Comic"**
 5. Wait for generation (progress shown)
 6. **Click "Open Comic Viewer"** to see your comic!
@@ -152,7 +148,7 @@ Check:
 1. API key is configured
 2. You haven't exceeded rate limits
 3. Network is working
-4. Using a provider that supports images (Gemini or OpenAI)
+4. Using a provider that supports images (Gemini, OpenAI, Cloudflare, OpenRouter, or Hugging Face depending on your account/model access)
 ```
 
 ### Service worker errors
@@ -176,7 +172,7 @@ Check chrome://extensions > Service worker for logs.
 ## What's Included
 
 ```
-Web2Comics-v1.0.1/
+Web2Comics-v1.0.2/
 ├── manifest.json           # Extension config
 ├── popup/                 # Main popup UI
 ├── sidepanel/            # Comic viewer
@@ -200,4 +196,4 @@ Web2Comics-v1.0.1/
 
 ---
 
-*Version 1.0.1 | Last Updated: 2026-02-26*
+*Version 1.0.2 | Last Updated: 2026-02-28*

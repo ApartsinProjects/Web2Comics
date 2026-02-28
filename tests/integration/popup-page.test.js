@@ -8,6 +8,15 @@ function flush() {
   return new Promise((resolve) => setTimeout(resolve, 0));
 }
 
+async function waitForCondition(check, timeoutMs = 1000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (check()) return;
+    await flush();
+  }
+  throw new Error('Timed out waiting for condition');
+}
+
 describe('Popup Page Startup', () => {
   beforeEach(() => {
     vi.resetModules();
@@ -76,7 +85,50 @@ describe('Popup Page Startup', () => {
 
     expect(generateBtn.disabled).toBe(true);
     const readinessText = document.getElementById('wizard-readiness-text');
-    expect(String(readinessText.textContent)).toContain('extract more page content');
+    expect(String(readinessText.textContent)).toContain('Select source text to continue');
+  });
+
+  it('opens create composer with context-menu selected text prepopulated', async () => {
+    const selectedText = 'Selected text from page for comic generation context menu flow.';
+    chrome.storage.local.get.mockImplementation(async (keys) => {
+      if (Array.isArray(keys)) {
+        return {
+          settings: { activeTextProvider: 'openai', activeImageProvider: 'openai' },
+          providers: {}
+        };
+      }
+      if (keys === 'pendingComposerPrefill') {
+        return {
+          pendingComposerPrefill: {
+            text: selectedText,
+            sourceUrl: 'https://example.com',
+            sourceTitle: 'Example',
+            source: 'context-menu-selection'
+          }
+        };
+      }
+      if (keys === 'history') return { history: [] };
+      if (keys === 'currentJob') return { currentJob: null };
+      if (keys === 'apiKeys') return { apiKeys: { openai: global.TEST_OPENAI_API_KEY } };
+      return {};
+    });
+
+    await import('../../popup/popup.js');
+    document.dispatchEvent(new Event('DOMContentLoaded'));
+    await flush();
+    await flush();
+
+    const homeSection = document.getElementById('home-section');
+    const mainSection = document.getElementById('main-section');
+    expect(homeSection.classList.contains('hidden')).toBe(true);
+    expect(mainSection.classList.contains('hidden')).toBe(false);
+
+    const selectionRadio = document.querySelector('input[name="contentSource"][value="selection"]');
+    expect(selectionRadio.checked).toBe(true);
+    const previewText = document.getElementById('preview-text').textContent || '';
+    expect(previewText).toContain('Selected text from page');
+    expect(chrome.storage.local.remove).toHaveBeenCalledWith('pendingComposerPrefill');
+    expect(chrome.tabs.sendMessage).not.toHaveBeenCalled();
   });
 
   it('applies local recommended model defaults for missing model settings', async () => {
@@ -266,6 +318,142 @@ describe('Popup Page Startup', () => {
     expect(selectedRadio.checked).toBe(true);
     expect(charCount.textContent).toBe('420');
     expect(String(previewText.textContent)).not.toContain('Unable to extract content');
+  });
+
+  it('simulates user flow: navigate to Wikipedia article, click Create Comic, then click Generate Comic', async () => {
+    let startPayload = null;
+    const articleUrl = 'https://en.wikipedia.org/wiki/Israel';
+    chrome.tabs.query.mockResolvedValue([{ id: 77, status: 'complete', url: articleUrl, title: 'Israel - Wikipedia' }]);
+    chrome.tabs.sendMessage.mockImplementation(async (_tabId, msg) => {
+      if (msg.type === 'EXTRACT_CONTENT') {
+        return { success: true, text: 'x '.repeat(600) };
+      }
+      if (msg.type === 'START_GENERATION') {
+        startPayload = msg.payload;
+        return { success: true, jobId: 'job-user-flow-1' };
+      }
+      return { success: true };
+    });
+    chrome.storage.local.get.mockImplementation(async (keys) => {
+      if (Array.isArray(keys)) {
+        const result = {
+          settings: { activeTextProvider: 'openai', activeImageProvider: 'openai', panelCount: 3 },
+          providers: {}
+        };
+        if (keys.includes('apiKeys')) result.apiKeys = { openai: global.TEST_OPENAI_API_KEY };
+        if (keys.includes('providerValidation')) result.providerValidation = { openai: { valid: true } };
+        return result;
+      }
+      if (keys === 'onboardingComplete') return { onboardingComplete: true };
+      if (keys === 'history') return { history: [] };
+      if (keys === 'currentJob') return { currentJob: null };
+      if (keys === 'apiKeys') return { apiKeys: { openai: global.TEST_OPENAI_API_KEY } };
+      if (keys === 'providerValidation') return { providerValidation: { openai: { valid: true } } };
+      return {};
+    });
+
+    await import('../../popup/popup.js');
+    document.dispatchEvent(new Event('DOMContentLoaded'));
+    await flush();
+    await flush();
+
+    document.getElementById('create-comic-btn').click();
+    await flush();
+    await flush();
+
+    const outputLanguageSelect = document.getElementById('output-language');
+    outputLanguageSelect.value = 'fr';
+    outputLanguageSelect.dispatchEvent(new Event('change', { bubbles: true }));
+    await flush();
+
+    const generateBtn = document.getElementById('generate-btn');
+    expect(generateBtn.disabled).toBe(false);
+
+    generateBtn.click();
+    await flush();
+    await flush();
+
+    expect(startPayload).toBeTruthy();
+    expect(startPayload.url).toBe(articleUrl);
+    expect(startPayload.title).toContain('Wikipedia');
+    expect(typeof startPayload.text).toBe('string');
+    expect(startPayload.text.length).toBeGreaterThan(200);
+    expect(startPayload.settings.provider_text).toBe('openai');
+    expect(startPayload.settings.provider_image).toBe('openai');
+    expect(startPayload.settings.output_language).toBe('fr');
+    expect(document.getElementById('progress-section').classList.contains('hidden')).toBe(false);
+  });
+
+  it('respects manual collapse intent for content extras when readiness updates repeat', async () => {
+    chrome.tabs.sendMessage.mockResolvedValue({ success: true, text: 'too short' });
+
+    await import('../../popup/popup.js');
+    document.dispatchEvent(new Event('DOMContentLoaded'));
+    await flush();
+    await flush();
+
+    document.getElementById('create-comic-btn').click();
+    await flush();
+    await flush();
+
+    const details = document.getElementById('content-extra-section');
+    expect(details.open).toBe(true);
+
+    details.open = false;
+    details.dispatchEvent(new Event('toggle'));
+    await flush();
+
+    const ctrl = window.__popupController;
+    ctrl.updateWizardReadiness();
+    await flush();
+
+    expect(details.open).toBe(false);
+  });
+
+  it('shows selection fallback note and allows retrying full-page extraction', async () => {
+    let fullCalls = 0;
+    chrome.tabs.sendMessage.mockImplementation(async (_tabId, msg) => {
+      if (msg.type !== 'EXTRACT_CONTENT') return { success: true };
+      if (msg.payload?.mode === 'full') {
+        fullCalls += 1;
+        return { success: true, text: 'x '.repeat(600) };
+      }
+      return { success: true, text: 'x '.repeat(420) };
+    });
+    chrome.tabs.query.mockResolvedValue([{ id: 1, status: 'complete', url: 'https://en.wikipedia.org/wiki/Israel' }]);
+
+    await import('../../popup/popup.js');
+    document.dispatchEvent(new Event('DOMContentLoaded'));
+    await flush();
+    await flush();
+    await flush();
+    await flush();
+    await flush();
+
+    document.getElementById('create-comic-btn').click();
+    await flush();
+    const ctrl = window.__popupController;
+    expect(ctrl).toBeTruthy();
+    ctrl.tryFallbackContentExtraction('full', 'not-enough-content');
+    await waitForCondition(() => {
+      const selectionRadio = document.querySelector('input[name="contentSource"][value="selection"]');
+      const note = document.getElementById('selection-fallback-note');
+      return Boolean(selectionRadio?.checked && note && !note.classList.contains('hidden'));
+    }, 2000);
+
+    const note = document.getElementById('selection-fallback-note');
+    const fullRadio = document.querySelector('input[name="contentSource"][value="full"]');
+    const selectionRadio = document.querySelector('input[name="contentSource"][value="selection"]');
+    expect(selectionRadio.checked).toBe(true);
+    expect(note.classList.contains('hidden')).toBe(false);
+
+    const beforeRetryCalls = fullCalls;
+    document.getElementById('retry-full-extract-btn').click();
+    await waitForCondition(() => fullRadio.checked === true, 1000);
+    await waitForCondition(() => fullCalls > beforeRetryCalls, 1000);
+
+    expect(fullRadio.checked).toBe(true);
+    expect(fullCalls).toBeGreaterThan(beforeRetryCalls);
   });
 
   it('reinjects content script and retries on missing receiving end', async () => {
@@ -514,12 +702,59 @@ describe('Popup Page Startup', () => {
     const panelSelect = document.getElementById('panel-count');
     expect(panelSelect.value).toBe('3');
 
-    document.getElementById('generate-btn').click();
+    const generateBtn = document.getElementById('generate-btn');
+    await waitForCondition(() => generateBtn && generateBtn.disabled === false, 10000);
+    generateBtn.click();
     await flush();
 
     const startCall = chrome.tabs.sendMessage.mock.calls.find((call) => call[1]?.type === 'START_GENERATION');
     expect(startCall).toBeTruthy();
     expect(startCall[1].payload.settings.panel_count).toBe(3);
+    expect(startCall[1].payload.settings.objective).toBe('summarize');
+  });
+
+  it('sends selected objective in START_GENERATION payload', async () => {
+    chrome.storage.local.get.mockImplementation(async (keys) => {
+      if (Array.isArray(keys)) {
+        return {
+          providers: {},
+          settings: { activeTextProvider: 'openai', activeImageProvider: 'openai' },
+          apiKeys: { openai: global.TEST_OPENAI_API_KEY },
+          providerValidation: { openai: { valid: true, validatedAt: new Date().toISOString() } }
+        };
+      }
+      if (keys === 'history') return { history: [] };
+      if (keys === 'currentJob') return { currentJob: null };
+      if (keys === 'apiKeys') return { apiKeys: { openai: global.TEST_OPENAI_API_KEY } };
+      return {};
+    });
+
+    chrome.tabs.sendMessage.mockImplementation(async (_tabId, msg) => {
+      if (msg.type === 'EXTRACT_CONTENT') return { success: true, text: 'x '.repeat(400) };
+      if (msg.type === 'START_GENERATION') return { success: true, jobId: 'job-objective-selected' };
+      return { success: true };
+    });
+
+    await import('../../popup/popup.js');
+    document.dispatchEvent(new Event('DOMContentLoaded'));
+    await flush();
+    await flush();
+
+    document.getElementById('create-comic-btn').click();
+    await flush();
+
+    const objective = document.getElementById('objective');
+    objective.value = 'learn-step-by-step';
+    objective.dispatchEvent(new Event('change', { bubbles: true }));
+    await flush();
+
+    await waitForCondition(() => !document.getElementById('generate-btn').disabled, 2000);
+    document.getElementById('generate-btn').click();
+    await flush();
+
+    const startCall = chrome.tabs.sendMessage.mock.calls.find((call) => call[1]?.type === 'START_GENERATION');
+    expect(startCall).toBeTruthy();
+    expect(startCall[1].payload.settings.objective).toBe('learn-step-by-step');
   });
 
   it('hides key-based providers when validation records exist but provider is not validated', async () => {
@@ -885,7 +1120,10 @@ describe('Popup Page Startup', () => {
     await flush();
     await flush();
     document.getElementById('generate-btn').click();
-    await new Promise((resolve) => setTimeout(resolve, 550));
+    await waitForCondition(() => {
+      const line = document.getElementById('progress-caption-quality');
+      return Boolean(line && !line.classList.contains('hidden'));
+    }, 1200);
 
     const line = document.getElementById('progress-caption-quality');
     expect(line).toBeTruthy();
@@ -1476,14 +1714,14 @@ describe('Popup Page Startup', () => {
 
     const generateBtn = document.getElementById('generate-btn');
     expect(generateBtn.disabled).toBe(true);
-    expect(generateBtn.title).toContain('extract more page content');
+    expect(generateBtn.title).toContain('Select source text to continue');
 
     generateBtn.disabled = false;
     generateBtn.click();
     await flush();
 
     expect(global.alert).toHaveBeenCalled();
-    expect(String(global.alert.mock.calls.at(-1)?.[0] || '')).toContain('Before generating');
+    expect(String(global.alert.mock.calls.at(-1)?.[0] || '')).toContain('Next step');
     expect(chrome.runtime.sendMessage).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'START_GENERATION' }));
   });
 
@@ -1521,6 +1759,6 @@ describe('Popup Page Startup', () => {
     const generateBtn = document.getElementById('generate-btn');
     const readinessText = document.getElementById('wizard-readiness-text');
     expect(generateBtn.disabled).toBe(false);
-    expect(String(readinessText.textContent)).toContain('Ready to generate');
+    expect(String(readinessText.textContent)).toContain('Ready. Click Generate Comic.');
   });
 });

@@ -460,6 +460,42 @@ textarea:focus, select:focus, input:focus {
   margin-bottom: 20px;
 }
 
+.drive-status-box {
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-md);
+  padding: 12px 16px;
+  margin-top: 10px;
+}
+
+#google-drive-connection-status.connected {
+  color: var(--success);
+  font-weight: 600;
+}
+
+#google-drive-connection-status.disconnected {
+  color: var(--text-secondary);
+}
+
+#facebook-connection-status.connected,
+.connection-status.connected {
+  color: var(--success);
+  font-weight: 600;
+}
+
+#facebook-connection-status.disconnected,
+.connection-status.disconnected {
+  color: var(--text-secondary);
+}
+
+#x-connection-status.connected {
+  color: var(--success);
+  font-weight: 600;
+}
+
+#x-connection-status.disconnected {
+  color: var(--text-secondary);
+}
+
 .storage-item {
   display: flex;
   justify-content: space-between;

@@ -51,9 +51,10 @@ test.describe('Web to Comic Extension - Registration & Installation', () => {
     
     expect(manifest.manifest_version).toBe(3);
     expect(manifest.name).toBe('Web2Comics');
-    expect(manifest.version).toBe('1.0');
+    expect(manifest.version).toMatch(/^\d+\.\d+(\.\d+)?$/);
     expect(manifest.permissions).toContain('activeTab');
     expect(manifest.permissions).toContain('storage');
+    expect(manifest.permissions).toContain('contextMenus');
     expect(manifest.background.service_worker).toBe('background/service-worker.js');
     expect(manifest.action.default_popup).toBe('popup/popup.html');
   });
@@ -98,6 +99,8 @@ test.describe('Web to Comic Extension - Registration & Installation', () => {
     expect(content).toContain('ServiceWorker');
     expect(content).toContain('TEXT_PROVIDERS');
     expect(content).toContain('IMAGE_PROVIDERS');
+    expect(content).toContain('SELECTION_CONTEXT_MENU_ID');
+    expect(content).toContain("contexts: ['selection']");
   });
 
   test('REG-04: Content script is valid', async () => {

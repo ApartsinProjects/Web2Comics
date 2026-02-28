@@ -2,11 +2,13 @@
 // TypeScript-only declarations and is not executable as a browser module.
 const DEFAULT_SETTINGS = {
   panelCount: 3,
+  objective: 'summarize',
   detailLevel: 'low',
   styleId: 'default',
   customStyleName: '',
   customStyleTheme: '',
   captionLength: 'short',
+  outputLanguage: 'en',
   activeTextProvider: 'gemini-free',
   activeImageProvider: 'gemini-free',
   textModel: 'gpt-4o-mini',
@@ -30,40 +32,586 @@ const DEFAULT_SETTINGS = {
   showRewrittenBadge: true,
   logRewrittenPrompts: false,
   maxCacheSize: 100,
-  autoOpenSidePanel: true
+  autoOpenSidePanel: true,
+  googleDriveAutoSave: false,
+  googleDriveClientId: '',
+  facebookAppId: '',
+  xClientId: ''
 };
 
 const DEFAULT_PROMPT_TEMPLATES = {
   openai: {
     storyboard:
-      'Create a comic storyboard as strict JSON with a top-level "panels" array.\nSource: {{source_title}} ({{source_url}})\nPanels: {{panel_count}}\nDetail: {{detail_level}}\nStyle: {{style_prompt}}\nContent:\n{{content}}',
+      'Create a comic storyboard as strict JSON with a top-level "panels" array.\n' +
+      'Grounding rules:\n' +
+      '- Choose one dominant story/topic from the content and keep all panels on that topic.\n' +
+      '- Use concrete facts from the content (named entities, numbers, dates, outcomes) when available.\n' +
+      '- Do not invent unsupported facts, quotes, or events.\n' +
+      '- Build a clear beginning -> development -> outcome arc across panels.\n' +
+      '- Keep captions specific and concise; avoid generic filler.\n' +
+      'Source: {{source_title}} ({{source_url}})\nPanels: {{panel_count}}\nDetail: {{detail_level}}\nObjective: {{objective_label}}\nObjective guidance: {{objective_guidance}}\nStyle: {{style_prompt}}\nContent:\n{{content}}',
     image:
-      'Comic panel {{panel_index}}/{{panel_count}}.\nCaption: {{panel_caption}}\nSummary: {{panel_summary}}\nStyle: {{style_prompt}}\nReturn a single image matching the comic style.'
+      'Comic panel {{panel_index}}/{{panel_count}}.\nCaption: {{panel_caption}}\nSummary: {{panel_summary}}\nStyle: {{style_prompt}}\n' +
+      'Image grounding rules:\n' +
+      '- Depict the exact event/claim in caption+summary, not a generic scene.\n' +
+      '- Reuse key entities/details from caption+summary (who/where/what) when provided.\n' +
+      '- Keep character/setting continuity with prior panels.\n' +
+      '- No text overlays unless explicitly required by the caption.'
   },
   gemini: {
     storyboard:
-      'Generate a comic storyboard in strict JSON only, with a top-level "panels" array.\nSource title: {{source_title}}\nSource URL: {{source_url}}\nPanel count: {{panel_count}}\nDetail level: {{detail_level}}\nStyle guidance: {{style_prompt}}\nContent:\n{{content}}',
+      'Generate a comic storyboard in strict JSON only, with a top-level "panels" array.\n' +
+      'Grounding rules:\n' +
+      '- Choose one dominant story/topic from the content and keep all panels on that topic.\n' +
+      '- Use concrete facts from the content (named entities, numbers, dates, outcomes) when available.\n' +
+      '- Do not invent unsupported facts, quotes, or events.\n' +
+      '- Build a clear beginning -> development -> outcome arc across panels.\n' +
+      '- Keep captions specific and concise; avoid generic filler.\n' +
+      'Source title: {{source_title}}\nSource URL: {{source_url}}\nPanel count: {{panel_count}}\nDetail level: {{detail_level}}\nObjective: {{objective_label}}\nObjective guidance: {{objective_guidance}}\nStyle guidance: {{style_prompt}}\nContent:\n{{content}}',
     image:
-      'Create comic panel artwork {{panel_index}}/{{panel_count}}.\nPanel caption: {{panel_caption}}\nPanel summary: {{panel_summary}}\nStyle guidance: {{style_prompt}}'
+      'Create comic panel artwork {{panel_index}}/{{panel_count}}.\nPanel caption: {{panel_caption}}\nPanel summary: {{panel_summary}}\nStyle guidance: {{style_prompt}}\n' +
+      'Image grounding rules:\n' +
+      '- Depict the exact event/claim in caption+summary, not a generic scene.\n' +
+      '- Reuse key entities/details from caption+summary (who/where/what) when provided.\n' +
+      '- Keep character/setting continuity with prior panels.\n' +
+      '- No text overlays unless explicitly required by the caption.'
   },
   cloudflare: {
     storyboard:
-      'Create a comic storyboard as strict JSON with a top-level "panels" array.\nSource: {{source_title}} ({{source_url}})\nPanels: {{panel_count}}\nDetail: {{detail_level}}\nStyle: {{style_prompt}}\nContent:\n{{content}}',
+      'Create a comic storyboard as strict JSON with a top-level "panels" array.\n' +
+      'Grounding rules:\n' +
+      '- Choose one dominant story/topic from the content and keep all panels on that topic.\n' +
+      '- Use concrete facts from the content (named entities, numbers, dates, outcomes) when available.\n' +
+      '- Do not invent unsupported facts, quotes, or events.\n' +
+      '- Build a clear beginning -> development -> outcome arc across panels.\n' +
+      '- Keep captions specific and concise; avoid generic filler.\n' +
+      'Source: {{source_title}} ({{source_url}})\nPanels: {{panel_count}}\nDetail: {{detail_level}}\nObjective: {{objective_label}}\nObjective guidance: {{objective_guidance}}\nStyle: {{style_prompt}}\nContent:\n{{content}}',
     image:
-      'Comic panel {{panel_index}}/{{panel_count}}.\nCaption: {{panel_caption}}\nSummary: {{panel_summary}}\nStyle: {{style_prompt}}\nReturn a single image matching the comic style.'
+      'Comic panel {{panel_index}}/{{panel_count}}.\nCaption: {{panel_caption}}\nSummary: {{panel_summary}}\nStyle: {{style_prompt}}\n' +
+      'Image grounding rules:\n' +
+      '- Depict the exact event/claim in caption+summary, not a generic scene.\n' +
+      '- Reuse key entities/details from caption+summary (who/where/what) when provided.\n' +
+      '- Keep character/setting continuity with prior panels.\n' +
+      '- No text overlays unless explicitly required by the caption.'
   },
   openrouter: {
     storyboard:
-      'Create a comic storyboard as strict JSON with a top-level "panels" array.\nSource: {{source_title}} ({{source_url}})\nPanels: {{panel_count}}\nDetail: {{detail_level}}\nStyle: {{style_prompt}}\nContent:\n{{content}}',
+      'Create a comic storyboard as strict JSON with a top-level "panels" array.\n' +
+      'Grounding rules:\n' +
+      '- Choose one dominant story/topic from the content and keep all panels on that topic.\n' +
+      '- Use concrete facts from the content (named entities, numbers, dates, outcomes) when available.\n' +
+      '- Do not invent unsupported facts, quotes, or events.\n' +
+      '- Build a clear beginning -> development -> outcome arc across panels.\n' +
+      '- Keep captions specific and concise; avoid generic filler.\n' +
+      'Source: {{source_title}} ({{source_url}})\nPanels: {{panel_count}}\nDetail: {{detail_level}}\nObjective: {{objective_label}}\nObjective guidance: {{objective_guidance}}\nStyle: {{style_prompt}}\nContent:\n{{content}}',
     image:
-      'Comic panel {{panel_index}}/{{panel_count}}.\nCaption: {{panel_caption}}\nSummary: {{panel_summary}}\nStyle: {{style_prompt}}\nReturn a single image matching the comic style.'
+      'Comic panel {{panel_index}}/{{panel_count}}.\nCaption: {{panel_caption}}\nSummary: {{panel_summary}}\nStyle: {{style_prompt}}\n' +
+      'Image grounding rules:\n' +
+      '- Depict the exact event/claim in caption+summary, not a generic scene.\n' +
+      '- Reuse key entities/details from caption+summary (who/where/what) when provided.\n' +
+      '- Keep character/setting continuity with prior panels.\n' +
+      '- No text overlays unless explicitly required by the caption.'
   },
   huggingface: {
     storyboard:
-      'Create a comic storyboard as strict JSON with a top-level "panels" array.\nSource: {{source_title}} ({{source_url}})\nPanels: {{panel_count}}\nDetail: {{detail_level}}\nStyle: {{style_prompt}}\nContent:\n{{content}}',
+      'Create a comic storyboard as strict JSON with a top-level "panels" array.\n' +
+      'Grounding rules:\n' +
+      '- Choose one dominant story/topic from the content and keep all panels on that topic.\n' +
+      '- Use concrete facts from the content (named entities, numbers, dates, outcomes) when available.\n' +
+      '- Do not invent unsupported facts, quotes, or events.\n' +
+      '- Build a clear beginning -> development -> outcome arc across panels.\n' +
+      '- Keep captions specific and concise; avoid generic filler.\n' +
+      'Source: {{source_title}} ({{source_url}})\nPanels: {{panel_count}}\nDetail: {{detail_level}}\nObjective: {{objective_label}}\nObjective guidance: {{objective_guidance}}\nStyle: {{style_prompt}}\nContent:\n{{content}}',
     image:
-      'Comic panel {{panel_index}}/{{panel_count}}.\nCaption: {{panel_caption}}\nSummary: {{panel_summary}}\nStyle: {{style_prompt}}\nReturn a single image matching the comic style.'
+      'Comic panel {{panel_index}}/{{panel_count}}.\nCaption: {{panel_caption}}\nSummary: {{panel_summary}}\nStyle: {{style_prompt}}\n' +
+      'Image grounding rules:\n' +
+      '- Depict the exact event/claim in caption+summary, not a generic scene.\n' +
+      '- Reuse key entities/details from caption+summary (who/where/what) when provided.\n' +
+      '- Keep character/setting continuity with prior panels.\n' +
+      '- No text overlays unless explicitly required by the caption.'
   }
+};
+const PROMPT_LIBRARY_PRESETS = {
+  news: [
+    {
+      id: 'news_breaking_recap',
+      name: 'Breaking Recap',
+      objective: 'News Recap',
+      useCase: 'Fast update from one article with concrete facts and outcomes.',
+      storyboard:
+        'Create a factual comic recap as strict JSON with top-level "panels".\n' +
+        'Objective: {{objective_label}}. Guidance: {{objective_guidance}}\n' +
+        'Use only evidence from source, including entities, numbers, dates, and verified outcomes.\n' +
+        'Structure: what happened -> why it matters -> what happens next.\n' +
+        'Panels: {{panel_count}}\nSource: {{source_title}} ({{source_url}})\nContent:\n{{content}}',
+      image:
+        'Panel {{panel_index}}/{{panel_count}} for a news recap.\n' +
+        'Caption: {{panel_caption}}\nSummary: {{panel_summary}}\nStyle: {{style_prompt}}\n' +
+        'Depict the specific reported event and actors; avoid generic newsroom scenes.'
+    },
+    {
+      id: 'news_compare_views',
+      name: 'Compare Views',
+      objective: 'Compare Viewpoints',
+      useCase: 'Balanced contrast of claims, evidence, and implications.',
+      storyboard:
+        'Create a balanced compare-views storyboard as strict JSON with "panels".\n' +
+        'Objective: {{objective_label}}. Guidance: {{objective_guidance}}\n' +
+        'Alternate perspectives, attach each claim to source evidence, and end with unresolved tensions.\n' +
+        'Panels: {{panel_count}}\nSource: {{source_title}} ({{source_url}})\nContent:\n{{content}}',
+      image:
+        'Comic panel {{panel_index}}/{{panel_count}} comparing viewpoints.\n' +
+        'Caption: {{panel_caption}}\nSummary: {{panel_summary}}\nStyle: {{style_prompt}}\n' +
+        'Use scene composition to visualize contrast grounded in panel evidence.'
+    },
+    {
+      id: 'news_fact_check',
+      name: 'Fact Check',
+      objective: 'Key Facts Only',
+      useCase: 'Separate strong facts from speculation in one article.',
+      storyboard:
+        'Create a fact-check storyboard as strict JSON with "panels".\n' +
+        'Objective: {{objective_label}}. Guidance: {{objective_guidance}}\n' +
+        'For each panel, state one high-confidence fact and one caveat if uncertainty exists.\n' +
+        'Keep wording precise and non-sensational.\n' +
+        'Panels: {{panel_count}}\nSource: {{source_title}} ({{source_url}})\nContent:\n{{content}}',
+      image:
+        'Fact-check panel {{panel_index}}/{{panel_count}}.\n' +
+        'Caption: {{panel_caption}}\nSummary: {{panel_summary}}\nStyle: {{style_prompt}}\n' +
+        'Visualize facts as concrete scenes, not abstract symbols.'
+    }
+  ],
+  learning: [
+    {
+      id: 'learn_step_by_step',
+      name: 'Step-by-Step Explainer',
+      objective: 'Learn Step by Step',
+      useCase: 'Turn dense source text into progressive learning steps.',
+      storyboard:
+        'Generate a learning storyboard in strict JSON with "panels".\n' +
+        'Objective: {{objective_label}}. Guidance: {{objective_guidance}}\n' +
+        'Each panel adds one concept in sequence from basics to conclusion.\n' +
+        'Include one concrete example whenever available.\n' +
+        'Panels: {{panel_count}}\nSource: {{source_title}} ({{source_url}})\nContent:\n{{content}}',
+      image:
+        'Educational panel {{panel_index}}/{{panel_count}}.\n' +
+        'Caption: {{panel_caption}}\nSummary: {{panel_summary}}\nStyle: {{style_prompt}}\n' +
+        'Visualize the exact concept from summary with clear instructional cues.'
+    },
+    {
+      id: 'learn_eli5',
+      name: 'ELI5 Simplifier',
+      objective: "Explain Like I'm Five",
+      useCase: 'Explain complex topics simply without losing key facts.',
+      storyboard:
+        'Create an ELI5 storyboard as strict JSON with "panels".\n' +
+        'Objective: {{objective_label}}. Guidance: {{objective_guidance}}\n' +
+        'Use plain language and analogies while preserving factual anchors.\n' +
+        'Avoid jargon unless you define it in one sentence.\n' +
+        'Panels: {{panel_count}}\nSource: {{source_title}} ({{source_url}})\nContent:\n{{content}}',
+      image:
+        'Simple explanatory panel {{panel_index}}/{{panel_count}}.\n' +
+        'Caption: {{panel_caption}}\nSummary: {{panel_summary}}\nStyle: {{style_prompt}}\n' +
+        'Use approachable visuals tied directly to panel facts.'
+    },
+    {
+      id: 'learn_quiz_mode',
+      name: 'Quiz Me',
+      objective: 'Study Guide',
+      useCase: 'Convert content into memorable Q/A-style narrative beats.',
+      storyboard:
+        'Create a study-guide storyboard as strict JSON with "panels".\n' +
+        'Objective: {{objective_label}}. Guidance: {{objective_guidance}}\n' +
+        'Each panel should imply a question and answer using source facts.\n' +
+        'End with a quick review panel.\n' +
+        'Panels: {{panel_count}}\nSource: {{source_title}} ({{source_url}})\nContent:\n{{content}}',
+      image:
+        'Study panel {{panel_index}}/{{panel_count}}.\n' +
+        'Caption: {{panel_caption}}\nSummary: {{panel_summary}}\nStyle: {{style_prompt}}\n' +
+        'Use visual memory anchors that map to concrete facts.'
+    }
+  ],
+  work: [
+    {
+      id: 'work_meeting_notes',
+      name: 'Meeting Notes',
+      objective: 'Meeting Recap',
+      useCase: 'Summarize decisions, owners, and next actions.',
+      storyboard:
+        'Create a meeting recap storyboard as strict JSON with "panels".\n' +
+        'Objective: {{objective_label}}. Guidance: {{objective_guidance}}\n' +
+        'Capture decision -> rationale -> owner -> next step progression.\n' +
+        'If names/owners are present, include them accurately.\n' +
+        'Panels: {{panel_count}}\nSource: {{source_title}} ({{source_url}})\nContent:\n{{content}}',
+      image:
+        'Work recap panel {{panel_index}}/{{panel_count}}.\n' +
+        'Caption: {{panel_caption}}\nSummary: {{panel_summary}}\nStyle: {{style_prompt}}\n' +
+        'Depict concrete meeting actions from the summary.'
+    },
+    {
+      id: 'work_timeline',
+      name: 'Project Timeline',
+      objective: 'Timeline Breakdown',
+      useCase: 'Convert updates into chronological milestones.',
+      storyboard:
+        'Create a timeline storyboard as strict JSON with "panels".\n' +
+        'Objective: {{objective_label}}. Guidance: {{objective_guidance}}\n' +
+        'Each panel represents one dated milestone and dependency.\n' +
+        'Panels should flow chronologically with explicit transitions.\n' +
+        'Panels: {{panel_count}}\nSource: {{source_title}} ({{source_url}})\nContent:\n{{content}}',
+      image:
+        'Timeline panel {{panel_index}}/{{panel_count}}.\n' +
+        'Caption: {{panel_caption}}\nSummary: {{panel_summary}}\nStyle: {{style_prompt}}\n' +
+        'Show sequence and causality, not disconnected scenes.'
+    },
+    {
+      id: 'work_exec_brief',
+      name: 'Executive Brief',
+      objective: 'Quick Summary',
+      useCase: 'Executive-level update: risks, progress, and decisions.',
+      storyboard:
+        'Create an executive brief storyboard as strict JSON with "panels".\n' +
+        'Objective: {{objective_label}}. Guidance: {{objective_guidance}}\n' +
+        'Use concise language and prioritize impact, risks, and decisions.\n' +
+        'Panels: {{panel_count}}\nSource: {{source_title}} ({{source_url}})\nContent:\n{{content}}',
+      image:
+        'Executive brief panel {{panel_index}}/{{panel_count}}.\n' +
+        'Caption: {{panel_caption}}\nSummary: {{panel_summary}}\nStyle: {{style_prompt}}\n' +
+        'Use clean visual hierarchy and grounded business context.'
+    }
+  ],
+  social: [
+    {
+      id: 'social_creator_hook',
+      name: 'Creator Hook',
+      objective: 'Have Fun',
+      useCase: 'Punchy, shareable comic with factual grounding.',
+      storyboard:
+        'Create a social-first storyboard as strict JSON with "panels".\n' +
+        'Objective: {{objective_label}}. Guidance: {{objective_guidance}}\n' +
+        'Start with a hook, build tension, end with a memorable payoff grounded in source facts.\n' +
+        'Panels: {{panel_count}}\nSource: {{source_title}} ({{source_url}})\nContent:\n{{content}}',
+      image:
+        'Share-ready panel {{panel_index}}/{{panel_count}}.\n' +
+        'Caption: {{panel_caption}}\nSummary: {{panel_summary}}\nStyle: {{style_prompt}}\n' +
+        'Design for readability and strong visual hook tied to source facts.'
+    },
+    {
+      id: 'social_quick_summary',
+      name: 'Quick Share Summary',
+      objective: 'Quick Summary',
+      useCase: 'Portable summary for social sharing with clear takeaway.',
+      storyboard:
+        'Generate a concise social summary as strict JSON with "panels".\n' +
+        'Objective: {{objective_label}}. Guidance: {{objective_guidance}}\n' +
+        'Panel 1 hook/context, middle factual beats, last panel takeaway.\n' +
+        'Panels: {{panel_count}}\nSource: {{source_title}} ({{source_url}})\nContent:\n{{content}}',
+      image:
+        'Compact social panel {{panel_index}}/{{panel_count}}.\n' +
+        'Caption: {{panel_caption}}\nSummary: {{panel_summary}}\nStyle: {{style_prompt}}\n' +
+        'Depict one clear idea per panel with continuity across the strip.'
+    },
+    {
+      id: 'social_thread_builder',
+      name: 'Thread Builder',
+      objective: 'Key Facts Only',
+      useCase: 'Turn long content into a sequence suitable for post/thread slides.',
+      storyboard:
+        'Create a thread-ready storyboard as strict JSON with "panels".\n' +
+        'Objective: {{objective_label}}. Guidance: {{objective_guidance}}\n' +
+        'Each panel should stand alone but also connect as a sequence.\n' +
+        'Use short captions with one factual point per panel.\n' +
+        'Panels: {{panel_count}}\nSource: {{source_title}} ({{source_url}})\nContent:\n{{content}}',
+      image:
+        'Thread panel {{panel_index}}/{{panel_count}}.\n' +
+        'Caption: {{panel_caption}}\nSummary: {{panel_summary}}\nStyle: {{style_prompt}}\n' +
+        'Optimize for mobile readability and scannable composition.'
+    }
+  ],
+  research: [
+    {
+      id: 'research_paper_digest',
+      name: 'Paper Digest',
+      objective: 'Quick Summary',
+      useCase: 'Summarize a paper/article into hypothesis, method, findings, limits.',
+      storyboard:
+        'Create a research digest storyboard as strict JSON with "panels".\n' +
+        'Objective: {{objective_label}}. Guidance: {{objective_guidance}}\n' +
+        'Cover question, method, key findings, and limitations with factual precision.\n' +
+        'Panels: {{panel_count}}\nSource: {{source_title}} ({{source_url}})\nContent:\n{{content}}',
+      image:
+        'Research digest panel {{panel_index}}/{{panel_count}}.\n' +
+        'Caption: {{panel_caption}}\nSummary: {{panel_summary}}\nStyle: {{style_prompt}}\n' +
+        'Visualize claims and evidence, not decorative generic lab scenes.'
+    },
+    {
+      id: 'research_method_walkthrough',
+      name: 'Method Walkthrough',
+      objective: 'How-To Guide',
+      useCase: 'Explain methods/process sections clearly.',
+      storyboard:
+        'Create a method walkthrough storyboard as strict JSON with "panels".\n' +
+        'Objective: {{objective_label}}. Guidance: {{objective_guidance}}\n' +
+        'Use sequential steps and include assumptions/prerequisites when present.\n' +
+        'Panels: {{panel_count}}\nSource: {{source_title}} ({{source_url}})\nContent:\n{{content}}',
+      image:
+        'Method panel {{panel_index}}/{{panel_count}}.\n' +
+        'Caption: {{panel_caption}}\nSummary: {{panel_summary}}\nStyle: {{style_prompt}}\n' +
+        'Use process visuals tied directly to the described method.'
+    },
+    {
+      id: 'research_debate_map',
+      name: 'Debate Map',
+      objective: 'Debate Map',
+      useCase: 'Map competing interpretations and evidence.',
+      storyboard:
+        'Create a debate-map storyboard as strict JSON with "panels".\n' +
+        'Objective: {{objective_label}}. Guidance: {{objective_guidance}}\n' +
+        'For each panel, show claim -> supporting evidence -> counterpoint.\n' +
+        'End with an evidence-weighted synthesis.\n' +
+        'Panels: {{panel_count}}\nSource: {{source_title}} ({{source_url}})\nContent:\n{{content}}',
+      image:
+        'Debate-map panel {{panel_index}}/{{panel_count}}.\n' +
+        'Caption: {{panel_caption}}\nSummary: {{panel_summary}}\nStyle: {{style_prompt}}\n' +
+        'Use framing that makes opposing claims visually distinct and grounded.'
+    }
+  ],
+  marketing: [
+    {
+      id: 'marketing_case_study',
+      name: 'Case Study',
+      objective: 'Quick Summary',
+      useCase: 'Convert article into problem, action, result narrative.',
+      storyboard:
+        'Create a case-study storyboard as strict JSON with "panels".\n' +
+        'Objective: {{objective_label}}. Guidance: {{objective_guidance}}\n' +
+        'Use structure: challenge -> strategy -> execution -> measurable result.\n' +
+        'Include concrete metrics when available.\n' +
+        'Panels: {{panel_count}}\nSource: {{source_title}} ({{source_url}})\nContent:\n{{content}}',
+      image:
+        'Case-study panel {{panel_index}}/{{panel_count}}.\n' +
+        'Caption: {{panel_caption}}\nSummary: {{panel_summary}}\nStyle: {{style_prompt}}\n' +
+        'Depict practical scenarios with clear before/after progression.'
+    },
+    {
+      id: 'marketing_aida',
+      name: 'AIDA Story',
+      objective: 'Have Fun',
+      useCase: 'Create attention-interest-desire-action comic arc.',
+      storyboard:
+        'Create an AIDA storyboard as strict JSON with "panels".\n' +
+        'Objective: {{objective_label}}. Guidance: {{objective_guidance}}\n' +
+        'Map panels to attention, interest, desire, action while grounded in source facts.\n' +
+        'Panels: {{panel_count}}\nSource: {{source_title}} ({{source_url}})\nContent:\n{{content}}',
+      image:
+        'AIDA panel {{panel_index}}/{{panel_count}}.\n' +
+        'Caption: {{panel_caption}}\nSummary: {{panel_summary}}\nStyle: {{style_prompt}}\n' +
+        'Prioritize clarity of emotional arc without inventing facts.'
+    },
+    {
+      id: 'marketing_feature_benefit',
+      name: 'Feature -> Benefit',
+      objective: 'How-To Guide',
+      useCase: 'Translate technical features into end-user benefits.',
+      storyboard:
+        'Create a feature-to-benefit storyboard as strict JSON with "panels".\n' +
+        'Objective: {{objective_label}}. Guidance: {{objective_guidance}}\n' +
+        'Each panel should map one feature to one practical outcome.\n' +
+        'Panels: {{panel_count}}\nSource: {{source_title}} ({{source_url}})\nContent:\n{{content}}',
+      image:
+        'Feature-benefit panel {{panel_index}}/{{panel_count}}.\n' +
+        'Caption: {{panel_caption}}\nSummary: {{panel_summary}}\nStyle: {{style_prompt}}\n' +
+        'Show user outcome directly linked to the feature.'
+    }
+  ],
+  product: [
+    {
+      id: 'product_release_notes',
+      name: 'Release Notes',
+      objective: 'Timeline Breakdown',
+      useCase: 'Turn release notes into a user-facing story.',
+      storyboard:
+        'Create a release-notes storyboard as strict JSON with "panels".\n' +
+        'Objective: {{objective_label}}. Guidance: {{objective_guidance}}\n' +
+        'Cover changes, user impact, migration notes, and known constraints.\n' +
+        'Panels: {{panel_count}}\nSource: {{source_title}} ({{source_url}})\nContent:\n{{content}}',
+      image:
+        'Release panel {{panel_index}}/{{panel_count}}.\n' +
+        'Caption: {{panel_caption}}\nSummary: {{panel_summary}}\nStyle: {{style_prompt}}\n' +
+        'Visualize concrete before/after product states.'
+    },
+    {
+      id: 'product_tradeoffs',
+      name: 'Tradeoff Explorer',
+      objective: 'Compare Viewpoints',
+      useCase: 'Explain product/architecture tradeoffs.',
+      storyboard:
+        'Create a tradeoff storyboard as strict JSON with "panels".\n' +
+        'Objective: {{objective_label}}. Guidance: {{objective_guidance}}\n' +
+        'Present options, constraints, tradeoffs, and recommendation criteria.\n' +
+        'Panels: {{panel_count}}\nSource: {{source_title}} ({{source_url}})\nContent:\n{{content}}',
+      image:
+        'Tradeoff panel {{panel_index}}/{{panel_count}}.\n' +
+        'Caption: {{panel_caption}}\nSummary: {{panel_summary}}\nStyle: {{style_prompt}}\n' +
+        'Depict comparative scenarios grounded in source details.'
+    },
+    {
+      id: 'product_user_journey',
+      name: 'User Journey',
+      objective: 'Learn Step by Step',
+      useCase: 'Show user flow from pain point to success state.',
+      storyboard:
+        'Create a user-journey storyboard as strict JSON with "panels".\n' +
+        'Objective: {{objective_label}}. Guidance: {{objective_guidance}}\n' +
+        'Sequence panels as trigger -> action -> obstacle -> resolution.\n' +
+        'Panels: {{panel_count}}\nSource: {{source_title}} ({{source_url}})\nContent:\n{{content}}',
+      image:
+        'User-journey panel {{panel_index}}/{{panel_count}}.\n' +
+        'Caption: {{panel_caption}}\nSummary: {{panel_summary}}\nStyle: {{style_prompt}}\n' +
+        'Show user context and progression with consistent visual continuity.'
+    }
+  ],
+  study: [
+    {
+      id: 'study_exam_cram',
+      name: 'Exam Cram',
+      objective: 'Study Guide',
+      useCase: 'High-yield recap for quick revision.',
+      storyboard:
+        'Create an exam-cram storyboard as strict JSON with "panels".\n' +
+        'Objective: {{objective_label}}. Guidance: {{objective_guidance}}\n' +
+        'Prioritize high-yield facts, definitions, and common pitfalls.\n' +
+        'Panels: {{panel_count}}\nSource: {{source_title}} ({{source_url}})\nContent:\n{{content}}',
+      image:
+        'Exam-cram panel {{panel_index}}/{{panel_count}}.\n' +
+        'Caption: {{panel_caption}}\nSummary: {{panel_summary}}\nStyle: {{style_prompt}}\n' +
+        'Use mnemonic-friendly visuals tied to concrete facts.'
+    },
+    {
+      id: 'study_timeline_memory',
+      name: 'Memory Timeline',
+      objective: 'Timeline Breakdown',
+      useCase: 'Memorize chronology-heavy topics.',
+      storyboard:
+        'Create a memory timeline storyboard as strict JSON with "panels".\n' +
+        'Objective: {{objective_label}}. Guidance: {{objective_guidance}}\n' +
+        'Each panel should lock one date/time period to a key event and consequence.\n' +
+        'Panels: {{panel_count}}\nSource: {{source_title}} ({{source_url}})\nContent:\n{{content}}',
+      image:
+        'Memory timeline panel {{panel_index}}/{{panel_count}}.\n' +
+        'Caption: {{panel_caption}}\nSummary: {{panel_summary}}\nStyle: {{style_prompt}}\n' +
+        'Make chronology explicit and easy to remember.'
+    },
+    {
+      id: 'study_concept_map',
+      name: 'Concept Map',
+      objective: 'Learn Step by Step',
+      useCase: 'Connect definitions, relationships, and examples.',
+      storyboard:
+        'Create a concept-map storyboard as strict JSON with "panels".\n' +
+        'Objective: {{objective_label}}. Guidance: {{objective_guidance}}\n' +
+        'Map one core concept per panel and show how it links to previous panels.\n' +
+        'Panels: {{panel_count}}\nSource: {{source_title}} ({{source_url}})\nContent:\n{{content}}',
+      image:
+        'Concept-map panel {{panel_index}}/{{panel_count}}.\n' +
+        'Caption: {{panel_caption}}\nSummary: {{panel_summary}}\nStyle: {{style_prompt}}\n' +
+        'Use relationship-focused scenes grounded in source concepts.'
+    }
+  ],
+  fun: [
+    {
+      id: 'fun_satire_light',
+      name: 'Light Satire',
+      objective: 'Have Fun',
+      useCase: 'Playful retelling while keeping facts grounded.',
+      storyboard:
+        'Create a playful satire storyboard as strict JSON with "panels".\n' +
+        'Objective: {{objective_label}}. Guidance: {{objective_guidance}}\n' +
+        'Tone can be witty, but factual claims must stay grounded in source.\n' +
+        'Panels: {{panel_count}}\nSource: {{source_title}} ({{source_url}})\nContent:\n{{content}}',
+      image:
+        'Playful panel {{panel_index}}/{{panel_count}}.\n' +
+        'Caption: {{panel_caption}}\nSummary: {{panel_summary}}\nStyle: {{style_prompt}}\n' +
+        'Use exaggerated expressions but preserve factual context.'
+    },
+    {
+      id: 'fun_character_drama',
+      name: 'Character Drama',
+      objective: 'Have Fun',
+      useCase: 'Narrative-driven comic emphasizing character perspective.',
+      storyboard:
+        'Create a character-driven storyboard as strict JSON with "panels".\n' +
+        'Objective: {{objective_label}}. Guidance: {{objective_guidance}}\n' +
+        'Frame each panel through actor motivations from source facts.\n' +
+        'Panels: {{panel_count}}\nSource: {{source_title}} ({{source_url}})\nContent:\n{{content}}',
+      image:
+        'Character drama panel {{panel_index}}/{{panel_count}}.\n' +
+        'Caption: {{panel_caption}}\nSummary: {{panel_summary}}\nStyle: {{style_prompt}}\n' +
+        'Keep characters consistent across panels and grounded in source details.'
+    },
+    {
+      id: 'fun_mini_adventure',
+      name: 'Mini Adventure',
+      objective: 'Quick Summary',
+      useCase: 'Convert source into a fast adventure arc.',
+      storyboard:
+        'Create an adventure-style storyboard as strict JSON with "panels".\n' +
+        'Objective: {{objective_label}}. Guidance: {{objective_guidance}}\n' +
+        'Use setup -> challenge -> turning point -> resolution while staying factual.\n' +
+        'Panels: {{panel_count}}\nSource: {{source_title}} ({{source_url}})\nContent:\n{{content}}',
+      image:
+        'Adventure panel {{panel_index}}/{{panel_count}}.\n' +
+        'Caption: {{panel_caption}}\nSummary: {{panel_summary}}\nStyle: {{style_prompt}}\n' +
+        'Keep energy high without introducing unsupported events.'
+    }
+  ],
+  styles: [
+    {
+      id: 'style_noir_editorial',
+      name: 'Noir Editorial',
+      objective: 'Quick Summary',
+      useCase: 'High-contrast dramatic look for serious topics.',
+      storyboard:
+        'Create a noir-style storyboard as strict JSON with "panels".\n' +
+        'Objective: {{objective_label}}. Guidance: {{objective_guidance}}\n' +
+        'Keep factual clarity while using dramatic narrative pacing.\n' +
+        'Panels: {{panel_count}}\nSource: {{source_title}} ({{source_url}})\nContent:\n{{content}}',
+      image:
+        'Noir editorial panel {{panel_index}}/{{panel_count}}.\n' +
+        'Caption: {{panel_caption}}\nSummary: {{panel_summary}}\nStyle: {{style_prompt}}; high contrast, cinematic shadows.\n' +
+        'Ground every visual beat in the panel summary.'
+    },
+    {
+      id: 'style_newspaper_strip',
+      name: 'Newspaper Strip',
+      objective: 'Quick Summary',
+      useCase: 'Classic concise storytelling with clean framing.',
+      storyboard:
+        'Create a newspaper-strip storyboard as strict JSON with "panels".\n' +
+        'Objective: {{objective_label}}. Guidance: {{objective_guidance}}\n' +
+        'Use concise captions and clear setup/payoff flow.\n' +
+        'Panels: {{panel_count}}\nSource: {{source_title}} ({{source_url}})\nContent:\n{{content}}',
+      image:
+        'Newspaper-strip panel {{panel_index}}/{{panel_count}}.\n' +
+        'Caption: {{panel_caption}}\nSummary: {{panel_summary}}\nStyle: {{style_prompt}}; clean ink lines and readable composition.\n' +
+        'Avoid clutter and keep one idea per panel.'
+    },
+    {
+      id: 'style_cinematic_storyboard',
+      name: 'Cinematic Storyboard',
+      objective: 'Timeline Breakdown',
+      useCase: 'Film-like scene progression with continuity emphasis.',
+      storyboard:
+        'Create a cinematic storyboard as strict JSON with "panels".\n' +
+        'Objective: {{objective_label}}. Guidance: {{objective_guidance}}\n' +
+        'Use shot progression (wide -> medium -> close) while preserving source facts.\n' +
+        'Panels: {{panel_count}}\nSource: {{source_title}} ({{source_url}})\nContent:\n{{content}}',
+      image:
+        'Cinematic panel {{panel_index}}/{{panel_count}}.\n' +
+        'Caption: {{panel_caption}}\nSummary: {{panel_summary}}\nStyle: {{style_prompt}}; cinematic framing and coherent lighting.\n' +
+        'Maintain continuity in location, actors, and key objects.'
+    }
+  ]
 };
 const USER_STYLE_PREFIX = 'user:';
 
@@ -90,6 +638,7 @@ class OptionsController {
     this.settings = { ...DEFAULT_SETTINGS };
     this.customStyles = [];
     this.promptTemplates = JSON.parse(JSON.stringify(DEFAULT_PROMPT_TEMPLATES));
+    this.promptLibraryCustomPresets = [];
     this.activePromptProviderScope = 'openai';
     this.init();
   }
@@ -101,6 +650,7 @@ class OptionsController {
     this.relocateModelTestButtons();
     this.bindEvents();
     this.updateUI();
+    await this.refreshAllConnectionStatuses();
   }
 
   async appendDebugLog(event, data) {
@@ -135,11 +685,14 @@ class OptionsController {
 
   async loadSettings() {
     try {
-      const stored = await chrome.storage.local.get(['settings', 'providers', 'providerValidation', 'promptTemplates', 'customStyles']);
+      const stored = await chrome.storage.local.get(['settings', 'providers', 'providerValidation', 'promptTemplates', 'customStyles', 'promptLibraryCustomPresets']);
       if (stored.settings) {
         this.settings = { ...this.settings, ...stored.settings };
       }
       this.customStyles = Array.isArray(stored.customStyles) ? stored.customStyles : [];
+      this.promptLibraryCustomPresets = Array.isArray(stored.promptLibraryCustomPresets)
+        ? stored.promptLibraryCustomPresets
+        : [];
       this.providers = stored.providers || {};
       this.providerValidation = stored.providerValidation || {};
       if (stored.promptTemplates && typeof stored.promptTemplates === 'object') {
@@ -207,12 +760,27 @@ class OptionsController {
     document.getElementById('save-prompts-btn')?.addEventListener('click', () => this.savePromptTemplates());
     document.getElementById('reset-storyboard-template-btn')?.addEventListener('click', () => this.resetPromptTemplateField('storyboard'));
     document.getElementById('reset-image-template-btn')?.addEventListener('click', () => this.resetPromptTemplateField('image'));
+    document.getElementById('prompt-library-group')?.addEventListener('change', () => this.populatePromptLibraryPresetUI());
+    document.getElementById('prompt-library-preset')?.addEventListener('change', () => this.updatePromptLibraryDescription());
+    document.getElementById('apply-prompt-preset-current-btn')?.addEventListener('click', () => this.applyPromptLibraryPreset(false));
+    document.getElementById('apply-prompt-preset-all-btn')?.addEventListener('click', () => this.applyPromptLibraryPreset(true));
+    document.getElementById('import-prompt-library-btn')?.addEventListener('click', () => {
+      document.getElementById('import-prompt-library-file')?.click();
+    });
+    document.getElementById('import-prompt-library-file')?.addEventListener('change', (event) => this.handlePromptLibraryImportFileChange(event));
 
     // Storage settings
     document.getElementById('clear-history-btn')?.addEventListener('click', () => this.clearHistory());
     document.getElementById('clear-cache-btn')?.addEventListener('click', () => this.clearCache());
     document.getElementById('export-data-btn')?.addEventListener('click', () => this.exportData());
     document.getElementById('export-debug-logs-btn')?.addEventListener('click', () => this.exportDebugLogs());
+    document.getElementById('save-drive-settings-btn')?.addEventListener('click', () => this.saveConnectionSettings());
+    document.getElementById('connect-google-drive-btn')?.addEventListener('click', () => this.connectGoogleDrive());
+    document.getElementById('disconnect-google-drive-btn')?.addEventListener('click', () => this.disconnectGoogleDrive());
+    document.getElementById('connect-facebook-btn')?.addEventListener('click', () => this.connectFacebook());
+    document.getElementById('disconnect-facebook-btn')?.addEventListener('click', () => this.disconnectFacebook());
+    document.getElementById('connect-x-btn')?.addEventListener('click', () => this.connectX());
+    document.getElementById('disconnect-x-btn')?.addEventListener('click', () => this.disconnectX());
   }
 
   getProviderModelSelectId(providerId, mode) {
@@ -293,6 +861,13 @@ class OptionsController {
     document.getElementById('default-detail').value = this.settings.detailLevel;
     document.getElementById('default-style').value = this.settings.styleId || 'default';
     document.getElementById('default-caption').value = this.settings.captionLength;
+    const defaultLanguageEl = document.getElementById('default-language');
+    if (defaultLanguageEl) {
+      defaultLanguageEl.value = this.settings.outputLanguage || 'en';
+      if (defaultLanguageEl.value !== (this.settings.outputLanguage || 'en')) {
+        defaultLanguageEl.value = 'en';
+      }
+    }
     document.getElementById('auto-open-panel').checked = this.settings.autoOpenSidePanel !== false;
     document.getElementById('character-consistency').checked = this.settings.characterConsistency || false;
     document.getElementById('debug-flag').checked = this.settings.debugFlag || false;
@@ -315,6 +890,14 @@ class OptionsController {
     // Storage
     document.getElementById('max-cache-size').value = this.settings.maxCacheSize || 100;
     document.getElementById('history-retention').value = this.settings.historyRetention || 30;
+    const googleDriveAutoSaveEl = document.getElementById('google-drive-auto-save');
+    if (googleDriveAutoSaveEl) googleDriveAutoSaveEl.checked = !!this.settings.googleDriveAutoSave;
+    const googleDriveClientIdEl = document.getElementById('google-drive-client-id');
+    if (googleDriveClientIdEl) googleDriveClientIdEl.value = this.settings.googleDriveClientId || '';
+    const facebookAppIdEl = document.getElementById('facebook-app-id');
+    if (facebookAppIdEl) facebookAppIdEl.value = this.settings.facebookAppId || '';
+    const xClientIdEl = document.getElementById('x-client-id');
+    if (xClientIdEl) xClientIdEl.value = this.settings.xClientId || '';
     if (document.getElementById('openai-text-model')) {
       document.getElementById('openai-text-model').value = this.settings.textModel || 'gpt-4o-mini';
       document.getElementById('openai-image-model').value = this.settings.imageModel || 'dall-e-2';
@@ -614,7 +1197,223 @@ class OptionsController {
     const imageEl = document.getElementById('image-template');
     if (storyboardEl) storyboardEl.value = templates.storyboard || '';
     if (imageEl) imageEl.value = templates.image || '';
+    this.populatePromptLibraryUI();
     this.validatePromptTemplatesUI();
+  }
+
+  populatePromptLibraryUI() {
+    const groupEl = document.getElementById('prompt-library-group');
+    if (!groupEl) return;
+    this.ensurePromptLibraryGroupOptions();
+    const presetsMap = this.getPromptLibraryPresetsMap();
+    if (!groupEl.value || !presetsMap[groupEl.value]) {
+      groupEl.value = 'news';
+    }
+    this.populatePromptLibraryPresetUI();
+  }
+
+  getPromptLibraryPresetsMap() {
+    const map = {};
+    Object.keys(PROMPT_LIBRARY_PRESETS).forEach((group) => {
+      map[group] = [...(PROMPT_LIBRARY_PRESETS[group] || [])];
+    });
+    (this.promptLibraryCustomPresets || []).forEach((entry) => {
+      const normalized = this.normalizePromptLibraryEntry(entry);
+      if (!normalized) return;
+      const group = normalized.group;
+      if (!map[group]) map[group] = [];
+      const idx = map[group].findIndex((preset) => preset.id === normalized.id);
+      if (idx >= 0) map[group][idx] = normalized;
+      else map[group].push(normalized);
+    });
+    return map;
+  }
+
+  ensurePromptLibraryGroupOptions() {
+    const groupEl = document.getElementById('prompt-library-group');
+    if (!groupEl) return;
+    const presetsMap = this.getPromptLibraryPresetsMap();
+    const desiredGroups = Object.keys(presetsMap);
+    const existingValues = Array.from(groupEl.options).map((option) => option.value);
+    desiredGroups.forEach((group) => {
+      if (existingValues.includes(group)) return;
+      const option = document.createElement('option');
+      option.value = group;
+      option.textContent = group === 'custom'
+        ? 'Custom Imports'
+        : group.replace(/[-_]+/g, ' ').replace(/\b\w/g, (m) => m.toUpperCase());
+      groupEl.appendChild(option);
+    });
+  }
+
+  populatePromptLibraryPresetUI() {
+    const groupEl = document.getElementById('prompt-library-group');
+    const presetEl = document.getElementById('prompt-library-preset');
+    if (!groupEl || !presetEl) return;
+    const presetsMap = this.getPromptLibraryPresetsMap();
+    const group = presetsMap[groupEl.value] ? groupEl.value : 'news';
+    const presets = presetsMap[group] || [];
+    const previousValue = presetEl.value;
+    presetEl.innerHTML = '';
+    presets.forEach((preset) => {
+      const option = document.createElement('option');
+      option.value = preset.id;
+      option.textContent = `${preset.name} (${preset.objective})`;
+      presetEl.appendChild(option);
+    });
+    if (presets.some((preset) => preset.id === previousValue)) {
+      presetEl.value = previousValue;
+    }
+    this.updatePromptLibraryDescription();
+  }
+
+  getSelectedPromptLibraryPreset() {
+    const groupEl = document.getElementById('prompt-library-group');
+    const presetEl = document.getElementById('prompt-library-preset');
+    const presetsMap = this.getPromptLibraryPresetsMap();
+    const group = groupEl && presetsMap[groupEl.value] ? groupEl.value : 'news';
+    const presets = presetsMap[group] || [];
+    return presets.find((preset) => preset.id === (presetEl?.value || '')) || presets[0] || null;
+  }
+
+  updatePromptLibraryDescription() {
+    const descriptionEl = document.getElementById('prompt-library-description');
+    if (!descriptionEl) return;
+    const preset = this.getSelectedPromptLibraryPreset();
+    if (!preset) {
+      descriptionEl.textContent = 'Choose a preset to apply structured storyboard/image templates.';
+      return;
+    }
+    descriptionEl.textContent = `${preset.useCase} Objective: ${preset.objective}.`;
+  }
+
+  normalizePromptLibraryEntry(entry, fallbackIndex = 0) {
+    if (!entry || typeof entry !== 'object') return null;
+    const storyboard = String(entry.storyboard || '').trim();
+    const image = String(entry.image || '').trim();
+    if (!storyboard || !image) return null;
+    const rawGroup = String(entry.group || 'custom').trim().toLowerCase();
+    const group = rawGroup.replace(/[^a-z0-9_-]+/g, '-') || 'custom';
+    const idSource = String(entry.id || entry.name || `imported-${fallbackIndex + 1}`).trim().toLowerCase();
+    const id = idSource.replace(/[^a-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '') || `imported-${fallbackIndex + 1}`;
+    const name = String(entry.name || id).trim();
+    const objective = String(entry.objective || 'Quick Summary').trim();
+    const useCase = String(entry.useCase || 'Imported prompt preset').trim();
+    return {
+      ...entry,
+      group,
+      id,
+      name,
+      objective,
+      useCase,
+      storyboard,
+      image
+    };
+  }
+
+  async readFileAsText(file) {
+    if (!file) return '';
+    if (typeof file.text === 'function') {
+      return file.text();
+    }
+    return new Promise((resolve, reject) => {
+      try {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result || ''));
+        reader.onerror = () => reject(reader.error || new Error('Failed to read file'));
+        reader.readAsText(file);
+      } catch (error) {
+        reject(error);
+      }
+    });
+  }
+
+  async handlePromptLibraryImportFileChange(event) {
+    const input = event?.target;
+    const file = input?.files?.[0];
+    if (!file) return;
+    try {
+      const jsonText = await this.readFileAsText(file);
+      const parsed = JSON.parse(String(jsonText || ''));
+      if (!Array.isArray(parsed)) {
+        this.showToast('Prompt library import requires a JSON array', 'error');
+        return;
+      }
+      await this.importPromptLibraryEntries(parsed);
+    } catch (error) {
+      this.showToast(`Failed to import prompt library: ${error?.message || String(error)}`, 'error');
+    } finally {
+      if (input) input.value = '';
+    }
+  }
+
+  async importPromptLibraryEntries(entries) {
+    const normalized = [];
+    let skipped = 0;
+    (entries || []).forEach((entry, index) => {
+      const preset = this.normalizePromptLibraryEntry(entry, index);
+      if (!preset) {
+        skipped += 1;
+        return;
+      }
+      normalized.push(preset);
+    });
+    if (!normalized.length) {
+      this.showToast('No valid prompt presets found in import file', 'error');
+      return;
+    }
+
+    const merged = new Map();
+    (this.promptLibraryCustomPresets || []).forEach((preset) => {
+      const normalizedPreset = this.normalizePromptLibraryEntry(preset);
+      if (!normalizedPreset) return;
+      merged.set(`${normalizedPreset.group}::${normalizedPreset.id}`, normalizedPreset);
+    });
+    normalized.forEach((preset) => {
+      merged.set(`${preset.group}::${preset.id}`, preset);
+    });
+    this.promptLibraryCustomPresets = Array.from(merged.values());
+    await chrome.storage.local.set({ promptLibraryCustomPresets: this.promptLibraryCustomPresets });
+    this.populatePromptLibraryUI();
+    const summary = skipped > 0
+      ? `Imported ${normalized.length} prompt presets (${skipped} skipped)`
+      : `Imported ${normalized.length} prompt presets`;
+    this.showToast(summary, 'success');
+  }
+
+  async applyPromptLibraryPreset(applyToAllProviders = false) {
+    const preset = this.getSelectedPromptLibraryPreset();
+    if (!preset) {
+      this.showToast('No prompt preset selected', 'error');
+      return;
+    }
+
+    if (applyToAllProviders) {
+      const updated = { ...this.promptTemplates };
+      Object.keys(DEFAULT_PROMPT_TEMPLATES).forEach((scope) => {
+        updated[scope] = {
+          ...(updated[scope] || {}),
+          storyboard: preset.storyboard,
+          image: preset.image
+        };
+      });
+      this.promptTemplates = updated;
+      try {
+        await chrome.storage.local.set({ promptTemplates: this.promptTemplates });
+        this.updatePromptTemplatesUI();
+        this.showToast('Prompt preset applied to all providers', 'success');
+      } catch (_) {
+        this.showToast('Failed to apply preset to all providers', 'error');
+      }
+      return;
+    }
+
+    const storyboardEl = document.getElementById('storyboard-template');
+    const imageEl = document.getElementById('image-template');
+    if (storyboardEl) storyboardEl.value = preset.storyboard;
+    if (imageEl) imageEl.value = preset.image;
+    this.validatePromptTemplatesUI();
+    this.showToast('Preset applied. Click "Save Prompt Templates" to persist.', 'success');
   }
 
   collectPromptTemplateInputs() {
@@ -634,6 +1433,12 @@ class OptionsController {
       '{{source_url}}',
       '{{panel_count}}',
       '{{detail_level}}',
+      '{{objective}}',
+      '{{objective_label}}',
+      '{{objective_guidance}}',
+      '{{output_language}}',
+      '{{output_language_label}}',
+      '{{output_language_instruction}}',
       '{{style_prompt}}',
       '{{content}}',
       '{{panel_caption}}',
@@ -730,6 +1535,7 @@ class OptionsController {
       customStyleName: customStyleName,
       customStyleTheme: customStyleTheme,
       captionLength: document.getElementById('default-caption').value,
+      outputLanguage: document.getElementById('default-language')?.value || 'en',
       autoOpenSidePanel: document.getElementById('auto-open-panel').checked,
       characterConsistency: document.getElementById('character-consistency').checked,
       debugFlag: document.getElementById('debug-flag').checked,
@@ -738,7 +1544,11 @@ class OptionsController {
       showRewrittenBadge: document.getElementById('show-rewritten-badge')?.checked !== false,
       logRewrittenPrompts: !!document.getElementById('log-rewritten-prompts')?.checked,
       maxCacheSize: parseInt(document.getElementById('max-cache-size').value),
-      historyRetention: parseInt(document.getElementById('history-retention').value)
+      historyRetention: parseInt(document.getElementById('history-retention').value),
+      googleDriveAutoSave: !!document.getElementById('google-drive-auto-save')?.checked,
+      googleDriveClientId: (document.getElementById('google-drive-client-id')?.value || '').trim(),
+      facebookAppId: (document.getElementById('facebook-app-id')?.value || '').trim(),
+      xClientId: (document.getElementById('x-client-id')?.value || '').trim()
     };
 
     try {
@@ -1093,6 +1903,189 @@ class OptionsController {
     } catch (error) {
       this.showToast('Failed to export debug logs', 'error');
     }
+  }
+
+  async saveConnectionSettings(options = {}) {
+    const silent = !!options.silent;
+    this.settings = {
+      ...this.settings,
+      googleDriveAutoSave: !!document.getElementById('google-drive-auto-save')?.checked,
+      googleDriveClientId: (document.getElementById('google-drive-client-id')?.value || '').trim(),
+      facebookAppId: (document.getElementById('facebook-app-id')?.value || '').trim(),
+      xClientId: (document.getElementById('x-client-id')?.value || '').trim()
+    };
+    try {
+      await chrome.storage.local.set({ settings: this.settings });
+      if (!silent) this.showToast('Connection settings saved!', 'success');
+      await this.refreshAllConnectionStatuses();
+    } catch (error) {
+      this.showToast('Failed to save connection settings', 'error');
+    }
+  }
+
+  async saveDriveSettings() {
+    return this.saveConnectionSettings({ silent: false });
+  }
+
+  async connectGoogleDrive() {
+    const clientId = (document.getElementById('google-drive-client-id')?.value || '').trim();
+    if (!clientId) {
+      this.showToast('Enter Google OAuth Client ID first', 'error');
+      return;
+    }
+    try {
+      await this.saveConnectionSettings({ silent: true });
+      const response = await chrome.runtime.sendMessage({
+        type: 'GOOGLE_DRIVE_CONNECT',
+        payload: { clientId }
+      });
+      if (!response || response.success === false) {
+        throw new Error(response?.error || 'Google Drive connection failed');
+      }
+      await this.refreshAllConnectionStatuses();
+      this.showToast('Google Drive connected', 'success');
+    } catch (error) {
+      this.showToast(error?.message || 'Failed to connect Google Drive', 'error');
+    }
+  }
+
+  async disconnectGoogleDrive() {
+    try {
+      const response = await chrome.runtime.sendMessage({ type: 'GOOGLE_DRIVE_DISCONNECT' });
+      if (!response || response.success === false) {
+        throw new Error(response?.error || 'Disconnect failed');
+      }
+      await this.refreshAllConnectionStatuses();
+      this.showToast('Google Drive disconnected', 'success');
+    } catch (error) {
+      this.showToast(error?.message || 'Failed to disconnect Google Drive', 'error');
+    }
+  }
+
+  async refreshGoogleDriveStatus() {
+    const statusEl = document.getElementById('google-drive-connection-status');
+    if (!statusEl) return;
+    try {
+      const response = await chrome.runtime.sendMessage({ type: 'GOOGLE_DRIVE_GET_STATUS' });
+      const connected = !!(response && response.success !== false && response.status && response.status.connected);
+      statusEl.textContent = connected ? 'Connected' : 'Not connected';
+      statusEl.classList.toggle('connected', connected);
+      statusEl.classList.toggle('disconnected', !connected);
+    } catch (_) {
+      statusEl.textContent = 'Status unavailable';
+      statusEl.classList.remove('connected');
+      statusEl.classList.add('disconnected');
+    }
+  }
+
+  async connectFacebook() {
+    const appId = (document.getElementById('facebook-app-id')?.value || '').trim();
+    if (!appId) {
+      this.showToast('Enter Facebook App ID first', 'error');
+      return;
+    }
+    try {
+      await this.saveConnectionSettings({ silent: true });
+      const response = await chrome.runtime.sendMessage({
+        type: 'FACEBOOK_CONNECT',
+        payload: { appId }
+      });
+      if (!response || response.success === false) {
+        throw new Error(response?.error || 'Facebook connection failed');
+      }
+      await this.refreshAllConnectionStatuses();
+      this.showToast('Facebook connected', 'success');
+    } catch (error) {
+      this.showToast(error?.message || 'Failed to connect Facebook', 'error');
+    }
+  }
+
+  async disconnectFacebook() {
+    try {
+      const response = await chrome.runtime.sendMessage({ type: 'FACEBOOK_DISCONNECT' });
+      if (!response || response.success === false) {
+        throw new Error(response?.error || 'Disconnect failed');
+      }
+      await this.refreshAllConnectionStatuses();
+      this.showToast('Facebook disconnected', 'success');
+    } catch (error) {
+      this.showToast(error?.message || 'Failed to disconnect Facebook', 'error');
+    }
+  }
+
+  async refreshFacebookStatus() {
+    const statusEl = document.getElementById('facebook-connection-status');
+    if (!statusEl) return;
+    try {
+      const response = await chrome.runtime.sendMessage({ type: 'FACEBOOK_GET_STATUS' });
+      const connected = !!(response && response.success !== false && response.status && response.status.connected);
+      statusEl.textContent = connected ? 'Connected' : 'Not connected';
+      statusEl.classList.toggle('connected', connected);
+      statusEl.classList.toggle('disconnected', !connected);
+    } catch (_) {
+      statusEl.textContent = 'Status unavailable';
+      statusEl.classList.remove('connected');
+      statusEl.classList.add('disconnected');
+    }
+  }
+
+  async connectX() {
+    const clientId = (document.getElementById('x-client-id')?.value || '').trim();
+    if (!clientId) {
+      this.showToast('Enter X OAuth Client ID first', 'error');
+      return;
+    }
+    try {
+      await this.saveConnectionSettings({ silent: true });
+      const response = await chrome.runtime.sendMessage({
+        type: 'X_CONNECT',
+        payload: { clientId }
+      });
+      if (!response || response.success === false) {
+        throw new Error(response?.error || 'X connection failed');
+      }
+      await this.refreshAllConnectionStatuses();
+      this.showToast('X connected', 'success');
+    } catch (error) {
+      this.showToast(error?.message || 'Failed to connect X', 'error');
+    }
+  }
+
+  async disconnectX() {
+    try {
+      const response = await chrome.runtime.sendMessage({ type: 'X_DISCONNECT' });
+      if (!response || response.success === false) {
+        throw new Error(response?.error || 'Disconnect failed');
+      }
+      await this.refreshAllConnectionStatuses();
+      this.showToast('X disconnected', 'success');
+    } catch (error) {
+      this.showToast(error?.message || 'Failed to disconnect X', 'error');
+    }
+  }
+
+  async refreshXStatus() {
+    const statusEl = document.getElementById('x-connection-status');
+    if (!statusEl) return;
+    try {
+      const response = await chrome.runtime.sendMessage({ type: 'X_GET_STATUS' });
+      const connected = !!(response && response.success !== false && response.status && response.status.connected);
+      statusEl.textContent = connected ? 'Connected' : 'Not connected';
+      statusEl.classList.toggle('connected', connected);
+      statusEl.classList.toggle('disconnected', !connected);
+    } catch (_) {
+      statusEl.textContent = 'Status unavailable';
+      statusEl.classList.remove('connected');
+      statusEl.classList.add('disconnected');
+    }
+  }
+
+  async refreshAllConnectionStatuses() {
+    await Promise.all([
+      this.refreshGoogleDriveStatus(),
+      this.refreshFacebookStatus(),
+      this.refreshXStatus()
+    ]);
   }
 
   showToast(message, type = 'success') {

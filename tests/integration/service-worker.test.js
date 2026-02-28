@@ -405,6 +405,37 @@ describe('Budget Fallback Policy', () => {
   });
 });
 
+describe('Objective Guidance Semantics', () => {
+  const OBJECTIVE_PROFILES = {
+    summarize: { label: 'Quick Summary' },
+    fun: { label: 'Have Fun' },
+    'learn-step-by-step': { label: 'Learn Step by Step' }
+  };
+
+  function getObjectiveSpec(options) {
+    const objectiveId = String((options && options.objective) || 'summarize');
+    const profile = OBJECTIVE_PROFILES[objectiveId] || OBJECTIVE_PROFILES.summarize;
+    return {
+      id: OBJECTIVE_PROFILES[objectiveId] ? objectiveId : 'summarize',
+      label: profile.label
+    };
+  }
+
+  it('defaults objective to summarize when unset', () => {
+    expect(getObjectiveSpec({}).id).toBe('summarize');
+    expect(getObjectiveSpec({}).label).toBe('Quick Summary');
+  });
+
+  it('falls back to summarize for unknown objective values', () => {
+    expect(getObjectiveSpec({ objective: 'unknown-mode' }).id).toBe('summarize');
+  });
+
+  it('keeps selected objective when valid', () => {
+    expect(getObjectiveSpec({ objective: 'learn-step-by-step' }).id).toBe('learn-step-by-step');
+    expect(getObjectiveSpec({ objective: 'fun' }).label).toBe('Have Fun');
+  });
+});
+
 describe('Message Handling', () => {
   let messageHandlers;
 

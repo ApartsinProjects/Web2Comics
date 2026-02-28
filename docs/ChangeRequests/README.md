@@ -4,6 +4,7 @@
 Requirements/change-request documents used to drive iterative implementation work.
 
 ## Contents
+- `Adoption_UX_Growth_Plan.md` : Prioritized adoption/UX growth roadmap and success metrics.
 - `GnerationViewPanels.md` : Markdown documentation/specification.
 - `OptionPanel_v1.1.md` : Markdown documentation/specification.
 - `Rewrite.md` : Markdown documentation/specification.

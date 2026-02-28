@@ -52,6 +52,7 @@ class ComicViewer {
     this.carouselIndex = 0;
     this.historyItems = [];
     this.historyBrowserLimit = 12;
+    this.storageUsageBytes = 0;
     this.generationStartedAtMs = 0;
     this.generationFirstPanelAtMs = 0;
     this.pollTimer = null;
@@ -69,6 +70,7 @@ class ComicViewer {
     this.syncLayoutPresetUI();
     this.applyLayoutPreset();
     await this.loadHistory();
+    await this.refreshStorageUsage();
   }
 
   async appendDebugLog(event, data) {
@@ -83,6 +85,19 @@ class ComicViewer {
       });
       if (logs.length > 1000) logs.splice(0, logs.length - 1000);
       await chrome.storage.local.set({ debugLogs: logs });
+    } catch (_) {}
+  }
+
+  async trackMetric(eventName, payload) {
+    try {
+      await chrome.runtime.sendMessage({
+        type: 'TRACK_METRIC',
+        payload: {
+          event: eventName,
+          ts: Date.now(),
+          ...(payload || {})
+        }
+      });
     } catch (_) {}
   }
 
@@ -284,6 +299,7 @@ class ComicViewer {
   async loadCurrentJob() {
     const { currentJob } = await chrome.storage.local.get('currentJob');
     this.handleCurrentJobState(currentJob);
+    this.updateViewerStats();
   }
 
   async tryDisplaySelectedHistoryComic() {
@@ -306,8 +322,10 @@ class ComicViewer {
     document.getElementById('mode-history-btn')?.addEventListener('click', () => this.setPrimaryView('history'));
     document.querySelector('.header-mode-toggle')?.addEventListener('keydown', (e) => this.onHeaderModeKeydown(e));
     document.getElementById('new-comic-btn')?.addEventListener('click', () => this.openPopup());
+    document.getElementById('open-tab-btn')?.addEventListener('click', () => this.openInTab());
     document.getElementById('download-logs-sidepanel-btn')?.addEventListener('click', () => this.downloadDebugLogs());
     document.getElementById('download-btn')?.addEventListener('click', () => this.downloadComic());
+    document.getElementById('share-btn')?.addEventListener('click', () => this.shareComic());
     document.getElementById('open-popup-btn')?.addEventListener('click', () => this.openPopup());
     document.getElementById('cancel-gen-btn')?.addEventListener('click', () => this.cancelGeneration());
     document.getElementById('regenerate-btn')?.addEventListener('click', () => this.regenerate());
@@ -320,6 +338,173 @@ class ComicViewer {
     document.querySelectorAll('.toggle-btn').forEach(btn => {
       btn.addEventListener('click', (e) => this.setViewMode(e.target.dataset.mode));
     });
+    document.getElementById('comic-strip')?.addEventListener('click', (e) => this.handlePanelActionClick(e));
+    document.getElementById('comic-panels')?.addEventListener('click', (e) => this.handlePanelActionClick(e));
+  }
+
+  async handlePanelActionClick(event) {
+    const actionBtn = event?.target?.closest?.('[data-panel-action]');
+    if (!actionBtn) return;
+    const panelIndex = Number(actionBtn.dataset.panelIndex || -1);
+    const action = String(actionBtn.dataset.panelAction || '');
+    if (!Number.isInteger(panelIndex) || panelIndex < 0 || !action) return;
+
+    if (action === 'jump-source') {
+      const snippet = String(actionBtn.dataset.sourceSnippet || '');
+      await this.jumpToSourceSnippet(snippet);
+      return;
+    }
+
+    actionBtn.disabled = true;
+    try {
+      await this.requestPanelEdit(panelIndex, action);
+      void this.trackMetric('panel_edit', { action, panel_index: panelIndex });
+    } catch (error) {
+      console.error('Panel action failed:', error);
+      alert(error?.message || 'Panel action failed.');
+    } finally {
+      actionBtn.disabled = false;
+    }
+  }
+
+  async requestPanelEdit(panelIndex, action) {
+    const response = await chrome.runtime.sendMessage({
+      type: 'EDIT_PANEL',
+      payload: { panelIndex, action }
+    });
+    if (!response || response.success !== true || !response.job?.storyboard) {
+      throw new Error(response?.error || 'Unable to edit panel');
+    }
+    this.displayComic(response.job.storyboard);
+  }
+
+  async jumpToSourceSnippet(snippet) {
+    const sourceUrl = this.sanitizeExternalUrl(this.currentComic?.source?.url || '');
+    if (sourceUrl && sourceUrl !== '#') {
+      await this.openExternalShareUrl(sourceUrl);
+    }
+    if (snippet) {
+      const copied = await this.copyTextToClipboard('Relevant source snippet:\n' + snippet);
+      if (copied) alert('Source snippet copied to clipboard.');
+    }
+  }
+
+  setHeaderActionState() {
+    const canActOnComic = this.primaryView === 'comic' && !!this.currentComic;
+    const openTabBtn = document.getElementById('open-tab-btn');
+    const downloadBtn = document.getElementById('download-btn');
+    const shareBtn = document.getElementById('share-btn');
+    const shareTargetSelect = document.getElementById('share-target-select');
+    if (openTabBtn) openTabBtn.disabled = !canActOnComic;
+    if (downloadBtn) downloadBtn.disabled = !canActOnComic;
+    if (shareBtn) shareBtn.disabled = !canActOnComic;
+    if (shareTargetSelect) shareTargetSelect.disabled = !canActOnComic;
+  }
+
+  computeViewerStats() {
+    const history = Array.isArray(this.historyItems) ? this.historyItems : [];
+    let comics = history.length;
+    let panels = 0;
+    const pageUrls = new Set();
+
+    for (const item of history) {
+      const storyboard = item && item.storyboard ? item.storyboard : null;
+      if (storyboard && Array.isArray(storyboard.panels)) {
+        panels += storyboard.panels.length;
+      }
+      const sourceUrl = String(
+        (item && item.source && item.source.url) ||
+        (storyboard && storyboard.source && storyboard.source.url) ||
+        ''
+      ).trim();
+      if (sourceUrl) pageUrls.add(sourceUrl);
+    }
+
+    const current = this.currentComic && typeof this.currentComic === 'object' ? this.currentComic : null;
+    if (current) {
+      const currentUrl = String((current.source && current.source.url) || '').trim();
+      const currentTitle = String((current.source && current.source.title) || '').trim();
+      const currentPanels = Array.isArray(current.panels) ? current.panels.length : 0;
+      if (currentUrl) pageUrls.add(currentUrl);
+
+      if (currentPanels > 0) {
+        const existsInHistory = history.some((item) => {
+          const storyboard = item && item.storyboard ? item.storyboard : null;
+          const url = String(
+            (item && item.source && item.source.url) ||
+            (storyboard && storyboard.source && storyboard.source.url) ||
+            ''
+          ).trim();
+          const title = String(
+            (item && item.source && item.source.title) ||
+            (storyboard && storyboard.source && storyboard.source.title) ||
+            ''
+          ).trim();
+          return !!(url && currentUrl && url === currentUrl && (!currentTitle || title === currentTitle));
+        });
+        if (!existsInHistory) {
+          comics += 1;
+          panels += currentPanels;
+        }
+      }
+    }
+
+    return { comics, panels, pages: pageUrls.size };
+  }
+
+  updateViewerStats() {
+    const stats = this.computeViewerStats();
+    const comicsEl = document.getElementById('viewer-stat-comics');
+    const panelsEl = document.getElementById('viewer-stat-panels');
+    const pagesEl = document.getElementById('viewer-stat-pages');
+    const storageEl = document.getElementById('viewer-stat-storage');
+    if (comicsEl) comicsEl.textContent = Number(stats.comics || 0).toLocaleString();
+    if (panelsEl) panelsEl.textContent = Number(stats.panels || 0).toLocaleString();
+    if (pagesEl) pagesEl.textContent = Number(stats.pages || 0).toLocaleString();
+    if (storageEl) {
+      storageEl.textContent = this.formatStorageBytes(this.storageUsageBytes);
+      storageEl.title = `${Number(this.storageUsageBytes || 0).toLocaleString()} bytes used in chrome.storage.local`;
+    }
+  }
+
+  formatStorageBytes(bytes) {
+    const value = Number(bytes || 0);
+    if (!Number.isFinite(value) || value <= 0) return '0 B';
+    if (value < 1024) return `${Math.round(value)} B`;
+    const kb = value / 1024;
+    if (kb < 1024) return `${kb.toFixed(kb >= 100 ? 0 : 1)} KB`;
+    const mb = kb / 1024;
+    if (mb < 1024) return `${mb.toFixed(mb >= 100 ? 0 : 1)} MB`;
+    const gb = mb / 1024;
+    return `${gb.toFixed(gb >= 100 ? 0 : 1)} GB`;
+  }
+
+  async estimateStorageBytesFallback() {
+    try {
+      const all = await chrome.storage.local.get(null);
+      const json = JSON.stringify(all || {});
+      if (typeof TextEncoder !== 'undefined') {
+        return new TextEncoder().encode(json).length;
+      }
+      return String(json).length;
+    } catch (_) {
+      return 0;
+    }
+  }
+
+  async refreshStorageUsage() {
+    let bytes = 0;
+    try {
+      if (chrome?.storage?.local?.getBytesInUse) {
+        bytes = await chrome.storage.local.getBytesInUse(null);
+      } else {
+        bytes = await this.estimateStorageBytesFallback();
+      }
+    } catch (_) {
+      bytes = await this.estimateStorageBytesFallback();
+    }
+    this.storageUsageBytes = Number(bytes || 0);
+    this.updateViewerStats();
   }
 
   onHeaderModeKeydown(event) {
@@ -418,6 +603,7 @@ class ComicViewer {
       if (Object.prototype.hasOwnProperty.call(changes, 'selectedHistoryComicId')) {
         void this.tryDisplaySelectedHistoryComic();
       }
+      void this.refreshStorageUsage();
     });
   }
 
@@ -462,6 +648,7 @@ class ComicViewer {
       }
       this.displayComic(currentJob.storyboard);
       void this.loadHistory();
+      this.updateViewerStats();
       return;
     }
 
@@ -484,6 +671,7 @@ class ComicViewer {
       this.updateGenerationUI(currentJob);
       this.setPrimaryView('comic');
       this.notifyTerminalJobIssue(currentJob);
+      this.updateViewerStats();
       return;
     }
   }
@@ -559,11 +747,8 @@ class ComicViewer {
       btn.setAttribute('aria-selected', active ? 'true' : 'false');
     });
 
-    // Download only applies to the Single Comic Strip View.
-    const downloadBtn = document.getElementById('download-btn');
-    if (downloadBtn) {
-      downloadBtn.disabled = this.primaryView !== 'comic' || !this.currentComic;
-    }
+    // Export/share only applies to the Single Comic Strip View.
+    this.setHeaderActionState();
   }
 
   displayComic(storyboard) {
@@ -582,7 +767,8 @@ class ComicViewer {
     // Re-apply the current view mode so persisted layout presets restore the visible shell on load.
     this.setViewMode(this.viewMode, { preservePreset: true });
     
-    document.getElementById('download-btn').disabled = false;
+    this.setHeaderActionState();
+    this.updateViewerStats();
     if (document.getElementById('regenerate-btn')) {
       document.getElementById('regenerate-btn').disabled = false;
     }
@@ -613,6 +799,12 @@ class ComicViewer {
         (panel?.artifacts?.refusal_debug?.originalPrompt || refusalHandling.originalPrompt || panel?.artifacts?.refusal_debug?.effectivePrompt || refusalHandling.rewrittenPrompt)
       );
       const safeCaption = this.escapeHtml(this.getPanelCaptionText(panel, index));
+      const facts = panel?.facts_used || {};
+      const entities = Array.isArray(facts.entities) ? facts.entities.slice(0, 4) : [];
+      const dates = Array.isArray(facts.dates) ? facts.dates.slice(0, 3) : [];
+      const numbers = Array.isArray(facts.numbers) ? facts.numbers.slice(0, 3) : [];
+      const snippet = this.escapeHtml(String(facts.source_snippet || '').slice(0, 220));
+      const hasFacts = entities.length || dates.length || numbers.length || snippet;
       return `
       <div class="panel">
         <div class="panel-image">
@@ -626,6 +818,21 @@ class ComicViewer {
           ${showBadge ? '<div class="panel-badge panel-badge-rewritten">Rewritten</div>' : ''}
           ${refusalHandling?.blockedPlaceholder ? '<div class="panel-badge panel-badge-blocked">Blocked</div>' : ''}
           <div>${safeCaption}</div>
+          ${hasFacts ? `
+            <div class="panel-facts">
+              ${entities.length ? `<div><strong>Entities:</strong> ${this.escapeHtml(entities.join(', '))}</div>` : ''}
+              ${dates.length ? `<div><strong>Dates:</strong> ${this.escapeHtml(dates.join(', '))}</div>` : ''}
+              ${numbers.length ? `<div><strong>Numbers:</strong> ${this.escapeHtml(numbers.join(', '))}</div>` : ''}
+              ${snippet ? `<div class="panel-facts-snippet">${snippet}</div>` : ''}
+            </div>
+          ` : ''}
+          <div class="panel-actions-row">
+            <button type="button" class="btn small secondary" data-panel-action="regenerate-image" data-panel-index="${index}">Regenerate panel</button>
+            <button type="button" class="btn small secondary" data-panel-action="regenerate-caption" data-panel-index="${index}">Regenerate caption</button>
+            <button type="button" class="btn small secondary" data-panel-action="make-factual" data-panel-index="${index}">Make more factual</button>
+            <button type="button" class="btn small secondary" data-panel-action="make-simpler" data-panel-index="${index}">Make simpler</button>
+            ${snippet ? `<button type="button" class="btn small secondary" data-panel-action="jump-source" data-panel-index="${index}" data-source-snippet="${snippet}">Jump to source</button>` : ''}
+          </div>
           ${showPromptBtn ? `<button type="button" class="panel-debug-prompt-btn" data-panel-index="${index}">View prompt</button>` : ''}
         </div>
       </div>
@@ -974,6 +1181,95 @@ class ComicViewer {
     chrome.action.openPopup();
   }
 
+  async openInTab() {
+    const url = chrome?.runtime?.getURL
+      ? chrome.runtime.getURL('sidepanel/sidepanel.html')
+      : 'sidepanel/sidepanel.html';
+    try {
+      if (chrome?.tabs?.create) {
+        await chrome.tabs.create({ url });
+        void this.trackMetric('open_in_tab', { source: 'sidepanel' });
+        return;
+      }
+    } catch (_) {}
+    try {
+      window.open(url, '_blank', 'noopener,noreferrer');
+      void this.trackMetric('open_in_tab', { source: 'sidepanel_fallback' });
+    } catch (_) {}
+  }
+
+  getSelectedShareTarget() {
+    const select = document.getElementById('share-target-select');
+    return String(select?.value || 'facebook');
+  }
+
+  getComicShareText() {
+    const comic = this.currentComic || {};
+    const panels = Array.isArray(comic.panels) ? comic.panels : [];
+    const panelText = panels
+      .slice(0, 3)
+      .map((panel, index) => this.getPanelCaptionText(panel, index, { suppressMissingLog: true }))
+      .filter(Boolean)
+      .join(' | ');
+    const sourceTitle = String(comic?.source?.title || 'Untitled Comic');
+    return panelText ? `${sourceTitle}: ${panelText}` : sourceTitle;
+  }
+
+  buildSharePayload() {
+    const comic = this.currentComic || {};
+    const sourceTitle = String(comic?.source?.title || 'Untitled Comic');
+    const sourceUrl = this.sanitizeExternalUrl(comic?.source?.url || '');
+    const safeSourceUrl = sourceUrl === '#' ? '' : sourceUrl;
+    const shareText = this.getComicShareText();
+    const brandedText = `${shareText}\nMade with Web2Comics`;
+    return {
+      sourceTitle,
+      sourceUrl: safeSourceUrl,
+      shareText,
+      brandedText
+    };
+  }
+
+  async copyTextToClipboard(text) {
+    const payload = String(text || '');
+    if (!payload) return false;
+    try {
+      if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+        await navigator.clipboard.writeText(payload);
+        return true;
+      }
+    } catch (_) {}
+    try {
+      const textarea = document.createElement('textarea');
+      textarea.value = payload;
+      textarea.setAttribute('readonly', 'readonly');
+      textarea.style.position = 'fixed';
+      textarea.style.opacity = '0';
+      textarea.style.pointerEvents = 'none';
+      document.body.appendChild(textarea);
+      textarea.select();
+      const copied = document.execCommand('copy');
+      textarea.remove();
+      return !!copied;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  async openExternalShareUrl(url) {
+    const safeUrl = String(url || '');
+    if (!safeUrl) return;
+    try {
+      if (chrome?.tabs?.create) {
+        await chrome.tabs.create({ url: safeUrl });
+        return;
+      }
+    } catch (_) {}
+    try {
+      window.open(safeUrl, '_blank', 'noopener,noreferrer');
+    } catch (_) {}
+  }
+
   async loadImageElement(src) {
     return new Promise((resolve, reject) => {
       const img = new Image();
@@ -1021,6 +1317,7 @@ class ComicViewer {
 
   getExportLayoutProfile() {
     const preset = this.layoutPreset || 'classic-strip';
+    const activeMode = this.viewMode || this.layoutPresets[preset]?.mode || 'strip';
     const map = {
       'single-panel-full': { kind: 'single', name: 'single-panel-full' },
       'split-2-vertical': { kind: 'vertical-list', aspect: 16 / 9, name: preset },
@@ -1045,7 +1342,68 @@ class ComicViewer {
       'carousel': { kind: 'spotlight', cinema: true, name: preset },
       'guided-path': { kind: 'grid', cols: 2, aspect: 4 / 3, guided: true, name: preset }
     };
-    return map[preset] || { kind: 'strip', columns: 3, aspect: 4 / 3, name: preset };
+    const presetProfile = map[preset] || { kind: 'strip', columns: 3, aspect: 4 / 3, name: preset };
+
+    // Export should follow the currently visible mode, not only the preset default mode.
+    // Users can switch Strip/Carousel/Panels manually after choosing a preset.
+    if (activeMode === 'carousel') {
+      return {
+        kind: 'spotlight',
+        cinema: preset === 'carousel',
+        compact: !!presetProfile.compact,
+        name: preset
+      };
+    }
+
+    if (activeMode === 'strip') {
+      const stripColumnsByPreset = {
+        'single-panel-full': 1,
+        'split-2-vertical': 1,
+        'split-2-horizontal': 2,
+        'classic-strip': 3,
+        'stack-3-vertical': 1,
+        'grid-4': 2,
+        'grid-6': 3,
+        'grid-9': 3,
+        'classic-comic-page': 3,
+        'manga-page-rtl': 2,
+        'webtoon-scroll': 1,
+        'filmstrip': 4,
+        'dominant-supporting': 3,
+        'two-tier': 3,
+        'three-tier': 3,
+        'side-gutter-captions': 1,
+        'caption-first': 1,
+        'polaroid-collage': 2,
+        'masonry': 2,
+        'carousel': 3,
+        'guided-path': 2
+      };
+      return {
+        kind: 'strip',
+        columns: stripColumnsByPreset[preset] || presetProfile.columns || 3,
+        aspect: presetProfile.aspect || (4 / 3),
+        compact: !!presetProfile.compact,
+        name: preset
+      };
+    }
+
+    if (activeMode === 'panels') {
+      if (presetProfile.kind === 'single') return { ...presetProfile };
+      if (presetProfile.kind === 'grid' || presetProfile.kind === 'patterned-grid' || presetProfile.kind === 'collage' || presetProfile.kind === 'masonry') {
+        return { ...presetProfile };
+      }
+      // When panel view is forced for a non-grid preset, use a predictable multi-panel grid export.
+      return {
+        kind: 'grid',
+        cols: presetProfile.columns || 3,
+        aspect: presetProfile.aspect || (4 / 3),
+        compact: !!presetProfile.compact,
+        name: preset
+      };
+    }
+
+    return presetProfile;
   }
 
   getPatternedGridSpans(pattern, count) {
@@ -1174,7 +1532,8 @@ class ComicViewer {
     }
   }
 
-  async exportComicAsCompositeImage() {
+  async exportComicAsCompositeImage(options = {}) {
+    const shouldDownload = options.download !== false;
     const comic = this.currentComic;
     if (!comic?.panels?.length) throw new Error('No comic panels to export');
 
@@ -1420,21 +1779,129 @@ class ComicViewer {
     // Footer
     ctx.fillStyle = '#64748b';
     ctx.font = '12px system-ui, -apple-system, Segoe UI, sans-serif';
-    ctx.fillText('Generated by Web2Comics', layout.margin, canvas.height - layout.margin + 4);
+    ctx.fillText('Made with Web2Comics', layout.margin, canvas.height - layout.margin + 4);
 
-    const link = document.createElement('a');
-    link.href = canvas.toDataURL('image/png');
-    link.download = this.sanitizeFilename(sourceTitle) + '-comic-sheet.png';
-    link.click();
+    const dataUrl = canvas.toDataURL('image/png');
+    const filename = this.sanitizeFilename(sourceTitle) + '-comic-sheet.png';
+    if (shouldDownload) {
+      const link = document.createElement('a');
+      link.href = dataUrl;
+      link.download = filename;
+      link.click();
+    }
+    return {
+      dataUrl,
+      filename,
+      sourceTitle,
+      sourceUrl
+    };
   }
 
   async downloadComic() {
     try {
-      await this.exportComicAsCompositeImage();
+      await this.exportComicAsCompositeImage({ download: true });
     } catch (error) {
       console.error('Failed to export comic image:', error);
       void this.appendDebugLog('comic.export.error', { message: error?.message || String(error) });
       alert('Failed to export comic as a single image.');
+    }
+  }
+
+  async shareComic() {
+    const target = this.getSelectedShareTarget();
+    if (!this.currentComic) return;
+    const payload = this.buildSharePayload();
+    const encodedUrl = encodeURIComponent(payload.sourceUrl || '');
+    const encodedTitle = encodeURIComponent(payload.sourceTitle || 'Web2Comics');
+    const encodedText = encodeURIComponent(payload.brandedText || '');
+    const encodedEmailBody = encodeURIComponent(
+      `${payload.brandedText || payload.sourceTitle}\n\nSource: ${payload.sourceUrl || '(unavailable)'}`
+    );
+
+    try {
+      if (target === 'copy-link') {
+        const copied = await this.copyTextToClipboard(payload.sourceUrl || payload.sourceTitle);
+        alert(copied ? 'Copied source link.' : 'Unable to copy source link.');
+        if (copied) void this.trackMetric('share', { target: 'copy-link' });
+        return;
+      }
+      if (target === 'copy-caption') {
+        const copied = await this.copyTextToClipboard(payload.brandedText || payload.shareText);
+        alert(copied ? 'Copied comic caption text.' : 'Unable to copy comic caption text.');
+        if (copied) void this.trackMetric('share', { target: 'copy-caption' });
+        return;
+      }
+
+      if (target === 'instagram') {
+        const exported = await this.exportComicAsCompositeImage({ download: false });
+        const copied = await this.copyTextToClipboard(
+          `${payload.brandedText || payload.shareText}\nSource: ${payload.sourceUrl || '(source unavailable)'}`
+        );
+        const link = document.createElement('a');
+        link.href = exported.dataUrl;
+        link.download = exported.filename || 'web2comics-comic.png';
+        link.click();
+        await this.openExternalShareUrl('https://www.instagram.com/');
+        alert(
+          copied
+            ? 'Image downloaded and caption copied. Open Instagram and upload.'
+            : 'Image downloaded. Open Instagram and upload.'
+        );
+        void this.trackMetric('share', { target: 'instagram' });
+        return;
+      }
+
+      if (target === 'story' || target === 'x-card' || target === 'linkedin-post' || target === 'email-card') {
+        const exported = await this.exportComicAsCompositeImage({ download: false });
+        const copied = await this.copyTextToClipboard(
+          `${payload.brandedText || payload.shareText}\nSource: ${payload.sourceUrl || '(source unavailable)'}`
+        );
+        const link = document.createElement('a');
+        link.href = exported.dataUrl;
+        link.download = exported.filename || 'web2comics-comic.png';
+        link.click();
+        if (target === 'story') await this.openExternalShareUrl('https://www.instagram.com/');
+        if (target === 'x-card') await this.openExternalShareUrl('https://x.com/compose/post');
+        if (target === 'linkedin-post') await this.openExternalShareUrl('https://www.linkedin.com/feed/');
+        if (target === 'email-card') {
+          const emailUrl = `mailto:?subject=${encodedTitle}&body=${encodedEmailBody}`;
+          await this.openExternalShareUrl(emailUrl);
+        }
+        alert(copied ? 'Image downloaded and caption copied.' : 'Image downloaded.');
+        void this.trackMetric('share', { target: target });
+        return;
+      }
+
+      let shareUrl = '';
+      if (target === 'facebook') {
+        shareUrl = `https://www.facebook.com/sharer/sharer.php?u=${encodedUrl}&quote=${encodedText}`;
+      } else if (target === 'x') {
+        shareUrl = `https://x.com/intent/tweet?url=${encodedUrl}&text=${encodedText}`;
+      } else if (target === 'linkedin') {
+        shareUrl = `https://www.linkedin.com/sharing/share-offsite/?url=${encodedUrl}`;
+      } else if (target === 'whatsapp') {
+        shareUrl = `https://wa.me/?text=${encodeURIComponent((payload.brandedText || payload.shareText || '') + '\n' + (payload.sourceUrl || ''))}`;
+      } else if (target === 'telegram') {
+        shareUrl = `https://t.me/share/url?url=${encodedUrl}&text=${encodedText}`;
+      } else if (target === 'reddit') {
+        shareUrl = `https://www.reddit.com/submit?url=${encodedUrl}&title=${encodedTitle}`;
+      } else if (target === 'email') {
+        shareUrl = `mailto:?subject=${encodedTitle}&body=${encodedEmailBody}`;
+      }
+
+      if (!shareUrl) {
+        alert('Unsupported share target.');
+        return;
+      }
+      await this.openExternalShareUrl(shareUrl);
+      void this.trackMetric('share', { target: target });
+    } catch (error) {
+      console.error('Failed to share comic:', error);
+      void this.appendDebugLog('comic.share.error', {
+        target,
+        message: error?.message || String(error)
+      });
+      alert('Failed to open sharing target.');
     }
   }
 
@@ -1582,6 +2049,7 @@ class ComicViewer {
       if (browserGrid) browserGrid.innerHTML = '';
       if (browserEmpty) browserEmpty.classList.remove('hidden');
       if (browserActions) browserActions.classList.add('hidden');
+      this.updateViewerStats();
       return;
     }
     if (browserEmpty) browserEmpty.classList.add('hidden');
@@ -1591,6 +2059,7 @@ class ComicViewer {
     this.bindHistoryItemClicks(container, this.historyItems);
 
     this.renderHistoryBrowser();
+    this.updateViewerStats();
     if (!this.currentComic) {
       void this.tryDisplaySelectedHistoryComic();
     }
