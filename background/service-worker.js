@@ -44,19 +44,186 @@ function getStyleSpec(options) {
   };
 }
 
+var OBJECTIVE_PROFILES = {
+  summarize: {
+    label: 'Quick Summary',
+    guidance: 'Prioritize a concise overview of the most important claims and outcomes.'
+  },
+  fun: {
+    label: 'Have Fun',
+    guidance: 'Keep facts accurate, but use playful framing and lively narrative beats.'
+  },
+  'learn-step-by-step': {
+    label: 'Learn Step by Step',
+    guidance: 'Sequence panels as progressive steps that build understanding from basics to conclusions.'
+  },
+  'news-recap': {
+    label: 'News Recap',
+    guidance: 'Focus on who/what/when/where and the practical implications.'
+  },
+  timeline: {
+    label: 'Timeline Breakdown',
+    guidance: 'Present events chronologically, showing cause and effect between milestones.'
+  },
+  'key-facts': {
+    label: 'Key Facts Only',
+    guidance: 'Use dense factual captions with concrete entities, dates, and numbers; avoid fluff.'
+  },
+  'compare-views': {
+    label: 'Compare Viewpoints',
+    guidance: 'Contrast the main positions fairly and show where they differ or overlap.'
+  },
+  'explain-like-im-five': {
+    label: "Explain Like I'm Five",
+    guidance: 'Use simple language and analogies while keeping core facts correct.'
+  },
+  'study-guide': {
+    label: 'Study Guide',
+    guidance: 'Structure panels as exam-ready takeaways, key terms, and conclusions.'
+  },
+  'meeting-recap': {
+    label: 'Meeting Recap',
+    guidance: 'Highlight decisions, owners, and next actions clearly.'
+  },
+  'how-to-guide': {
+    label: 'How-To Guide',
+    guidance: 'Turn content into practical steps with prerequisites, actions, and outcomes.'
+  },
+  'debate-map': {
+    label: 'Debate Map',
+    guidance: 'Lay out claims, evidence, and counterpoints without taking unsupported sides.'
+  }
+};
+
+function getObjectiveSpec(options) {
+  var objectiveId = String((options && options.objective) || 'summarize');
+  var profile = OBJECTIVE_PROFILES[objectiveId] || OBJECTIVE_PROFILES.summarize;
+  return {
+    id: profile === OBJECTIVE_PROFILES[objectiveId] ? objectiveId : 'summarize',
+    label: profile.label,
+    guidance: profile.guidance
+  };
+}
+
+var OUTPUT_LANGUAGE_PROFILES = {
+  auto: {
+    label: 'Auto (match source language)',
+    captionInstruction: 'Write captions, beat summaries, and story text in the same language as the source content.',
+    imageInstruction: 'If visible text appears in the image, use the source content language.'
+  },
+  en: {
+    label: 'English',
+    captionInstruction: 'Write captions, beat summaries, and story text in English.',
+    imageInstruction: 'If visible text appears in the image, it must be in English.'
+  },
+  es: {
+    label: 'Spanish',
+    captionInstruction: 'Write captions, beat summaries, and story text in Spanish.',
+    imageInstruction: 'If visible text appears in the image, it must be in Spanish.'
+  },
+  fr: {
+    label: 'French',
+    captionInstruction: 'Write captions, beat summaries, and story text in French.',
+    imageInstruction: 'If visible text appears in the image, it must be in French.'
+  },
+  de: {
+    label: 'German',
+    captionInstruction: 'Write captions, beat summaries, and story text in German.',
+    imageInstruction: 'If visible text appears in the image, it must be in German.'
+  },
+  it: {
+    label: 'Italian',
+    captionInstruction: 'Write captions, beat summaries, and story text in Italian.',
+    imageInstruction: 'If visible text appears in the image, it must be in Italian.'
+  },
+  pt: {
+    label: 'Portuguese',
+    captionInstruction: 'Write captions, beat summaries, and story text in Portuguese.',
+    imageInstruction: 'If visible text appears in the image, it must be in Portuguese.'
+  },
+  ja: {
+    label: 'Japanese',
+    captionInstruction: 'Write captions, beat summaries, and story text in Japanese.',
+    imageInstruction: 'If visible text appears in the image, it must be in Japanese.'
+  },
+  ko: {
+    label: 'Korean',
+    captionInstruction: 'Write captions, beat summaries, and story text in Korean.',
+    imageInstruction: 'If visible text appears in the image, it must be in Korean.'
+  },
+  zh: {
+    label: 'Chinese',
+    captionInstruction: 'Write captions, beat summaries, and story text in Chinese.',
+    imageInstruction: 'If visible text appears in the image, it must be in Chinese.'
+  }
+};
+
+function getOutputLanguageSpec(options) {
+  var raw = String(
+    (options && (options.outputLanguage || options.output_language || options.language)) ||
+    'en'
+  ).trim().toLowerCase();
+  var profile = OUTPUT_LANGUAGE_PROFILES[raw] || OUTPUT_LANGUAGE_PROFILES.en;
+  return {
+    id: OUTPUT_LANGUAGE_PROFILES[raw] ? raw : 'en',
+    label: profile.label,
+    captionInstruction: profile.captionInstruction,
+    imageInstruction: profile.imageInstruction
+  };
+}
+
+function appendLanguageInstruction(prompt, languageInstruction) {
+  var base = String(prompt || '');
+  var instruction = String(languageInstruction || '').trim();
+  if (!instruction) return base;
+  return base + '\nLanguage requirement: ' + instruction;
+}
+
 var DEFAULT_PROVIDER_PROMPT_TEMPLATES = {
   openai: {
-    storyboard: 'Create a comic storyboard as strict JSON.\nJSON only, no markdown.\nSchema: {"panels":[{"caption":string,"image_prompt":string}]}\ncaption must be a short story beat for a reader (graphic-novel narration), not a visual prompt. image_prompt must be visual-generation instructions only.\nPanels: {{panel_count}}\nStyle: {{style_prompt}}\nContent:\n{{content}}',
-    image: 'Comic panel {{panel_index}}/{{panel_count}}.\nCaption: {{panel_caption}}\nSummary: {{panel_summary}}\nStyle: {{style_prompt}}\nReturn a single image matching the comic style.'
+    storyboard: 'Create a comic storyboard as strict JSON.\nJSON only, no markdown.\nSchema: {"panels":[{"caption":string,"image_prompt":string}]}\n' +
+      'caption must be a short story beat for a reader (graphic-novel narration), not a visual prompt. image_prompt must be visual-generation instructions only.\n' +
+      'Grounding rules:\n' +
+      '- Choose one dominant story/topic from the content and keep all panels on that topic.\n' +
+      '- Use concrete facts from the content (named people/orgs/places, numbers, dates, outcomes) when available.\n' +
+      '- Do not invent facts, quotes, or events not supported by the content.\n' +
+      '- Build a clear beginning -> development -> outcome arc across panels.\n' +
+      '- Keep captions specific and concise; avoid generic filler like "things happen" or "people discuss issues".\n' +
+      'Source: {{source_title}} ({{source_url}})\nPanels: {{panel_count}}\nObjective: {{objective_label}}\nObjective guidance: {{objective_guidance}}\nStyle: {{style_prompt}}\nContent:\n{{content}}',
+    image: 'Comic panel {{panel_index}}/{{panel_count}}.\nCaption: {{panel_caption}}\nSummary: {{panel_summary}}\nStyle: {{style_prompt}}\n' +
+      'Image grounding rules:\n' +
+      '- Depict the exact event/claim in caption+summary, not a generic scene.\n' +
+      '- Reuse key entities/details from caption+summary (who/where/what/objects/context) when provided.\n' +
+      '- Keep consistent characters/setting with prior panels and avoid adding unrelated elements.\n' +
+      '- No text overlays unless explicitly required by the caption.'
   },
   gemini: {
-    storyboard: 'Generate a comic storyboard in strict JSON.\nJSON only, no markdown.\nSchema: {"panels":[{"caption":string,"image_prompt":string}]}\ncaption must be a short story beat for a reader (graphic-novel narration), not a visual prompt. image_prompt must be visual-generation instructions only.\nPanel count: {{panel_count}}\nStyle guidance: {{style_prompt}}\nContent:\n{{content}}',
-    image: 'Create comic panel artwork {{panel_index}}/{{panel_count}}.\nPanel caption: {{panel_caption}}\nPanel summary: {{panel_summary}}\nStyle guidance: {{style_prompt}}'
+    storyboard: 'Generate a comic storyboard in strict JSON.\nJSON only, no markdown.\nSchema: {"panels":[{"caption":string,"image_prompt":string}]}\n' +
+      'caption must be a short story beat for a reader (graphic-novel narration), not a visual prompt. image_prompt must be visual-generation instructions only.\n' +
+      'Grounding rules:\n' +
+      '- Choose one dominant story/topic from the content and keep all panels on that topic.\n' +
+      '- Use concrete facts from the content (named people/orgs/places, numbers, dates, outcomes) when available.\n' +
+      '- Do not invent facts, quotes, or events not supported by the content.\n' +
+      '- Build a clear beginning -> development -> outcome arc across panels.\n' +
+      '- Keep captions specific and concise; avoid generic filler like "things happen" or "people discuss issues".\n' +
+      'Source title: {{source_title}}\nSource URL: {{source_url}}\nPanel count: {{panel_count}}\nObjective: {{objective_label}}\nObjective guidance: {{objective_guidance}}\nStyle guidance: {{style_prompt}}\nContent:\n{{content}}',
+    image: 'Create comic panel artwork {{panel_index}}/{{panel_count}}.\nPanel caption: {{panel_caption}}\nPanel summary: {{panel_summary}}\nStyle guidance: {{style_prompt}}\n' +
+      'Image grounding rules:\n' +
+      '- Depict the exact event/claim in caption+summary, not a generic scene.\n' +
+      '- Reuse key entities/details from caption+summary (who/where/what/objects/context) when provided.\n' +
+      '- Keep consistent characters/setting with prior panels and avoid adding unrelated elements.\n' +
+      '- No text overlays unless explicitly required by the caption.'
   }
 };
 var STORYBOARD_RETRY_JSON_ONLY_PROMPT = 'Return ONLY valid JSON object with top-level "panels" array. No markdown fences.';
 var STORYBOARD_CAPTION_IMAGE_PROMPT_RULE =
   'caption must be a short story beat for a reader (graphic-novel narration), not a visual prompt. image_prompt must be visual-generation instructions only.';
+var STORYBOARD_CONTENT_GROUNDING_RULE =
+  'Choose one dominant story/topic from the content and keep all panels on that topic. Use concrete facts from the content (named entities, numbers, dates, outcomes) when available. Do not invent unsupported facts, quotes, or events. Build a clear beginning -> development -> outcome arc across panels.';
+var STORYBOARD_OBJECTIVE_RULE =
+  'Follow the user objective "{{objective_label}}". Objective guidance: {{objective_guidance}}';
+var IMAGE_PROMPT_GROUNDING_RULE =
+  'Each image_prompt must depict the specific caption/summary facts (who/where/what), stay consistent with prior panels, and avoid unrelated generic scenes.';
 
 var DEFAULT_FETCH_TIMEOUT_MS = 45000;
 var STORYBOARD_TIMEOUT_MS = 90000;
@@ -368,6 +535,8 @@ function parseStoryboardResponseShared(responseText, options, config) {
     title: (parsed && parsed.title) ? normalizeLooseTextValue(parsed.title) : undefined,
     settings: {
       panel_count: (options && options.panelCount) || 6,
+      objective: (options && options.objective) || 'summarize',
+      output_language: (options && (options.outputLanguage || options.output_language)) || 'en',
       detail_level: (options && options.detailLevel) || 'medium',
       style_id: (options && options.styleId) || 'default',
       caption_len: (options && options.captionLength) || 'short',
@@ -624,16 +793,27 @@ class GeminiProvider {
   buildStoryboardPrompt(text, options) {
     const panelCount = options.panelCount || 6;
     var styleSpec = getStyleSpec(options);
+    var objectiveSpec = getObjectiveSpec(options);
+    var languageSpec = getOutputLanguageSpec(options);
     if (options && options.storyboardTemplate) {
       var renderedTemplate = renderPromptTemplate(options.storyboardTemplate, {
         source_title: options.sourceTitle || '',
         source_url: options.sourceUrl || '',
         panel_count: panelCount,
         detail_level: options.detailLevel || 'medium',
+        objective: objectiveSpec.id,
+        objective_label: objectiveSpec.label,
+        objective_guidance: objectiveSpec.guidance,
+        output_language: languageSpec.id,
+        output_language_label: languageSpec.label,
+        output_language_instruction: languageSpec.captionInstruction,
         style_prompt: styleSpec.directive,
         content: String(text || '').substring(0, 4000)
       });
         if (renderedTemplate && renderedTemplate.trim()) {
+        renderedTemplate += '\nObjective: ' + objectiveSpec.label + '\nObjective guidance: ' + objectiveSpec.guidance;
+        renderedTemplate += '\nOutput language: ' + languageSpec.label;
+        renderedTemplate = appendLanguageInstruction(renderedTemplate, languageSpec.captionInstruction);
         if (options && options.panelCountRetry) {
           renderedTemplate += '\n\nREMINDER: Return exactly ' + panelCount + ' panels in the top-level "panels" array.';
         }
@@ -648,6 +828,17 @@ class GeminiProvider {
       'JSON only, no markdown.\n' +
       'Schema: {"panels":[{"caption":string,"image_prompt":string}]}\n' +
       STORYBOARD_CAPTION_IMAGE_PROMPT_RULE + '\n' +
+      STORYBOARD_CONTENT_GROUNDING_RULE + '\n' +
+      renderPromptTemplate(STORYBOARD_OBJECTIVE_RULE, {
+        objective_label: objectiveSpec.label,
+        objective_guidance: objectiveSpec.guidance
+      }) + '\n' +
+      'Output language: ' + languageSpec.label + '\n' +
+      'Language requirement: ' + languageSpec.captionInstruction + '\n' +
+      IMAGE_PROMPT_GROUNDING_RULE + '\n' +
+      'Source title: ' + (options.sourceTitle || '') + '\n' +
+      'Source URL: ' + (options.sourceUrl || '') + '\n' +
+      'Objective: ' + objectiveSpec.label + '\n' +
       'Visual style requirement: ' + styleSpec.directive + '\n' +
       'Keep the style consistent across all panels.\n' +
       'Text: ' + text.substring(0, 4000);
@@ -677,6 +868,7 @@ class GeminiProvider {
       if (!apiKey) { reject(new Error('Gemini API key not configured')); return; }
       
       var styleSpec = getStyleSpec(options);
+      var languageSpec = getOutputLanguageSpec(options);
       var enhancedPrompt = prompt + ', ' + styleSpec.image + ', consistent comic panel style';
       if (options && options.imageTemplate) {
         var renderedImageTemplate = renderPromptTemplate(options.imageTemplate, {
@@ -684,12 +876,16 @@ class GeminiProvider {
           panel_count: options.panelCount || '',
           panel_caption: options.panelCaption || '',
           panel_summary: options.panelSummary || '',
+          output_language: languageSpec.id,
+          output_language_label: languageSpec.label,
+          output_language_instruction: languageSpec.imageInstruction,
           style_prompt: styleSpec.image
         });
         if (renderedImageTemplate && renderedImageTemplate.trim()) {
           enhancedPrompt = renderedImageTemplate;
         }
       }
+      enhancedPrompt = appendLanguageInstruction(enhancedPrompt, languageSpec.imageInstruction);
       
       try {
         async function generateWithModel(modelName) {
@@ -772,12 +968,25 @@ class OpenAIProvider {
       var apiKey = await self.getApiKey();
       if (!apiKey) { reject(new Error('OpenAI API key not configured')); return; }
       var styleSpec = getStyleSpec(options);
+      var objectiveSpec = getObjectiveSpec(options);
+      var languageSpec = getOutputLanguageSpec(options);
       var textModel = (options && options.textModel) || self.textModel;
       var userPrompt =
         'Create a ' + (options.panelCount || 6) + '-panel comic storyboard. ' +
         'JSON only, no markdown. ' +
         'Schema: {"panels":[{"caption":string,"image_prompt":string}]}. ' +
         STORYBOARD_CAPTION_IMAGE_PROMPT_RULE + ' ' +
+        STORYBOARD_CONTENT_GROUNDING_RULE + ' ' +
+        renderPromptTemplate(STORYBOARD_OBJECTIVE_RULE, {
+          objective_label: objectiveSpec.label,
+          objective_guidance: objectiveSpec.guidance
+        }) + ' ' +
+        'Output language: ' + languageSpec.label + '. ' +
+        languageSpec.captionInstruction + ' ' +
+        IMAGE_PROMPT_GROUNDING_RULE + ' ' +
+        'Source title: ' + (options.sourceTitle || '') + '. ' +
+        'Source URL: ' + (options.sourceUrl || '') + '. ' +
+        'Objective: ' + objectiveSpec.label + '. ' +
         'Style requirement: ' + styleSpec.directive + '. ' +
         'Content: ' + text.substring(0, 8000);
       if (options && options.storyboardTemplate) {
@@ -786,10 +995,19 @@ class OpenAIProvider {
           source_url: options.sourceUrl || '',
           panel_count: options.panelCount || 6,
           detail_level: options.detailLevel || 'medium',
+          objective: objectiveSpec.id,
+          objective_label: objectiveSpec.label,
+          objective_guidance: objectiveSpec.guidance,
+          output_language: languageSpec.id,
+          output_language_label: languageSpec.label,
+          output_language_instruction: languageSpec.captionInstruction,
           style_prompt: styleSpec.directive,
           content: String(text || '').substring(0, 8000)
         });
         if (renderedTemplate && renderedTemplate.trim()) {
+          renderedTemplate += '\nObjective: ' + objectiveSpec.label + '\nObjective guidance: ' + objectiveSpec.guidance;
+          renderedTemplate += '\nOutput language: ' + languageSpec.label;
+          renderedTemplate = appendLanguageInstruction(renderedTemplate, languageSpec.captionInstruction);
           userPrompt = renderedTemplate;
         }
       }
@@ -815,6 +1033,9 @@ class OpenAIProvider {
                 'You are a comic storyboard generator. Respond with JSON only, no markdown fences. ' +
                 'Schema: {"panels":[{"caption":string,"image_prompt":string}]}. ' +
                 STORYBOARD_CAPTION_IMAGE_PROMPT_RULE + ' ' +
+                STORYBOARD_CONTENT_GROUNDING_RULE + ' ' +
+                IMAGE_PROMPT_GROUNDING_RULE + ' ' +
+                languageSpec.captionInstruction + ' ' +
                 'Include the requested art style in each panel image_prompt.'
             },
             {
@@ -861,6 +1082,7 @@ class OpenAIProvider {
       
       try {
         var styleSpec = getStyleSpec(options);
+        var languageSpec = getOutputLanguageSpec(options);
         var imageConfig = self.normalizeImageRequestOptions(options);
         var styledPrompt = prompt + '. Style direction: ' + styleSpec.directive + '. Keep consistent comic panel aesthetics.';
         if (options && options.imageTemplate) {
@@ -869,12 +1091,16 @@ class OpenAIProvider {
             panel_count: options.panelCount || '',
             panel_caption: options.panelCaption || '',
             panel_summary: options.panelSummary || '',
+            output_language: languageSpec.id,
+            output_language_label: languageSpec.label,
+            output_language_instruction: languageSpec.imageInstruction,
             style_prompt: styleSpec.directive
           });
           if (renderedImageTemplate && renderedImageTemplate.trim()) {
             styledPrompt = renderedImageTemplate;
           }
         }
+        styledPrompt = appendLanguageInstruction(styledPrompt, languageSpec.imageInstruction);
         async function requestImage(imagePrompt, requestConfig) {
           var activeConfig = requestConfig || imageConfig;
           var payload = {
@@ -997,12 +1223,25 @@ class OpenRouterProvider {
   buildStoryboardPrompt(text, options) {
     var panelCount = options.panelCount || 6;
     var styleSpec = getStyleSpec(options);
+    var objectiveSpec = getObjectiveSpec(options);
+    var languageSpec = getOutputLanguageSpec(options);
     var prompt = [
       'Create a comic storyboard from the content below.',
       'JSON only, no markdown.',
       'Schema: {"panels":[{"caption":string,"image_prompt":string}]}',
       STORYBOARD_CAPTION_IMAGE_PROMPT_RULE,
+      STORYBOARD_CONTENT_GROUNDING_RULE,
+      renderPromptTemplate(STORYBOARD_OBJECTIVE_RULE, {
+        objective_label: objectiveSpec.label,
+        objective_guidance: objectiveSpec.guidance
+      }),
+      IMAGE_PROMPT_GROUNDING_RULE,
       'Panel count: ' + panelCount,
+      'Source title: ' + (options.sourceTitle || ''),
+      'Source URL: ' + (options.sourceUrl || ''),
+      'Objective: ' + objectiveSpec.label,
+      'Output language: ' + languageSpec.label,
+      'Language requirement: ' + languageSpec.captionInstruction,
       'Style requirement: ' + styleSpec.directive,
       'Keep the style consistent across all panels.',
       'Content:',
@@ -1164,6 +1403,7 @@ class OpenRouterProvider {
     if (!apiKey) throw new Error('OpenRouter API key not configured');
 
     var styleSpec = getStyleSpec(options);
+    var languageSpec = getOutputLanguageSpec(options);
     var styledPrompt = String(prompt || '') + '. Style direction: ' + styleSpec.directive + '. Keep consistent comic panel aesthetics.';
     if (options && options.imageTemplate) {
       var renderedImageTemplate = renderPromptTemplate(options.imageTemplate, {
@@ -1171,12 +1411,16 @@ class OpenRouterProvider {
         panel_count: options.panelCount || '',
         panel_caption: options.panelCaption || '',
         panel_summary: options.panelSummary || '',
+        output_language: languageSpec.id,
+        output_language_label: languageSpec.label,
+        output_language_instruction: languageSpec.imageInstruction,
         style_prompt: styleSpec.directive
       });
       if (renderedImageTemplate && renderedImageTemplate.trim()) {
         styledPrompt = renderedImageTemplate;
       }
     }
+    styledPrompt = appendLanguageInstruction(styledPrompt, languageSpec.imageInstruction);
 
     var requestedImageSize = String((options && options.imageSize) || '1K').trim();
     var openRouterImageSize = ['1K', '1.5K', '2K'].indexOf(requestedImageSize) >= 0 ? requestedImageSize : '1K';
@@ -1283,11 +1527,24 @@ class HuggingFaceProvider {
   buildStoryboardPrompt(text, options) {
     var panelCount = options.panelCount || 6;
     var styleSpec = getStyleSpec(options);
+    var objectiveSpec = getObjectiveSpec(options);
+    var languageSpec = getOutputLanguageSpec(options);
     var prompt = [
       'JSON only, no markdown.',
       'Schema: {"panels":[{"caption":string,"image_prompt":string}]}',
       STORYBOARD_CAPTION_IMAGE_PROMPT_RULE,
+      STORYBOARD_CONTENT_GROUNDING_RULE,
+      renderPromptTemplate(STORYBOARD_OBJECTIVE_RULE, {
+        objective_label: objectiveSpec.label,
+        objective_guidance: objectiveSpec.guidance
+      }),
+      IMAGE_PROMPT_GROUNDING_RULE,
       'Create a ' + panelCount + '-panel comic storyboard.',
+      'Source title: ' + (options.sourceTitle || ''),
+      'Source URL: ' + (options.sourceUrl || ''),
+      'Objective: ' + objectiveSpec.label,
+      'Output language: ' + languageSpec.label,
+      'Language requirement: ' + languageSpec.captionInstruction,
       'Style requirement: ' + styleSpec.directive,
       'Content:',
       String(text || '').substring(0, 3500)
@@ -1403,6 +1660,7 @@ class HuggingFaceProvider {
     if (!apiKey) throw new Error('Hugging Face API key not configured');
 
     var styleSpec = getStyleSpec(options);
+    var languageSpec = getOutputLanguageSpec(options);
     var styledPrompt = String(prompt || '') + '. Style direction: ' + styleSpec.directive + '. Keep consistent comic panel aesthetics.';
     if (options && options.imageTemplate) {
       var renderedImageTemplate = renderPromptTemplate(options.imageTemplate, {
@@ -1410,12 +1668,16 @@ class HuggingFaceProvider {
         panel_count: options.panelCount || '',
         panel_caption: options.panelCaption || '',
         panel_summary: options.panelSummary || '',
+        output_language: languageSpec.id,
+        output_language_label: languageSpec.label,
+        output_language_instruction: languageSpec.imageInstruction,
         style_prompt: styleSpec.directive
       });
       if (renderedImageTemplate && renderedImageTemplate.trim()) {
         styledPrompt = renderedImageTemplate;
       }
     }
+    styledPrompt = appendLanguageInstruction(styledPrompt, languageSpec.imageInstruction);
 
     var requestedSize = String((options && options.imageSize) || '512x512').trim();
     var hfSize = ['512x512', '768x768', '1024x1024'].indexOf(requestedSize) >= 0 ? requestedSize : '512x512';
@@ -1603,12 +1865,25 @@ class CloudflareProvider {
   buildStoryboardPrompt(text, options) {
     var panelCount = options.panelCount || 6;
     var styleSpec = getStyleSpec(options);
+    var objectiveSpec = getObjectiveSpec(options);
+    var languageSpec = getOutputLanguageSpec(options);
     var prompt = [
       'Create a comic storyboard from the content below.',
       'JSON only, no markdown.',
       'Schema: {"panels":[{"caption":string,"image_prompt":string}]}',
       STORYBOARD_CAPTION_IMAGE_PROMPT_RULE,
+      STORYBOARD_CONTENT_GROUNDING_RULE,
+      renderPromptTemplate(STORYBOARD_OBJECTIVE_RULE, {
+        objective_label: objectiveSpec.label,
+        objective_guidance: objectiveSpec.guidance
+      }),
+      IMAGE_PROMPT_GROUNDING_RULE,
       'Panel count: ' + panelCount,
+      'Source title: ' + (options.sourceTitle || ''),
+      'Source URL: ' + (options.sourceUrl || ''),
+      'Objective: ' + objectiveSpec.label,
+      'Output language: ' + languageSpec.label,
+      'Language requirement: ' + languageSpec.captionInstruction,
       'Style requirement: ' + styleSpec.directive,
       'Keep image prompts concise but descriptive and safe for image generation.',
       'Content:',
@@ -1642,6 +1917,8 @@ class CloudflareProvider {
           messages: [
             { role: 'system', content: 'You generate comic storyboards as strict JSON only.' },
             { role: 'system', content: STORYBOARD_CAPTION_IMAGE_PROMPT_RULE },
+            { role: 'system', content: STORYBOARD_CONTENT_GROUNDING_RULE },
+            { role: 'system', content: IMAGE_PROMPT_GROUNDING_RULE },
             { role: 'user', content: prompt }
           ],
           max_tokens: 2048,
@@ -1670,6 +1947,7 @@ class CloudflareProvider {
   }
   async generateImage(prompt, options) {
     var styleSpec = getStyleSpec(options);
+    var languageSpec = getOutputLanguageSpec(options);
     var basePrompt = String(prompt || '').replace(/\s+/g, ' ').trim();
     var enhancedPrompt = [
       basePrompt,
@@ -1684,6 +1962,8 @@ class CloudflareProvider {
       'Readable characters, safe editorial depiction, no logos, no text-heavy elements. ' +
       styleSpec.image
     ).replace(/\s+/g, ' ').trim().substring(0, 420);
+    primaryPrompt = appendLanguageInstruction(primaryPrompt, languageSpec.imageInstruction);
+    fallbackPrompt = appendLanguageInstruction(fallbackPrompt, languageSpec.imageInstruction);
     var lastError = null;
     var cfImageCandidates = orderedCandidates(options && options.imageModel, this.imageModelCandidates);
     for (var i = 0; i < cfImageCandidates.length; i++) {
@@ -1763,6 +2043,8 @@ var IMAGE_PROVIDERS = {
 
 var ServiceWorker = function() {
   var self = this;
+  this.SELECTION_CONTEXT_MENU_ID = 'web2comics-create-from-selection';
+  this.SELECTION_CONTEXT_MENU_OPEN_PANEL_ID = 'web2comics-open-from-selection';
   
   this.currentJob = null;
   this.isProcessing = false;
@@ -1771,12 +2053,17 @@ var ServiceWorker = function() {
   this.init = function() {
     self.setupMessageHandlers();
     self.setupLifecycleHandlers();
+    self.setupSelectionContextMenu();
   };
 
   this.appendDebugLog = function(event, data) {
     try {
       var debugEnabled = Boolean(self.currentJob && self.currentJob.settings && self.currentJob.settings.debug_flag);
-      if (!debugEnabled) return Promise.resolve();
+      var verboseTestLogs = Boolean(globalThis && globalThis.__WEB2COMICS_TEST_LOGS__);
+      if (!debugEnabled && !verboseTestLogs) return Promise.resolve();
+      if (verboseTestLogs) {
+        try { console.info('[Web2Comics:test][service-worker]', event, data || null); } catch (_) {}
+      }
 
       return chrome.storage.local.get('debugLogs')
         .then(function(result) {
@@ -1905,6 +2192,7 @@ var ServiceWorker = function() {
       imageModel: settings.image_model,
       imageQuality: settings.image_quality,
       imageSize: settings.image_size,
+      outputLanguage: settings.output_language || 'en',
       customStyleTheme: settings.custom_style_theme,
       customStyleName: settings.custom_style_name,
       panelIndex: panelIndex,
@@ -2182,18 +2470,208 @@ var ServiceWorker = function() {
     }
     self.currentJob.progressEvents = events;
   };
+
+  this.trackMetric = function(eventName, payload) {
+    var safeEvent = String(eventName || '').trim();
+    if (!safeEvent) return Promise.resolve();
+    var data = payload && typeof payload === 'object' ? payload : {};
+    return chrome.storage.local.get('growthMetrics')
+      .then(function(result) {
+        var metrics = result && result.growthMetrics && typeof result.growthMetrics === 'object'
+          ? result.growthMetrics
+          : { events: [], counters: {} };
+        if (!Array.isArray(metrics.events)) metrics.events = [];
+        if (!metrics.counters || typeof metrics.counters !== 'object') metrics.counters = {};
+        metrics.events.push({
+          ts: new Date().toISOString(),
+          event: safeEvent,
+          data: data
+        });
+        if (metrics.events.length > 1000) metrics.events = metrics.events.slice(-1000);
+        metrics.counters[safeEvent] = Number(metrics.counters[safeEvent] || 0) + 1;
+        return chrome.storage.local.set({ growthMetrics: metrics });
+      })
+      .catch(function() {});
+  };
+
+  this.extractPanelFacts = function(panel, sourceText) {
+    var caption = String((panel && (panel.caption || panel.beat_summary || panel.summary || panel.title || panel.text)) || '').trim();
+    var text = String(sourceText || '');
+    var sentencePool = text
+      .split(/[.!?]\s+/)
+      .map(function(s) { return s.trim(); })
+      .filter(Boolean)
+      .slice(0, 220);
+    var fallbackSnippet = sentencePool[0] || '';
+    var captionTerms = caption.toLowerCase().match(/[a-z0-9][a-z0-9'-]{2,}/g) || [];
+    var snippet = '';
+    if (captionTerms.length) {
+      for (var i = 0; i < sentencePool.length; i++) {
+        var s = sentencePool[i];
+        var lower = s.toLowerCase();
+        var hits = 0;
+        for (var j = 0; j < captionTerms.length; j++) {
+          if (lower.indexOf(captionTerms[j]) >= 0) hits += 1;
+          if (hits >= 2) break;
+        }
+        if (hits >= 2) {
+          snippet = s;
+          break;
+        }
+      }
+    }
+    if (!snippet) snippet = fallbackSnippet;
+    var entityMatches = (snippet.match(/\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,2}\b/g) || []).slice(0, 6);
+    var dateMatches = (snippet.match(/\b(?:\d{4}|\d{1,2}\s+[A-Z][a-z]+\s+\d{4}|[A-Z][a-z]+\s+\d{1,2},\s+\d{4})\b/g) || []).slice(0, 4);
+    var numberMatches = (snippet.match(/\b\d[\d,]*(?:\.\d+)?%?\b/g) || []).slice(0, 5);
+    return {
+      entities: entityMatches,
+      dates: dateMatches,
+      numbers: numberMatches,
+      source_snippet: String(snippet || '').slice(0, 300)
+    };
+  };
+
+  this.enrichStoryboardFacts = function(storyboard, sourceText) {
+    if (!storyboard || !Array.isArray(storyboard.panels)) return storyboard;
+    storyboard.panels = storyboard.panels.map(function(panel) {
+      var next = panel && typeof panel === 'object' ? panel : {};
+      next.facts_used = self.extractPanelFacts(next, sourceText);
+      return next;
+    });
+    return storyboard;
+  };
+
+  this.transformPanelCaption = function(panel, action) {
+    var p = panel && typeof panel === 'object' ? panel : {};
+    var currentCaption = normalizeLooseTextValue(
+      p.caption || p.beat_summary || p.summary || p.title || p.text || p.narration || p.description || p.dialogue
+    ) || 'Key moment from the source';
+    var facts = p.facts_used || {};
+    var entity = Array.isArray(facts.entities) && facts.entities.length ? facts.entities[0] : '';
+    var number = Array.isArray(facts.numbers) && facts.numbers.length ? facts.numbers[0] : '';
+    var date = Array.isArray(facts.dates) && facts.dates.length ? facts.dates[0] : '';
+    var snippet = normalizeLooseTextValue(facts.source_snippet || '');
+
+    if (action === 'make-simpler') {
+      return currentCaption
+        .replace(/\s+/g, ' ')
+        .split(/[;:,.]/)[0]
+        .slice(0, 130)
+        .trim();
+    }
+
+    if (action === 'make-factual') {
+      var factual = [entity, date, number].filter(Boolean).join(' ');
+      if (factual) return ('Fact check: ' + factual + '.').slice(0, 180);
+      if (snippet) return ('Fact check: ' + snippet).slice(0, 180);
+      return ('Fact check: ' + currentCaption).slice(0, 180);
+    }
+
+    if (action === 'regenerate-caption') {
+      if (snippet) return snippet.slice(0, 180);
+      return ('Updated: ' + currentCaption).slice(0, 180);
+    }
+
+    return currentCaption;
+  };
+
+  this.handleEditPanel = function(message) {
+    var payload = message && message.payload ? message.payload : {};
+    var panelIndex = Number(payload.panelIndex);
+    var action = String(payload.action || '').trim();
+    if (!Number.isInteger(panelIndex) || panelIndex < 0) {
+      throw new Error('panelIndex is required');
+    }
+    if (!action) {
+      throw new Error('action is required');
+    }
+    if (!self.currentJob || !self.currentJob.storyboard || !Array.isArray(self.currentJob.storyboard.panels)) {
+      throw new Error('No active comic available');
+    }
+    var panels = self.currentJob.storyboard.panels;
+    if (panelIndex >= panels.length) throw new Error('Invalid panel index');
+    var panel = panels[panelIndex] || {};
+
+    if (action === 'regenerate-image') {
+      var provider = self.getImageProvider(self.currentJob.settings.provider_image);
+      panel.runtime_status = 'rendering';
+      self.currentJob.updatedAt = new Date().toISOString();
+      self.saveJob();
+      self.notifyProgress();
+      return self.generateImageWithRefusalHandling(
+        provider,
+        panel,
+        panelIndex,
+        panels.length,
+        self.currentJob,
+        null
+      ).then(function(imageResult) {
+        if (!imageResult || !imageResult.imageData) throw new Error('Provider returned no image data');
+        panel.artifacts = {
+          image_blob_ref: imageResult.imageData,
+          provider_metadata: imageResult.providerMetadata || null
+        };
+        panel.runtime_status = 'completed';
+        self.currentJob.updatedAt = new Date().toISOString();
+        self.saveJob();
+        self.notifyProgress();
+        self.trackMetric('panel_edit_regenerate_image', {
+          panel_index: panelIndex,
+          domain: (() => { try { return new URL(String(self.currentJob.sourceUrl || '')).hostname; } catch (_) { return ''; } })()
+        });
+        return self.addCompletedJobToHistory(self.currentJob).then(function() {
+          return { job: self.currentJob };
+        });
+      });
+    }
+
+    panel.caption = self.transformPanelCaption(panel, action);
+    panel.facts_used = self.extractPanelFacts(panel, self.currentJob.extractedText || '');
+    self.currentJob.updatedAt = new Date().toISOString();
+    self.saveJob();
+    self.notifyProgress();
+    self.trackMetric('panel_edit_caption', { action: action, panel_index: panelIndex });
+    return self.addCompletedJobToHistory(self.currentJob).then(function() {
+      return { job: self.currentJob };
+    });
+  };
+
+  this.handleTrackMetric = function(message) {
+    var payload = message && message.payload ? message.payload : {};
+    return self.trackMetric(payload.event, payload).then(function() { return { tracked: true }; });
+  };
   
   this.setupMessageHandlers = function() {
     self.messageHandlers['START_GENERATION'] = function(msg) { return self.handleStartGeneration(msg); };
     self.messageHandlers['CANCEL_GENERATION'] = function(msg) { return self.handleCancelGeneration(msg); };
     self.messageHandlers['GET_STATUS'] = function(msg) { return self.handleGetStatus(msg); };
+    self.messageHandlers['TRACK_METRIC'] = function(msg) { return self.handleTrackMetric(msg); };
+    self.messageHandlers['EDIT_PANEL'] = function(msg) { return self.handleEditPanel(msg); };
     self.messageHandlers['TEST_PROVIDER_MODEL'] = function(msg) { return self.handleTestProviderModel(msg); };
     self.messageHandlers['VALIDATE_PROVIDER_REMOTE'] = function(msg) { return self.handleValidateProviderRemote(msg); };
+    self.messageHandlers['GOOGLE_DRIVE_GET_STATUS'] = function(msg) { return self.handleGoogleDriveGetStatus(msg); };
+    self.messageHandlers['GOOGLE_DRIVE_CONNECT'] = function(msg) { return self.handleGoogleDriveConnect(msg); };
+    self.messageHandlers['GOOGLE_DRIVE_DISCONNECT'] = function(msg) { return self.handleGoogleDriveDisconnect(msg); };
+    self.messageHandlers['FACEBOOK_GET_STATUS'] = function(msg) { return self.handleFacebookGetStatus(msg); };
+    self.messageHandlers['FACEBOOK_CONNECT'] = function(msg) { return self.handleFacebookConnect(msg); };
+    self.messageHandlers['FACEBOOK_DISCONNECT'] = function(msg) { return self.handleFacebookDisconnect(msg); };
+    self.messageHandlers['X_GET_STATUS'] = function(msg) { return self.handleXGetStatus(msg); };
+    self.messageHandlers['X_CONNECT'] = function(msg) { return self.handleXConnect(msg); };
+    self.messageHandlers['X_DISCONNECT'] = function(msg) { return self.handleXDisconnect(msg); };
   };
   
   this.setupLifecycleHandlers = function() {
     chrome.runtime.onMessage.addListener(function(message, sender, sendResponse) {
       var handler = self.messageHandlers[message.type];
+      if (globalThis && globalThis.__WEB2COMICS_TEST_LOGS__) {
+        try {
+          console.info('[Web2Comics:test][service-worker] message.received', {
+            type: message && message.type,
+            hasHandler: !!handler
+          });
+        } catch (_) {}
+      }
       if (handler) {
         Promise.resolve(handler(message))
           .then(function(result) { sendResponse({ success: true, ...result }); })
@@ -2211,6 +2689,208 @@ var ServiceWorker = function() {
     } else {
       console.warn('chrome.alarms API unavailable; periodic cleanup disabled');
     }
+  };
+
+  this.setupSelectionContextMenu = function() {
+    if (!chrome.contextMenus || !chrome.contextMenus.create || !chrome.contextMenus.onClicked) {
+      return;
+    }
+
+    function createMenu() {
+      try {
+        chrome.contextMenus.create({
+          id: self.SELECTION_CONTEXT_MENU_ID,
+          title: 'Generate comic from selected text (Default)',
+          contexts: ['selection']
+        }, function() {
+          var err = chrome.runtime && chrome.runtime.lastError;
+          if (err && !/duplicate id/i.test(String(err.message || ''))) {
+            console.warn('Failed to create selection context menu:', err.message || err);
+          }
+        });
+        chrome.contextMenus.create({
+          id: self.SELECTION_CONTEXT_MENU_OPEN_PANEL_ID,
+          title: 'Open Create Comic with selected text',
+          contexts: ['selection']
+        }, function() {
+          var err = chrome.runtime && chrome.runtime.lastError;
+          if (err && !/duplicate id/i.test(String(err.message || ''))) {
+            console.warn('Failed to create selection context menu:', err.message || err);
+          }
+        });
+      } catch (error) {
+        console.warn('Failed to create selection context menu:', error);
+      }
+    }
+
+    try {
+      if (chrome.contextMenus.removeAll) {
+        chrome.contextMenus.removeAll(function() {
+          createMenu();
+        });
+      } else {
+        createMenu();
+      }
+    } catch (error) {
+      console.warn('Failed to reset selection context menu:', error);
+      createMenu();
+    }
+
+    chrome.contextMenus.onClicked.addListener(function(info, tab) {
+      if (!info) return;
+      if (info.menuItemId === self.SELECTION_CONTEXT_MENU_ID) {
+        self.handleSelectionContextMenuGenerateClick(info, tab)
+          .catch(function(error) {
+            console.error('Selection context menu generation failed:', error);
+          });
+        return;
+      }
+      if (info.menuItemId === self.SELECTION_CONTEXT_MENU_OPEN_PANEL_ID) {
+        self.handleSelectionContextMenuOpenComposerClick(info, tab)
+          .catch(function(error) {
+            console.error('Selection context menu composer open failed:', error);
+          });
+      }
+    });
+  };
+
+  this.getContextMenuGenerationSettings = function(userSettings) {
+    var settings = userSettings || {};
+    var providerText = settings.activeTextProvider || 'gemini-free';
+    var providerImage = settings.activeImageProvider || 'gemini-free';
+    var textModel = settings.textModel || '';
+    var imageModel = settings.imageModel || '';
+    var imageQuality = '';
+    var imageSize = '';
+
+    if (providerText === 'gemini-free') textModel = settings.geminiTextModel || 'gemini-2.5-flash';
+    if (providerText === 'cloudflare-free') textModel = settings.cloudflareTextModel || '@cf/meta/llama-3.1-8b-instruct';
+    if (providerText === 'openrouter') textModel = settings.openrouterTextModel || 'openai/gpt-oss-20b:free';
+    if (providerText === 'huggingface') textModel = settings.huggingfaceTextModel || 'mistralai/Mistral-7B-Instruct-v0.2';
+    if (providerText === 'openai') textModel = settings.textModel || 'gpt-4o-mini';
+
+    if (providerImage === 'gemini-free') imageModel = settings.geminiImageModel || 'gemini-2.0-flash-exp-image-generation';
+    if (providerImage === 'cloudflare-free') imageModel = settings.cloudflareImageModel || '@cf/black-forest-labs/flux-1-schnell';
+    if (providerImage === 'openrouter') {
+      imageModel = settings.openrouterImageModel || 'google/gemini-2.5-flash-image-preview';
+      imageSize = settings.openrouterImageSize || '1K';
+    }
+    if (providerImage === 'huggingface') {
+      imageModel = settings.huggingfaceImageModel || 'black-forest-labs/FLUX.1-schnell';
+      imageSize = settings.huggingfaceImageSize || '512x512';
+      imageQuality = settings.huggingfaceImageQuality || 'fastest';
+    }
+    if (providerImage === 'openai') {
+      imageModel = settings.imageModel || 'dall-e-2';
+      imageSize = settings.openaiImageSize || '256x256';
+      imageQuality = settings.openaiImageQuality || 'standard';
+    }
+
+    return {
+      panel_count: settings.panelCount || 3,
+      objective: settings.objective || 'summarize',
+      output_language: settings.outputLanguage || 'en',
+      detail_level: settings.detailLevel || 'low',
+      style_id: settings.styleId || 'default',
+      caption_len: settings.captionLength || 'short',
+      provider_text: providerText,
+      provider_image: providerImage,
+      text_model: textModel,
+      image_model: imageModel,
+      image_quality: imageQuality,
+      image_size: imageSize,
+      custom_style_theme: settings.customStyleTheme || '',
+      custom_style_name: settings.customStyleName || '',
+      character_consistency: !!settings.characterConsistency,
+      debug_flag: !!settings.debugFlag,
+      image_refusal_handling: settings.imageRefusalHandling || 'rewrite_and_retry',
+      show_rewritten_badge: settings.showRewrittenBadge !== false,
+      log_rewritten_prompts: !!settings.logRewrittenPrompts
+    };
+  };
+
+  this.getSelectionContextPayload = function(info, tab) {
+    var selectedText = String((info && info.selectionText) || '').trim();
+    if (!selectedText) {
+      return null;
+    }
+    return {
+      selectedText: selectedText,
+      sourceUrl: (tab && tab.url) || '',
+      sourceTitle: (tab && tab.title) || 'Selected text'
+    };
+  };
+
+  this.handleSelectionContextMenuGenerateClick = function(info, tab) {
+    var payload = self.getSelectionContextPayload(info, tab);
+    if (!payload) {
+      return Promise.resolve({ started: false, reason: 'empty-selection' });
+    }
+    return Promise.resolve()
+      .then(function() {
+        return chrome.storage.local.get('settings');
+      })
+      .then(function(result) {
+        var savedSettings = result && result.settings ? result.settings : {};
+        return self.getContextMenuGenerationSettings(savedSettings);
+      })
+      .catch(function() {
+        return self.getContextMenuGenerationSettings({});
+      })
+      .then(function(generationSettings) {
+        return Promise.resolve()
+      .then(function() {
+        return self.handleStartGeneration({
+          payload: {
+            text: payload.selectedText,
+            url: payload.sourceUrl,
+            title: payload.sourceTitle,
+            settings: generationSettings
+          }
+        });
+      })
+      .then(function(startResult) {
+        if (!startResult || !startResult.started) return startResult;
+        var openViewer = Promise.resolve();
+        if (chrome.sidePanel && chrome.sidePanel.open && tab && tab.windowId != null) {
+          openViewer = Promise.resolve(chrome.sidePanel.open({ windowId: tab.windowId })).catch(function() {});
+        }
+        return openViewer.then(function() {
+          if (chrome.action && chrome.action.openPopup) {
+            return Promise.resolve(chrome.action.openPopup()).catch(function() {});
+          }
+        }).then(function() {
+          return startResult;
+        });
+      });
+      });
+  };
+
+  this.handleSelectionContextMenuOpenComposerClick = function(info, tab, options) {
+    var payload = self.getSelectionContextPayload(info, tab);
+    if (!payload) {
+      return Promise.resolve({ opened: false, reason: 'empty-selection' });
+    }
+    return chrome.storage.local.set({
+      pendingComposerPrefill: {
+        text: payload.selectedText,
+        sourceUrl: payload.sourceUrl,
+        sourceTitle: payload.sourceTitle,
+        createdAt: new Date().toISOString(),
+        source: 'context-menu-selection'
+      }
+    }).then(function() {
+      var skipOpenPopup = !!(options && options.skipOpenPopup);
+      if (!skipOpenPopup && chrome.action && chrome.action.openPopup) {
+        return Promise.resolve(chrome.action.openPopup()).catch(function() {});
+      }
+    }).then(function() {
+      return { opened: true };
+    });
+  };
+  
+  this.handleSelectionContextMenuClick = function(info, tab) {
+    return self.handleSelectionContextMenuGenerateClick(info, tab);
   };
   
   this.getTextProvider = function(providerId) {
@@ -2252,6 +2932,8 @@ var ServiceWorker = function() {
       var overrides = extra && typeof extra === 'object' ? extra : {};
       return {
         panelCount: settings.panel_count,
+        objective: settings.objective || 'summarize',
+        outputLanguage: settings.output_language || 'en',
         detailLevel: settings.detail_level,
         styleId: settings.style_id,
         captionLength: settings.caption_len,
@@ -2374,7 +3056,12 @@ var ServiceWorker = function() {
     var text = payload.text;
     var url = payload.url;
     var title = payload.title;
-    var settings = payload.settings;
+    var settings = payload.settings || {};
+    if (!settings.objective) settings.objective = 'summarize';
+    if (!settings.output_language && settings.outputLanguage) {
+      settings.output_language = settings.outputLanguage;
+    }
+    if (!settings.output_language) settings.output_language = 'en';
     
     if (self.isProcessing) {
       return { success: false, error: 'Generation already in progress' };
@@ -2406,6 +3093,13 @@ var ServiceWorker = function() {
       providerImage: settings.provider_image,
       panelCount: settings.panel_count
     });
+    self.trackMetric('generation_created', {
+      domain: (() => { try { return new URL(String(url || '')).hostname; } catch (_) { return ''; } })(),
+      objective: settings.objective || 'summarize',
+      provider_text: settings.provider_text,
+      provider_image: settings.provider_image,
+      panel_count: settings.panel_count
+    });
 
     // Start generation asynchronously so popup can immediately begin polling and render progress.
     self.executeGeneration()
@@ -2428,6 +3122,10 @@ var ServiceWorker = function() {
           self.currentJob.updatedAt = new Date().toISOString();
           self.saveJob();
           self.notifyProgress();
+          self.trackMetric('generation_failed', {
+            domain: (() => { try { return new URL(String(self.currentJob.sourceUrl || '')).hostname; } catch (_) { return ''; } })(),
+            objective: self.currentJob.settings && self.currentJob.settings.objective ? self.currentJob.settings.objective : 'summarize'
+          });
         }
       })
       .finally(function() { self.isProcessing = false; });
@@ -2510,6 +3208,7 @@ var ServiceWorker = function() {
         if (!p.panel_id) p.panel_id = 'panel_' + (idx + 1);
         return p;
       });
+      storyboard = self.enrichStoryboardFacts(storyboard, job.extractedText || '');
       storyboard.settings = {
         ...(storyboard.settings || {}),
         debug_flag: !!settings.debug_flag,
@@ -2600,6 +3299,14 @@ var ServiceWorker = function() {
                 'Metadata: ' + self.truncateForDebug(JSON.stringify(imageResult.providerMetadata || {}), 240)
               );
               self.appendDebugLog('panel.image.success', { panelIndex: panelIndex, panelId: panel.panel_id || null });
+              if (Number(job.completedPanels || 0) === 0) {
+                var firstPanelMs = Math.max(0, Date.now() - new Date(job.createdAt).getTime());
+                self.trackMetric('time_to_first_panel', {
+                  ms: firstPanelMs,
+                  domain: (() => { try { return new URL(String(job.sourceUrl || '')).hostname; } catch (_) { return ''; } })(),
+                  objective: job.settings && job.settings.objective ? job.settings.objective : 'summarize'
+                });
+              }
             })
             .catch(function(error) {
               console.error('Failed panel ' + (panel.panel_id || panelIndex + 1) + ':', error);
@@ -2692,6 +3399,11 @@ var ServiceWorker = function() {
         self.appendDebugLog('job.completed', {
           panels: job.storyboard && job.storyboard.panels ? job.storyboard.panels.length : 0,
           panelErrors: job.panelErrors ? job.panelErrors.length : 0
+        });
+        self.trackMetric('generation_completed', {
+          domain: (() => { try { return new URL(String(job.sourceUrl || '')).hostname; } catch (_) { return ''; } })(),
+          objective: job.settings && job.settings.objective ? job.settings.objective : 'summarize',
+          panel_errors: (job.panelErrors && job.panelErrors.length) || 0
         });
         return self.addCompletedJobToHistory(job);
       }
@@ -2840,6 +3552,554 @@ var ServiceWorker = function() {
     };
   };
 
+  this.getGoogleDriveSettings = async function() {
+    var stored = await chrome.storage.local.get('settings');
+    var settings = stored && stored.settings ? stored.settings : {};
+    return {
+      autoSave: !!settings.googleDriveAutoSave,
+      clientId: String(settings.googleDriveClientId || '').trim()
+    };
+  };
+
+  this.getGoogleDriveAuth = async function() {
+    var stored = await chrome.storage.local.get('googleDriveAuth');
+    var auth = stored && stored.googleDriveAuth ? stored.googleDriveAuth : null;
+    if (!auth || typeof auth !== 'object') return null;
+    return auth;
+  };
+
+  this.isGoogleDriveAuthValid = function(auth) {
+    if (!auth || typeof auth !== 'object') return false;
+    if (!auth.accessToken) return false;
+    var expiresAt = Number(auth.expiresAt || 0);
+    return expiresAt > (Date.now() + 60 * 1000);
+  };
+
+  this.launchGoogleWebAuthFlow = function(url, interactive) {
+    return new Promise(function(resolve, reject) {
+      if (!chrome.identity || !chrome.identity.launchWebAuthFlow) {
+        reject(new Error('Chrome identity API is not available'));
+        return;
+      }
+      chrome.identity.launchWebAuthFlow({ url: url, interactive: !!interactive }, function(redirectUrl) {
+        var lastError = chrome.runtime && chrome.runtime.lastError;
+        if (lastError) {
+          reject(new Error(lastError.message || 'Authentication failed'));
+          return;
+        }
+        if (!redirectUrl) {
+          reject(new Error('Authentication canceled or failed'));
+          return;
+        }
+        resolve(redirectUrl);
+      });
+    });
+  };
+
+  this.parseGoogleOAuthTokenFromRedirect = function(redirectUrl) {
+    var hash = '';
+    try {
+      var idx = String(redirectUrl || '').indexOf('#');
+      hash = idx >= 0 ? String(redirectUrl).slice(idx + 1) : '';
+    } catch (_) {
+      hash = '';
+    }
+    if (!hash) throw new Error('Missing OAuth token response');
+    var params = new URLSearchParams(hash);
+    var token = params.get('access_token');
+    var expiresInSec = Number(params.get('expires_in') || 0);
+    if (!token) throw new Error('Google OAuth did not return access token');
+    return {
+      accessToken: token,
+      expiresAt: Date.now() + Math.max(300, expiresInSec) * 1000
+    };
+  };
+
+  this.getGoogleDriveConnectionStatus = async function() {
+    var settings = await self.getGoogleDriveSettings();
+    var auth = await self.getGoogleDriveAuth();
+    var connected = self.isGoogleDriveAuthValid(auth);
+    return {
+      connected: connected,
+      autoSave: settings.autoSave,
+      hasClientId: !!settings.clientId,
+      expiresAt: auth && auth.expiresAt ? auth.expiresAt : 0
+    };
+  };
+
+  this.handleGoogleDriveGetStatus = async function() {
+    return { status: await self.getGoogleDriveConnectionStatus() };
+  };
+
+  this.handleGoogleDriveConnect = async function(message) {
+    var payload = message && message.payload ? message.payload : {};
+    var currentSettings = await self.getGoogleDriveSettings();
+    var clientId = String(payload.clientId || currentSettings.clientId || '').trim();
+    if (!clientId) {
+      throw new Error('Google OAuth Client ID is required');
+    }
+    var redirectUri = chrome.identity && chrome.identity.getRedirectURL
+      ? chrome.identity.getRedirectURL('google-oauth2')
+      : '';
+    if (!redirectUri) {
+      throw new Error('Unable to resolve OAuth redirect URL');
+    }
+    var scopes = 'https://www.googleapis.com/auth/drive.file';
+    var authUrl =
+      'https://accounts.google.com/o/oauth2/v2/auth' +
+      '?client_id=' + encodeURIComponent(clientId) +
+      '&response_type=token' +
+      '&redirect_uri=' + encodeURIComponent(redirectUri) +
+      '&scope=' + encodeURIComponent(scopes) +
+      '&include_granted_scopes=true' +
+      '&prompt=consent';
+    var redirectResult = await self.launchGoogleWebAuthFlow(authUrl, true);
+    var tokenResult = self.parseGoogleOAuthTokenFromRedirect(redirectResult);
+    await chrome.storage.local.set({
+      googleDriveAuth: {
+        accessToken: tokenResult.accessToken,
+        expiresAt: tokenResult.expiresAt,
+        connectedAt: new Date().toISOString(),
+        clientId: clientId
+      }
+    });
+    self.appendDebugLog('drive.connect.success', {
+      expiresAt: tokenResult.expiresAt
+    });
+    return { status: await self.getGoogleDriveConnectionStatus() };
+  };
+
+  this.handleGoogleDriveDisconnect = async function() {
+    await chrome.storage.local.remove('googleDriveAuth');
+    self.appendDebugLog('drive.disconnect');
+    return { status: await self.getGoogleDriveConnectionStatus() };
+  };
+
+  this.getFacebookSettings = async function() {
+    var stored = await chrome.storage.local.get('settings');
+    var settings = stored && stored.settings ? stored.settings : {};
+    return {
+      appId: String(settings.facebookAppId || '').trim()
+    };
+  };
+
+  this.getFacebookAuth = async function() {
+    var stored = await chrome.storage.local.get('facebookAuth');
+    var auth = stored && stored.facebookAuth ? stored.facebookAuth : null;
+    if (!auth || typeof auth !== 'object') return null;
+    return auth;
+  };
+
+  this.isFacebookAuthValid = function(auth) {
+    if (!auth || typeof auth !== 'object') return false;
+    if (!auth.accessToken) return false;
+    var expiresAt = Number(auth.expiresAt || 0);
+    return expiresAt > (Date.now() + 60 * 1000);
+  };
+
+  this.parseFacebookOAuthTokenFromRedirect = function(redirectUrl) {
+    var text = String(redirectUrl || '');
+    var queryPart = '';
+    var hashPart = '';
+    try {
+      var qIdx = text.indexOf('?');
+      queryPart = qIdx >= 0 ? text.slice(qIdx + 1).split('#')[0] : '';
+      var hIdx = text.indexOf('#');
+      hashPart = hIdx >= 0 ? text.slice(hIdx + 1) : '';
+    } catch (_) {}
+
+    var queryParams = new URLSearchParams(queryPart);
+    if (queryParams.get('error')) {
+      throw new Error(queryParams.get('error_description') || queryParams.get('error') || 'Facebook OAuth error');
+    }
+    var hashParams = new URLSearchParams(hashPart);
+    if (hashParams.get('error')) {
+      throw new Error(hashParams.get('error_description') || hashParams.get('error') || 'Facebook OAuth error');
+    }
+    var token = hashParams.get('access_token') || queryParams.get('access_token');
+    var expiresInSec = Number(hashParams.get('expires_in') || queryParams.get('expires_in') || 0);
+    if (!token) throw new Error('Facebook OAuth did not return access token');
+    return {
+      accessToken: token,
+      expiresAt: Date.now() + Math.max(300, expiresInSec) * 1000
+    };
+  };
+
+  this.getFacebookConnectionStatus = async function() {
+    var settings = await self.getFacebookSettings();
+    var auth = await self.getFacebookAuth();
+    var connected = self.isFacebookAuthValid(auth);
+    return {
+      connected: connected,
+      hasAppId: !!settings.appId,
+      expiresAt: auth && auth.expiresAt ? auth.expiresAt : 0
+    };
+  };
+
+  this.handleFacebookGetStatus = async function() {
+    return { status: await self.getFacebookConnectionStatus() };
+  };
+
+  this.handleFacebookConnect = async function(message) {
+    var payload = message && message.payload ? message.payload : {};
+    var currentSettings = await self.getFacebookSettings();
+    var appId = String(payload.appId || currentSettings.appId || '').trim();
+    if (!appId) {
+      throw new Error('Facebook App ID is required');
+    }
+    var redirectUri = chrome.identity && chrome.identity.getRedirectURL
+      ? chrome.identity.getRedirectURL('facebook-oauth2')
+      : '';
+    if (!redirectUri) {
+      throw new Error('Unable to resolve OAuth redirect URL');
+    }
+    var authUrl =
+      'https://www.facebook.com/v19.0/dialog/oauth' +
+      '?client_id=' + encodeURIComponent(appId) +
+      '&redirect_uri=' + encodeURIComponent(redirectUri) +
+      '&response_type=token' +
+      '&scope=' + encodeURIComponent('public_profile');
+    var redirectResult = await self.launchGoogleWebAuthFlow(authUrl, true);
+    var tokenResult = self.parseFacebookOAuthTokenFromRedirect(redirectResult);
+    await chrome.storage.local.set({
+      facebookAuth: {
+        accessToken: tokenResult.accessToken,
+        expiresAt: tokenResult.expiresAt,
+        connectedAt: new Date().toISOString(),
+        appId: appId
+      }
+    });
+    self.appendDebugLog('facebook.connect.success', {
+      expiresAt: tokenResult.expiresAt
+    });
+    return { status: await self.getFacebookConnectionStatus() };
+  };
+
+  this.handleFacebookDisconnect = async function() {
+    await chrome.storage.local.remove('facebookAuth');
+    self.appendDebugLog('facebook.disconnect');
+    return { status: await self.getFacebookConnectionStatus() };
+  };
+
+  this.getXSettings = async function() {
+    var stored = await chrome.storage.local.get('settings');
+    var settings = stored && stored.settings ? stored.settings : {};
+    return {
+      clientId: String(settings.xClientId || '').trim()
+    };
+  };
+
+  this.getXAuth = async function() {
+    var stored = await chrome.storage.local.get('xAuth');
+    var auth = stored && stored.xAuth ? stored.xAuth : null;
+    if (!auth || typeof auth !== 'object') return null;
+    return auth;
+  };
+
+  this.isXAuthValid = function(auth) {
+    if (!auth || typeof auth !== 'object') return false;
+    if (!auth.accessToken) return false;
+    var expiresAt = Number(auth.expiresAt || 0);
+    return expiresAt > (Date.now() + 60 * 1000);
+  };
+
+  this.base64UrlEncode = function(input) {
+    var bytes = input instanceof Uint8Array ? input : new Uint8Array(input || []);
+    var binary = '';
+    for (var i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+    return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+  };
+
+  this.randomUrlSafeString = function(length) {
+    var n = Math.max(16, Number(length) || 32);
+    var bytes = new Uint8Array(n);
+    crypto.getRandomValues(bytes);
+    return self.base64UrlEncode(bytes).slice(0, n);
+  };
+
+  this.createXPkcePair = async function() {
+    var verifier = self.randomUrlSafeString(64);
+    var digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier));
+    var challenge = self.base64UrlEncode(new Uint8Array(digest));
+    return { verifier: verifier, challenge: challenge };
+  };
+
+  this.parseXOAuthCodeFromRedirect = function(redirectUrl) {
+    var text = String(redirectUrl || '');
+    var queryPart = '';
+    try {
+      var qIdx = text.indexOf('?');
+      queryPart = qIdx >= 0 ? text.slice(qIdx + 1).split('#')[0] : '';
+    } catch (_) {}
+    var params = new URLSearchParams(queryPart);
+    if (params.get('error')) {
+      throw new Error(params.get('error_description') || params.get('error') || 'X OAuth error');
+    }
+    var code = params.get('code');
+    var state = params.get('state');
+    if (!code) throw new Error('X OAuth did not return authorization code');
+    return { code: code, state: state };
+  };
+
+  this.exchangeXAuthorizationCode = async function(clientId, code, codeVerifier, redirectUri) {
+    var body = new URLSearchParams({
+      grant_type: 'authorization_code',
+      client_id: clientId,
+      code: code,
+      redirect_uri: redirectUri,
+      code_verifier: codeVerifier
+    });
+    var response = await fetchWithTimeout('https://api.twitter.com/2/oauth2/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: body.toString()
+    }, 20000, 'X OAuth token exchange');
+    if (!response.ok) {
+      var message = 'X token exchange failed';
+      try {
+        var json = await response.json();
+        message = (json && (json.error_description || json.error)) || message;
+      } catch (_) {}
+      throw new Error(message + ' (HTTP ' + response.status + ')');
+    }
+    var tokenJson = await response.json();
+    if (!tokenJson || !tokenJson.access_token) {
+      throw new Error('X token exchange returned no access token');
+    }
+    var expiresIn = Number(tokenJson.expires_in || 0);
+    return {
+      accessToken: tokenJson.access_token,
+      refreshToken: tokenJson.refresh_token || '',
+      expiresAt: Date.now() + Math.max(300, expiresIn) * 1000
+    };
+  };
+
+  this.getXConnectionStatus = async function() {
+    var settings = await self.getXSettings();
+    var auth = await self.getXAuth();
+    var connected = self.isXAuthValid(auth);
+    return {
+      connected: connected,
+      hasClientId: !!settings.clientId,
+      expiresAt: auth && auth.expiresAt ? auth.expiresAt : 0
+    };
+  };
+
+  this.handleXGetStatus = async function() {
+    return { status: await self.getXConnectionStatus() };
+  };
+
+  this.handleXConnect = async function(message) {
+    var payload = message && message.payload ? message.payload : {};
+    var currentSettings = await self.getXSettings();
+    var clientId = String(payload.clientId || currentSettings.clientId || '').trim();
+    if (!clientId) {
+      throw new Error('X OAuth Client ID is required');
+    }
+    var redirectUri = chrome.identity && chrome.identity.getRedirectURL
+      ? chrome.identity.getRedirectURL('x-oauth2')
+      : '';
+    if (!redirectUri) {
+      throw new Error('Unable to resolve OAuth redirect URL');
+    }
+
+    var state = self.randomUrlSafeString(24);
+    var pkce = await self.createXPkcePair();
+    var scope = 'tweet.read users.read tweet.write offline.access';
+    var authUrl =
+      'https://twitter.com/i/oauth2/authorize' +
+      '?response_type=code' +
+      '&client_id=' + encodeURIComponent(clientId) +
+      '&redirect_uri=' + encodeURIComponent(redirectUri) +
+      '&scope=' + encodeURIComponent(scope) +
+      '&state=' + encodeURIComponent(state) +
+      '&code_challenge=' + encodeURIComponent(pkce.challenge) +
+      '&code_challenge_method=S256';
+    var redirectResult = await self.launchGoogleWebAuthFlow(authUrl, true);
+    var parsed = self.parseXOAuthCodeFromRedirect(redirectResult);
+    if (!parsed || parsed.state !== state) {
+      throw new Error('X OAuth state mismatch');
+    }
+
+    var tokenResult = await self.exchangeXAuthorizationCode(clientId, parsed.code, pkce.verifier, redirectUri);
+    await chrome.storage.local.set({
+      xAuth: {
+        accessToken: tokenResult.accessToken,
+        refreshToken: tokenResult.refreshToken,
+        expiresAt: tokenResult.expiresAt,
+        connectedAt: new Date().toISOString(),
+        clientId: clientId
+      }
+    });
+    self.appendDebugLog('x.connect.success', { expiresAt: tokenResult.expiresAt });
+    return { status: await self.getXConnectionStatus() };
+  };
+
+  this.handleXDisconnect = async function() {
+    await chrome.storage.local.remove('xAuth');
+    self.appendDebugLog('x.disconnect');
+    return { status: await self.getXConnectionStatus() };
+  };
+
+  this.ensureGoogleDriveFolder = async function(accessToken, folderName) {
+    var name = String(folderName || 'Web2Comics');
+    var query = "mimeType='application/vnd.google-apps.folder' and trashed=false and name='" +
+      name.replace(/'/g, "\\'") + "'";
+    var listUrl = 'https://www.googleapis.com/drive/v3/files?q=' + encodeURIComponent(query) +
+      '&spaces=drive&fields=files(id,name)&pageSize=1';
+    var listResponse = await fetchWithTimeout(listUrl, {
+      method: 'GET',
+      headers: { Authorization: 'Bearer ' + accessToken }
+    }, 20000, 'Drive folder list');
+    if (!listResponse.ok) {
+      throw new Error('Failed to query Drive folder (HTTP ' + listResponse.status + ')');
+    }
+    var listJson = await listResponse.json();
+    var existing = listJson && Array.isArray(listJson.files) && listJson.files[0] ? listJson.files[0] : null;
+    if (existing && existing.id) return existing.id;
+
+    var createResponse = await fetchWithTimeout('https://www.googleapis.com/drive/v3/files', {
+      method: 'POST',
+      headers: {
+        Authorization: 'Bearer ' + accessToken,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        name: name,
+        mimeType: 'application/vnd.google-apps.folder'
+      })
+    }, 20000, 'Drive folder create');
+    if (!createResponse.ok) {
+      throw new Error('Failed to create Drive folder (HTTP ' + createResponse.status + ')');
+    }
+    var createJson = await createResponse.json();
+    if (!createJson || !createJson.id) {
+      throw new Error('Drive folder creation returned no id');
+    }
+    return createJson.id;
+  };
+
+  this.sanitizeDriveFilename = function(name) {
+    return String(name || 'web2comics')
+      .replace(/[<>:"/\\|?*\x00-\x1F]/g, '')
+      .trim()
+      .substring(0, 120) || 'web2comics';
+  };
+
+  this.buildInteractiveComicHtml = function(storyboard) {
+    var payload = JSON.stringify(storyboard || {}).replace(/<\/script/gi, '<\\/script');
+    return '<!doctype html>' +
+      '<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">' +
+      '<title>Web2Comics Export</title><style>' +
+      'body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;margin:0;background:#f5f7fb;color:#0f172a}' +
+      '.wrap{max-width:1160px;margin:0 auto;padding:18px}' +
+      '.top{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between;background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:14px}' +
+      '.title{font-size:22px;font-weight:700;margin:0}' +
+      '.source{font-size:13px;color:#334155}' +
+      '.controls{display:flex;gap:8px;align-items:center}' +
+      'select{padding:8px 10px;border:1px solid #cbd5e1;border-radius:8px;background:#fff}' +
+      '.panels{margin-top:14px;display:grid;gap:12px}' +
+      '.panel{background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:10px;display:flex;flex-direction:column;gap:8px}' +
+      '.panel img{width:100%;height:auto;border-radius:8px;background:#e2e8f0;object-fit:contain}' +
+      '.caption{font-size:14px;line-height:1.4}' +
+      '.num{font-size:12px;color:#64748b;font-weight:600}' +
+      '.layout-strip{grid-template-columns:repeat(3,minmax(0,1fr))}' +
+      '.layout-grid{grid-template-columns:repeat(2,minmax(0,1fr))}' +
+      '.layout-single{grid-template-columns:1fr}' +
+      '.layout-masonry{grid-template-columns:repeat(2,minmax(0,1fr));align-items:start}' +
+      '@media (max-width:900px){.layout-strip,.layout-grid,.layout-masonry{grid-template-columns:1fr}}' +
+      '</style></head><body><div class="wrap"><div class="top"><div>' +
+      '<h1 class="title" id="comic-title"></h1><div class="source"><a id="comic-source" target="_blank" rel="noopener noreferrer"></a></div>' +
+      '</div><div class="controls"><label for="layout">Layout</label><select id="layout">' +
+      '<option value="strip">Strip</option><option value="grid">Grid</option><option value="single">Single column</option><option value="masonry">Masonry</option>' +
+      '</select></div></div><div id="panels" class="panels layout-strip"></div></div>' +
+      '<script>const storyboard=' + payload + ';' +
+      'const panels=(storyboard&&Array.isArray(storyboard.panels))?storyboard.panels:[];' +
+      'const source=(storyboard&&storyboard.source)?storyboard.source:{};' +
+      'const titleEl=document.getElementById("comic-title");titleEl.textContent=source.title||storyboard.title||"Web2Comics";' +
+      'const sourceEl=document.getElementById("comic-source");sourceEl.href=source.url||"#";sourceEl.textContent=source.url||"Source unavailable";' +
+      'const panelsEl=document.getElementById("panels");' +
+      'function captionFor(p,i){return String((p&& (p.caption||p.beat_summary||p.summary||p.title||p.text))||("Panel "+(i+1)));}' +
+      'function render(){panelsEl.innerHTML=panels.map((p,i)=>{const src=(p&&p.artifacts&&p.artifacts.image_blob_ref)||"";const cap=captionFor(p,i);' +
+      'return `<article class="panel"><div class="num">Panel ${i+1}</div>${src?`<img src="${src}" alt="Panel ${i+1}">`:`<div style="height:180px;background:#e2e8f0;border-radius:8px"></div>`}<div class="caption">${cap.replace(/</g,"&lt;")}</div></article>`;}).join("");}' +
+      'render();const sel=document.getElementById("layout");' +
+      'sel.addEventListener("change",()=>{panelsEl.className="panels layout-"+sel.value;});' +
+      '</script></body></html>';
+  };
+
+  this.uploadStoryboardToGoogleDrive = async function(job, options) {
+    var opts = options && typeof options === 'object' ? options : {};
+    if (!job || !job.storyboard) return { skipped: true, reason: 'no_storyboard' };
+    var settings = await self.getGoogleDriveSettings();
+    if (!opts.force && !settings.autoSave) {
+      return { skipped: true, reason: 'auto_save_disabled' };
+    }
+    var auth = await self.getGoogleDriveAuth();
+    if (!self.isGoogleDriveAuthValid(auth)) {
+      return { skipped: true, reason: 'not_connected_or_expired' };
+    }
+    var folderId = await self.ensureGoogleDriveFolder(auth.accessToken, 'Web2Comics');
+    var sourceTitle = job.sourceTitle || (job.storyboard && job.storyboard.source && job.storyboard.source.title) || 'Web2Comics Comic';
+    var fileName = self.sanitizeDriveFilename(sourceTitle) + '-' + new Date().toISOString().slice(0, 10) + '.html';
+    var html = self.buildInteractiveComicHtml(job.storyboard);
+    var boundary = 'web2comics_' + Date.now() + '_' + Math.random().toString(16).slice(2);
+    var metadata = {
+      name: fileName,
+      parents: [folderId],
+      mimeType: 'text/html',
+      description: 'Interactive comic export generated by Web2Comics'
+    };
+    var multipartBody =
+      '--' + boundary + '\r\n' +
+      'Content-Type: application/json; charset=UTF-8\r\n\r\n' +
+      JSON.stringify(metadata) + '\r\n' +
+      '--' + boundary + '\r\n' +
+      'Content-Type: text/html; charset=UTF-8\r\n\r\n' +
+      html + '\r\n' +
+      '--' + boundary + '--';
+    var uploadResponse = await fetchWithTimeout('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,webViewLink', {
+      method: 'POST',
+      headers: {
+        Authorization: 'Bearer ' + auth.accessToken,
+        'Content-Type': 'multipart/related; boundary=' + boundary
+      },
+      body: multipartBody
+    }, 30000, 'Drive file upload');
+    if (!uploadResponse.ok) {
+      throw new Error('Drive upload failed (HTTP ' + uploadResponse.status + ')');
+    }
+    var uploadJson = await uploadResponse.json();
+    self.appendDebugLog('drive.upload.success', {
+      fileId: uploadJson && uploadJson.id ? uploadJson.id : '',
+      fileName: fileName
+    });
+    return {
+      skipped: false,
+      fileId: uploadJson && uploadJson.id ? uploadJson.id : '',
+      fileName: fileName,
+      webViewLink: uploadJson && uploadJson.webViewLink ? uploadJson.webViewLink : ''
+    };
+  };
+
+  this.queueGoogleDriveAutoSave = function(job) {
+    self._driveUploadChain = (self._driveUploadChain || Promise.resolve())
+      .catch(function() {})
+      .then(function() {
+        return self.uploadStoryboardToGoogleDrive(job, { force: false });
+      })
+      .then(function(result) {
+        if (result && result.skipped && result.reason) {
+          self.appendDebugLog('drive.upload.skipped', { reason: result.reason });
+        }
+      })
+      .catch(function(error) {
+        self.appendDebugLog('drive.upload.error', {
+          message: error && error.message ? error.message : String(error)
+        });
+      });
+    return self._driveUploadChain;
+  };
+
   this.compactJobForStorage = function(job, level) {
     if (!job || typeof job !== 'object') return job;
     var compactionLevel = level || 1;
@@ -2926,7 +4186,12 @@ var ServiceWorker = function() {
   
   this.notifyProgress = function() {
     try {
-      var views = chrome.extension.getViews({ type: 'popup' });
+      var views = chrome.extension && chrome.extension.getViews
+        ? chrome.extension.getViews({ type: 'popup' })
+        : [];
+      if (!Array.isArray(views)) {
+        views = [];
+      }
       views.forEach(function(view) {
         view.postMessage && view.postMessage({ type: 'JOB_PROGRESS', job: self.currentJob });
       });
@@ -3060,6 +4325,9 @@ var ServiceWorker = function() {
                 });
                 return chrome.storage.local.set({ history: minimalHistory });
               });
+          })
+          .then(function() {
+            self.queueGoogleDriveAutoSave(job);
           });
       })
       .catch(function(error) {
@@ -3074,7 +4342,24 @@ var ServiceWorker = function() {
 };
 
 // Initialize service worker
-new ServiceWorker();
+var __web2comicsServiceWorker = new ServiceWorker();
+
+// Playwright/E2E test hook: allows invoking context-menu handlers in the real extension runtime.
+// This does not expose new user-facing behavior.
+try {
+  if (typeof globalThis !== 'undefined') {
+    globalThis.__WEB2COMICS_E2E__ = globalThis.__WEB2COMICS_E2E__ || {};
+    globalThis.__WEB2COMICS_E2E__.getServiceWorker = function() {
+      return __web2comicsServiceWorker;
+    };
+    globalThis.__WEB2COMICS_E2E__.triggerSelectionMenuGenerate = function(info, tab) {
+      return __web2comicsServiceWorker.handleSelectionContextMenuGenerateClick(info, tab);
+    };
+    globalThis.__WEB2COMICS_E2E__.triggerSelectionMenuOpenComposer = function(info, tab, options) {
+      return __web2comicsServiceWorker.handleSelectionContextMenuOpenComposerClick(info, tab, options || null);
+    };
+  }
+} catch (_) {}
 
 // Open the Options page on fresh install to guide provider setup and first-run configuration.
 try {
