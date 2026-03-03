@@ -3,7 +3,6 @@
 ![Status](https://img.shields.io/badge/status-experimental-orange)
 ![Platform](https://img.shields.io/badge/platform-chrome%20extension-blue)
 ![Release](https://img.shields.io/badge/release-v1.0.3-success)
-![AI Providers](https://img.shields.io/badge/providers-Gemini%20%7C%20OpenAI%20%7C%20OpenRouter%20%7C%20HF%20%7C%20Cloudflare-6f42c1)
 ![License](https://img.shields.io/badge/%C2%A9%202026-Alexander%20Apartsin-red)
 
 <p align="center">
