@@ -663,6 +663,60 @@ describe('Service Worker Context Menu Settings', () => {
     expect(caption).toContain('number: 61');
   });
 
+  it('sanitizes image prompt labels/panel markers and enforces no-text guardrail before provider call', async () => {
+    await import('../../background/service-worker.js');
+    const hook = globalThis.__WEB2COMICS_E2E__;
+    const sw = hook.getServiceWorker();
+
+    const fakeProvider = {
+      generateImage: vi.fn(async () => ({
+        imageData: 'data:image/png;base64,AAA',
+        providerMetadata: { provider_id: 'fake' }
+      }))
+    };
+
+    const panel = {
+      panel_id: 'panel_7',
+      caption: 'Panel 7: Context: The policy update reshaped rate expectations.',
+      beat_summary: 'Mechanism: Investors repriced forecasts after the guidance.',
+      image_prompt: [
+        'Comic panel 7/8.',
+        'Caption: Panel 7: Context: The policy update reshaped rate expectations.',
+        'Summary: Mechanism: Investors repriced forecasts after the guidance.',
+        'Style: editorial'
+      ].join('\n')
+    };
+
+    const job = {
+      sourceTitle: 'Test Source',
+      sourceUrl: 'https://example.com/story',
+      settings: {
+        provider_image: 'gemini-free',
+        image_refusal_handling: 'rewrite_and_retry',
+        output_language: 'en'
+      }
+    };
+
+    const result = await sw.generateImageWithRefusalHandling(
+      fakeProvider,
+      panel,
+      6,
+      8,
+      job,
+      null
+    );
+
+    expect(fakeProvider.generateImage).toHaveBeenCalledTimes(1);
+    const promptSent = String(fakeProvider.generateImage.mock.calls[0][0] || '');
+    expect(promptSent).not.toMatch(/comic\s*panel\s*7\s*\/\s*8/i);
+    expect(promptSent).not.toMatch(/\bcaption\s*:/i);
+    expect(promptSent).not.toMatch(/\bsummary\s*:/i);
+    expect(promptSent).toMatch(/do not render any text/i);
+    expect(promptSent).toMatch(/never render the full caption text/i);
+    expect(promptSent).toMatch(/render exactly one panel scene/i);
+    expect(result?.imageData).toContain('data:image/png;base64,AAA');
+  });
+
   it('derives stable storyboard title/description heuristically when LLM metadata is unavailable', async () => {
     await import('../../background/service-worker.js');
     const hook = globalThis.__WEB2COMICS_E2E__;

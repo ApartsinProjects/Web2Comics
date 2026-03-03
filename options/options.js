@@ -2,7 +2,7 @@
 // TypeScript-only declarations and is not executable as a browser module.
 const DEFAULT_SETTINGS = {
   panelCount: 3,
-  objective: 'summarize',
+  objective: 'explain-like-im-five',
   detailLevel: 'low',
   styleId: 'default',
   customStyleName: '',
@@ -46,6 +46,9 @@ const AUTHORIZATION_URLS = {
   reddit: 'https://www.reddit.com/login/',
   email: 'https://mail.google.com/'
 };
+const OTHER_SHARE_TARGETS = ['linkedin', 'reddit', 'email'];
+
+const MASKED_SECRET_PLACEHOLDER = '••••••••••••••••';
 
 const DEFAULT_PROMPT_TEMPLATES = {
   openai: {
@@ -64,6 +67,7 @@ const DEFAULT_PROMPT_TEMPLATES = {
       '- Depict the exact event/claim in caption+summary, not a generic scene.\n' +
       '- Reuse key entities/details from caption+summary (who/where/what) when provided.\n' +
       '- Keep character/setting continuity with prior panels.\n' +
+      '- Render exactly one scene for this panel; do not create a collage, comic strip, split-screen, or multi-panel page.\n' +
       '- No text overlays unless explicitly required by the caption.'
   },
   gemini: {
@@ -82,6 +86,7 @@ const DEFAULT_PROMPT_TEMPLATES = {
       '- Depict the exact event/claim in caption+summary, not a generic scene.\n' +
       '- Reuse key entities/details from caption+summary (who/where/what) when provided.\n' +
       '- Keep character/setting continuity with prior panels.\n' +
+      '- Render exactly one scene for this panel; do not create a collage, comic strip, split-screen, or multi-panel page.\n' +
       '- No text overlays unless explicitly required by the caption.'
   },
   cloudflare: {
@@ -100,6 +105,7 @@ const DEFAULT_PROMPT_TEMPLATES = {
       '- Depict the exact event/claim in caption+summary, not a generic scene.\n' +
       '- Reuse key entities/details from caption+summary (who/where/what) when provided.\n' +
       '- Keep character/setting continuity with prior panels.\n' +
+      '- Render exactly one scene for this panel; do not create a collage, comic strip, split-screen, or multi-panel page.\n' +
       '- No text overlays unless explicitly required by the caption.'
   },
   openrouter: {
@@ -118,6 +124,7 @@ const DEFAULT_PROMPT_TEMPLATES = {
       '- Depict the exact event/claim in caption+summary, not a generic scene.\n' +
       '- Reuse key entities/details from caption+summary (who/where/what) when provided.\n' +
       '- Keep character/setting continuity with prior panels.\n' +
+      '- Render exactly one scene for this panel; do not create a collage, comic strip, split-screen, or multi-panel page.\n' +
       '- No text overlays unless explicitly required by the caption.'
   },
   huggingface: {
@@ -136,6 +143,7 @@ const DEFAULT_PROMPT_TEMPLATES = {
       '- Depict the exact event/claim in caption+summary, not a generic scene.\n' +
       '- Reuse key entities/details from caption+summary (who/where/what) when provided.\n' +
       '- Keep character/setting continuity with prior panels.\n' +
+      '- Render exactly one scene for this panel; do not create a collage, comic strip, split-screen, or multi-panel page.\n' +
       '- No text overlays unless explicitly required by the caption.'
   }
 };
@@ -621,6 +629,45 @@ const PROMPT_LIBRARY_PRESETS = {
     }
   ]
 };
+
+function enforceImagePromptQualityRules(template) {
+  const base = String(template || '').trim();
+  if (!base) return base;
+  const requiredRules = [
+    '- Render exactly one scene for this panel; do not create a collage, comic strip, split-screen, or multi-panel page.',
+    '- Keep one clear focal subject/action per image with uncluttered composition.',
+    '- Use caption and summary as semantic guidance only; do not copy full caption text into the image.',
+    '- Avoid text overlays, labels, speech bubbles, watermarks, and UI chrome unless explicitly required.'
+  ];
+  let out = base;
+  for (const rule of requiredRules) {
+    const escaped = rule.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    if (!(new RegExp(escaped, 'i')).test(out)) {
+      out += '\n' + rule;
+    }
+  }
+  return out;
+}
+
+function enhancePromptCollectionsForImageQuality() {
+  Object.values(DEFAULT_PROMPT_TEMPLATES || {}).forEach((tpl) => {
+    if (!tpl || typeof tpl !== 'object') return;
+    tpl.image = enforceImagePromptQualityRules(tpl.image);
+  });
+
+  Object.values(PROMPT_LIBRARY_PRESETS || {}).forEach((group) => {
+    if (!Array.isArray(group)) return;
+    group.forEach((preset) => {
+      if (!preset || typeof preset !== 'object') return;
+      if (typeof preset.image === 'string' && preset.image.trim()) {
+        preset.image = enforceImagePromptQualityRules(preset.image);
+      }
+    });
+  });
+}
+
+enhancePromptCollectionsForImageQuality();
+
 const USER_STYLE_PREFIX = 'user:';
 
 function mapRecommendedSettingsPayload(payload) {
@@ -653,14 +700,34 @@ class OptionsController {
     this.init();
   }
 
+  escapeHtml(value) {
+    return String(value == null ? '' : value)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
   async init() {
+    this.renderExtensionVersion();
     await this.loadRecommendedDefaults();
     await this.loadSettings();
     await this.loadStorageInfo();
     this.relocateModelTestButtons();
     this.bindEvents();
     this.updateUI();
+    this.applySectionFromUrl();
     await this.refreshAllConnectionStatuses();
+  }
+
+  renderExtensionVersion() {
+    try {
+      const version = String(chrome?.runtime?.getManifest?.().version || '').trim();
+      if (!version) return;
+      const label = document.getElementById('options-version-label');
+      if (label) label.textContent = `Version ${version}`;
+    } catch (_) {}
   }
 
   async appendDebugLog(event, data) {
@@ -799,13 +866,22 @@ class OptionsController {
     document.getElementById('disconnect-google-drive-btn')?.addEventListener('click', () => this.disconnectGoogleDrive());
     document.getElementById('connect-facebook-btn')?.addEventListener('click', () => this.connectFacebook());
     document.getElementById('disconnect-facebook-btn')?.addEventListener('click', () => this.disconnectFacebook());
+    document.getElementById('facebook-page-select')?.addEventListener('change', (e) => {
+      const pageId = String(e?.target?.value || '').trim();
+      if (pageId) {
+        void this.setFacebookPage(pageId);
+      }
+    });
     document.getElementById('connect-x-btn')?.addEventListener('click', () => this.connectX());
     document.getElementById('disconnect-x-btn')?.addEventListener('click', () => this.disconnectX());
     document.getElementById('connect-instagram-btn')?.addEventListener('click', () => this.connectInstagram());
     document.getElementById('disconnect-instagram-btn')?.addEventListener('click', () => this.disconnectInstagram());
-    document.getElementById('connect-other-share-btn')?.addEventListener('click', () => this.connectOtherShareTarget());
-    document.getElementById('disconnect-other-share-btn')?.addEventListener('click', () => this.disconnectOtherShareTarget());
-    document.getElementById('other-share-target-select')?.addEventListener('change', () => this.refreshOtherShareTargetStatus());
+    document.querySelectorAll('.connect-other-share-btn').forEach((btn) => {
+      btn.addEventListener('click', () => this.connectOtherShareTarget(btn.dataset.target));
+    });
+    document.querySelectorAll('.disconnect-other-share-btn').forEach((btn) => {
+      btn.addEventListener('click', () => this.disconnectOtherShareTarget(btn.dataset.target));
+    });
   }
 
   getProviderModelSelectId(providerId, mode) {
@@ -883,6 +959,13 @@ class OptionsController {
     this.populateDefaultStyleOptions();
     // General
     document.getElementById('default-panel-count').value = this.settings.panelCount;
+    const defaultObjectiveEl = document.getElementById('default-objective');
+    if (defaultObjectiveEl) {
+      defaultObjectiveEl.value = this.settings.objective || 'explain-like-im-five';
+      if (defaultObjectiveEl.value !== (this.settings.objective || 'explain-like-im-five')) {
+        defaultObjectiveEl.value = 'explain-like-im-five';
+      }
+    }
     document.getElementById('default-detail').value = this.settings.detailLevel;
     document.getElementById('default-style').value = this.settings.styleId || 'default';
     document.getElementById('default-caption').value = this.settings.captionLength;
@@ -924,8 +1007,7 @@ class OptionsController {
       googleDriveAutoSaveEl.checked = !!this.settings.googleDriveAutoSave;
       googleDriveAutoSaveEl.disabled = true;
     }
-    const otherTargetEl = document.getElementById('other-share-target-select');
-    if (otherTargetEl) otherTargetEl.value = this.settings.otherShareTarget || 'linkedin';
+    this.settings.otherShareTarget = this.normalizeOtherShareTarget(this.settings.otherShareTarget);
     if (document.getElementById('openai-text-model')) {
       document.getElementById('openai-text-model').value = this.settings.textModel || 'gpt-4o-mini';
       document.getElementById('openai-image-model').value = this.settings.imageModel || 'dall-e-2';
@@ -1106,6 +1188,17 @@ class OptionsController {
     document.querySelectorAll('.settings-section').forEach(sec => {
       sec.classList.toggle('active', sec.id === `${section}-section`);
     });
+  }
+
+  applySectionFromUrl() {
+    try {
+      const params = new URLSearchParams(window.location.search || '');
+      const section = String(params.get('section') || '').trim().toLowerCase();
+      const allowedSections = new Set(['general', 'providers', 'prompts', 'storage', 'about']);
+      if (allowedSections.has(section)) {
+        this.switchSection(section);
+      }
+    } catch (_) {}
   }
 
   getPromptScopeTemplates(scope = this.activePromptProviderScope) {
@@ -1630,6 +1723,7 @@ class OptionsController {
     this.settings = {
       ...this.settings,
       panelCount: parseInt(document.getElementById('default-panel-count').value),
+      objective: document.getElementById('default-objective')?.value || 'explain-like-im-five',
       detailLevel: document.getElementById('default-detail').value,
       styleId: styleId,
       customStyleName: customStyleName,
@@ -1646,7 +1740,7 @@ class OptionsController {
       maxCacheSize: parseInt(document.getElementById('max-cache-size').value),
       historyRetention: parseInt(document.getElementById('history-retention').value),
       googleDriveAutoSave: !!document.getElementById('google-drive-auto-save')?.checked,
-      otherShareTarget: (document.getElementById('other-share-target-select')?.value || 'linkedin').trim()
+      otherShareTarget: this.getPreferredOtherShareTargetFromUI()
     };
 
     try {
@@ -1677,9 +1771,12 @@ class OptionsController {
 
       const inputId = `${provider}-api-key`;
       const input = document.getElementById(inputId);
-      const apiKey = input?.value?.trim();
+      const inputValue = input?.value?.trim();
+      const { apiKeys, providerValidation } = await chrome.storage.local.get(['apiKeys', 'providerValidation']);
+      const storedApiKey = apiKeys?.[provider];
+      const apiKey = (!inputValue || this.isMaskedSecret(inputValue)) ? storedApiKey : inputValue;
 
-      if (!apiKey || apiKey === '••••••••••••••••') {
+      if (!apiKey) {
         this.showToast('Please enter an API key', 'error');
         return;
       }
@@ -1700,9 +1797,8 @@ class OptionsController {
       }
 
       // Store the API key
-      const { apiKeys, providerValidation } = await chrome.storage.local.get(['apiKeys', 'providerValidation']);
       await chrome.storage.local.set({
-        apiKeys: { ...apiKeys, [provider]: apiKey },
+        apiKeys: { ...(apiKeys || {}), [provider]: apiKey },
         providerValidation: {
           ...(providerValidation || {}),
           [provider]: {
@@ -1726,22 +1822,10 @@ class OptionsController {
   }
 
   async validateCloudflareProvider() {
-    const accountId = (document.getElementById('cloudflare-account-id')?.value || '').trim();
+    const accountIdInput = (document.getElementById('cloudflare-account-id')?.value || '').trim();
     const tokenInput = (document.getElementById('cloudflare-api-token')?.value || '').trim();
-    const email = (document.getElementById('cloudflare-email')?.value || '').trim();
+    const emailInput = (document.getElementById('cloudflare-email')?.value || '').trim();
     const apiKeyInput = (document.getElementById('cloudflare-api-key')?.value || '').trim();
-
-    if (!accountId) {
-      this.showToast('Please enter Cloudflare Account ID', 'error');
-      throw new Error('Missing Cloudflare Account ID');
-    }
-
-    const useToken = !!tokenInput && tokenInput !== '••••••••••••••••';
-    const useGlobalKey = !!email && !!apiKeyInput && apiKeyInput !== '••••••••••••••••';
-    if (!useToken && !useGlobalKey) {
-      this.showToast('Enter Cloudflare API Token (recommended) or Email + Global API Key', 'error');
-      throw new Error('Missing Cloudflare credentials');
-    }
 
     const { cloudflareConfig: prevConfig, cloudflare: legacyCloudflare, apiKeys, providerValidation } =
       await chrome.storage.local.get(['cloudflareConfig', 'cloudflare', 'apiKeys', 'providerValidation']);
@@ -1749,19 +1833,38 @@ class OptionsController {
       ? prevConfig
       : ((legacyCloudflare && typeof legacyCloudflare === 'object') ? legacyCloudflare : {});
 
+    const accountId = accountIdInput || previous.accountId || '';
+    const email = emailInput || previous.email || '';
+    const token = (!tokenInput || this.isMaskedSecret(tokenInput))
+      ? (previous.apiToken || apiKeys?.cloudflare || '')
+      : tokenInput;
+    const apiKey = (!apiKeyInput || this.isMaskedSecret(apiKeyInput))
+      ? (previous.apiKey || '')
+      : apiKeyInput;
+
+    if (!accountId) {
+      this.showToast('Please enter Cloudflare Account ID', 'error');
+      throw new Error('Missing Cloudflare Account ID');
+    }
+
+    const useToken = !!token;
+    const useGlobalKey = !!email && !!apiKey;
+    if (!useToken && !useGlobalKey) {
+      this.showToast('Enter Cloudflare API Token (recommended) or Email + Global API Key', 'error');
+      throw new Error('Missing Cloudflare credentials');
+    }
+
     const nextConfig = {
       ...previous,
       accountId
     };
 
-    if (useToken) {
-      nextConfig.apiToken = tokenInput;
-    }
+    if (useToken) nextConfig.apiToken = token;
     if (email) {
       nextConfig.email = email;
     }
     if (useGlobalKey) {
-      nextConfig.apiKey = apiKeyInput;
+      nextConfig.apiKey = apiKey;
     }
 
     await chrome.storage.local.set({
@@ -1948,10 +2051,10 @@ class OptionsController {
   }
 
   async clearHistory() {
-    if (confirm('Are you sure you want to clear all comic history?')) {
+    if (confirm('Are you sure you want to clear all comics from My Collection?')) {
       await chrome.storage.local.set({ history: [] });
       await this.loadStorageInfo();
-      this.showToast('History cleared!', 'success');
+      this.showToast('My Collection cleared!', 'success');
     }
   }
 
@@ -2008,7 +2111,7 @@ class OptionsController {
     this.settings = {
       ...this.settings,
       googleDriveAutoSave: !!document.getElementById('google-drive-auto-save')?.checked,
-      otherShareTarget: (document.getElementById('other-share-target-select')?.value || 'linkedin').trim()
+      otherShareTarget: this.getPreferredOtherShareTargetFromUI()
     };
     try {
       await chrome.storage.local.set({ settings: this.settings });
@@ -2047,11 +2150,12 @@ class OptionsController {
       await this.saveConnectionSettings({ silent: true });
       const response = await chrome.runtime.sendMessage({ type: 'GOOGLE_DRIVE_CONNECT' });
       if (!response || response.success === false) {
-        throw new Error(response?.error || 'Google Drive connection failed');
+        throw new Error(response?.error || 'Google Drive connection failed. Opened sign-in page.');
       }
       await this.refreshAllConnectionStatuses();
       this.showToast('Google Drive connected', 'success');
     } catch (error) {
+      this.openAuthorizationAuthentication(AUTHORIZATION_URLS.googleDrive);
       this.showToast(error?.message || 'Failed to connect Google Drive', 'error');
     }
   }
@@ -2109,11 +2213,12 @@ class OptionsController {
       await this.saveConnectionSettings({ silent: true });
       const response = await chrome.runtime.sendMessage({ type: 'FACEBOOK_CONNECT' });
       if (!response || response.success === false) {
-        throw new Error(response?.error || 'Facebook connection failed');
+        throw new Error(response?.error || 'Facebook connection failed. Opened sign-in page.');
       }
       await this.refreshAllConnectionStatuses();
       this.showToast('Facebook connected', 'success');
     } catch (error) {
+      this.openAuthorizationAuthentication(AUTHORIZATION_URLS.facebook);
       this.showToast(error?.message || 'Failed to connect Facebook', 'error');
     }
   }
@@ -2133,20 +2238,87 @@ class OptionsController {
 
   async refreshFacebookStatus() {
     const statusEl = document.getElementById('facebook-connection-status');
+    const pageItemEl = document.getElementById('facebook-page-select-item');
+    const pageSelectEl = document.getElementById('facebook-page-select');
     if (!statusEl) return;
     try {
       const response = await chrome.runtime.sendMessage({ type: 'FACEBOOK_GET_STATUS' });
       const hasAppId = response?.status?.hasAppId !== false;
       const connected = !!(response && response.success !== false && response.status && response.status.connected);
-      statusEl.textContent = hasAppId ? (connected ? 'Connected' : 'Not connected') : 'OAuth app not configured';
+      const pageCount = Number(response?.status?.pageCount || 0);
+      statusEl.textContent = hasAppId
+        ? (connected ? (pageCount > 0 ? `Connected (${pageCount} pages)` : 'Connected (no pages found)') : 'Not connected')
+        : 'OAuth app not configured';
       statusEl.classList.toggle('connected', connected);
       statusEl.classList.toggle('disconnected', !connected);
       this.updateConnectionActionButtons('connect-facebook-btn', 'disconnect-facebook-btn', connected, hasAppId);
+      if (pageItemEl) pageItemEl.style.display = connected ? '' : 'none';
+      if (pageSelectEl) {
+        pageSelectEl.disabled = !connected;
+      }
+      if (connected) {
+        await this.refreshFacebookPages();
+      } else if (pageSelectEl) {
+        pageSelectEl.innerHTML = '<option value="">No pages available</option>';
+      }
     } catch (_) {
       statusEl.textContent = 'Status unavailable';
       statusEl.classList.remove('connected');
       statusEl.classList.add('disconnected');
       this.updateConnectionActionButtons('connect-facebook-btn', 'disconnect-facebook-btn', false, false);
+      if (pageItemEl) pageItemEl.style.display = 'none';
+      if (pageSelectEl) {
+        pageSelectEl.disabled = true;
+        pageSelectEl.innerHTML = '<option value="">No pages available</option>';
+      }
+    }
+  }
+
+  async refreshFacebookPages() {
+    const pageSelectEl = document.getElementById('facebook-page-select');
+    if (!pageSelectEl) return;
+    try {
+      const response = await chrome.runtime.sendMessage({ type: 'FACEBOOK_GET_PAGES' });
+      const pages = Array.isArray(response?.pages) ? response.pages : [];
+      const selectedPageId = String(response?.selectedPageId || '').trim();
+      if (!pages.length) {
+        pageSelectEl.innerHTML = '<option value="">No pages available</option>';
+        pageSelectEl.disabled = true;
+        return;
+      }
+      pageSelectEl.innerHTML = pages
+        .map((page) => {
+          const id = String(page?.id || '').trim();
+          const name = String(page?.name || id || 'Page').trim();
+          const selected = id && id === selectedPageId ? ' selected' : '';
+          return `<option value="${this.escapeHtml(id)}"${selected}>${this.escapeHtml(name)}</option>`;
+        })
+        .join('');
+      pageSelectEl.disabled = false;
+      if (!selectedPageId && pages[0]?.id) {
+        pageSelectEl.value = String(pages[0].id);
+      }
+    } catch (_) {
+      pageSelectEl.innerHTML = '<option value="">No pages available</option>';
+      pageSelectEl.disabled = true;
+    }
+  }
+
+  async setFacebookPage(pageId) {
+    const selected = String(pageId || '').trim();
+    if (!selected) return;
+    try {
+      const response = await chrome.runtime.sendMessage({
+        type: 'FACEBOOK_SET_PAGE',
+        payload: { pageId: selected }
+      });
+      if (!response || response.success === false) {
+        throw new Error(response?.error || 'Unable to set Facebook page');
+      }
+      this.showToast('Facebook posting page updated', 'success');
+      await this.refreshFacebookStatus();
+    } catch (error) {
+      this.showToast(error?.message || 'Failed to set Facebook page', 'error');
     }
   }
 
@@ -2155,11 +2327,12 @@ class OptionsController {
       await this.saveConnectionSettings({ silent: true });
       const response = await chrome.runtime.sendMessage({ type: 'X_CONNECT' });
       if (!response || response.success === false) {
-        throw new Error(response?.error || 'X connection failed');
+        throw new Error(response?.error || 'X connection failed. Opened sign-in page.');
       }
       await this.refreshAllConnectionStatuses();
       this.showToast('X connected', 'success');
     } catch (error) {
+      this.openAuthorizationAuthentication(AUTHORIZATION_URLS.x);
       this.showToast(error?.message || 'Failed to connect X', 'error');
     }
   }
@@ -2227,43 +2400,58 @@ class OptionsController {
     this.updateConnectionActionButtons('connect-instagram-btn', 'disconnect-instagram-btn', connected, true);
   }
 
-  getSelectedOtherShareTarget() {
-    return (document.getElementById('other-share-target-select')?.value || 'linkedin').trim().toLowerCase();
+  normalizeOtherShareTarget(target) {
+    const normalized = String(target || '').trim().toLowerCase();
+    return OTHER_SHARE_TARGETS.includes(normalized) ? normalized : 'linkedin';
   }
 
-  async connectOtherShareTarget() {
-    const target = this.getSelectedOtherShareTarget();
+  getPreferredOtherShareTargetFromUI() {
+    return this.normalizeOtherShareTarget(this.settings?.otherShareTarget);
+  }
+
+  async connectOtherShareTarget(targetInput) {
+    const target = this.normalizeOtherShareTarget(targetInput);
     try {
+      this.settings = {
+        ...this.settings,
+        otherShareTarget: target
+      };
       await this.saveConnectionSettings({ silent: true });
       this.openAuthorizationAuthentication(AUTHORIZATION_URLS[target] || AUTHORIZATION_URLS.linkedin);
       await this.persistConnectionState(`otherShare:${target}`, true);
-      await this.refreshOtherShareTargetStatus();
+      await this.refreshOtherShareTargetStatuses();
       this.showToast(`${target} authorization started`, 'success');
     } catch (error) {
       this.showToast(error?.message || 'Failed to connect share target', 'error');
     }
   }
 
-  async disconnectOtherShareTarget() {
-    const target = this.getSelectedOtherShareTarget();
+  async disconnectOtherShareTarget(targetInput) {
+    const target = this.normalizeOtherShareTarget(targetInput);
     try {
       await this.persistConnectionState(`otherShare:${target}`, false);
-      await this.refreshOtherShareTargetStatus();
+      await this.refreshOtherShareTargetStatuses();
       this.showToast(`${target} disconnected`, 'success');
     } catch (error) {
       this.showToast(error?.message || 'Failed to disconnect share target', 'error');
     }
   }
 
-  async refreshOtherShareTargetStatus() {
-    const statusEl = document.getElementById('other-share-connection-status');
-    if (!statusEl) return;
-    const target = this.getSelectedOtherShareTarget();
-    const connected = this.getConnectionState(`otherShare:${target}`);
-    statusEl.textContent = connected ? `Connected (${target})` : `Not connected (${target})`;
-    statusEl.classList.toggle('connected', connected);
-    statusEl.classList.toggle('disconnected', !connected);
-    this.updateConnectionActionButtons('connect-other-share-btn', 'disconnect-other-share-btn', connected, true);
+  async refreshOtherShareTargetStatuses() {
+    for (const target of OTHER_SHARE_TARGETS) {
+      const statusEl = document.getElementById(`other-share-${target}-connection-status`);
+      if (!statusEl) continue;
+      const connected = this.getConnectionState(`otherShare:${target}`);
+      statusEl.textContent = connected ? 'Connected' : 'Not connected';
+      statusEl.classList.toggle('connected', connected);
+      statusEl.classList.toggle('disconnected', !connected);
+      this.updateConnectionActionButtons(
+        `connect-other-share-${target}-btn`,
+        `disconnect-other-share-${target}-btn`,
+        connected,
+        true
+      );
+    }
   }
 
   updateConnectionActionButtons(connectBtnId, disconnectBtnId, connected, available = true) {
@@ -2272,7 +2460,9 @@ class OptionsController {
     if (!connectBtn || !disconnectBtn) return;
     const isAvailable = Boolean(available);
     if (!isAvailable) {
-      connectBtn.disabled = true;
+      // Keep Connect actionable even when OAuth config is missing so users can
+      // trigger guided fallback/setup flows instead of a dead button.
+      connectBtn.disabled = false;
       connectBtn.classList.remove('hidden');
       disconnectBtn.classList.add('hidden');
       disconnectBtn.disabled = true;
@@ -2290,8 +2480,12 @@ class OptionsController {
       this.refreshFacebookStatus(),
       this.refreshXStatus(),
       this.refreshInstagramStatus(),
-      this.refreshOtherShareTargetStatus()
+      this.refreshOtherShareTargetStatuses()
     ]);
+  }
+
+  isMaskedSecret(value) {
+    return String(value || '').trim() === MASKED_SECRET_PLACEHOLDER;
   }
 
   showToast(message, type = 'success') {

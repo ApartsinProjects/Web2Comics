@@ -240,6 +240,7 @@ var DEFAULT_PROVIDER_PROMPT_TEMPLATES = {
       '- Depict the exact event/claim in caption+summary, not a generic scene.\n' +
       '- Reuse key entities/details from caption+summary (who/where/what/objects/context) when provided.\n' +
       '- Keep consistent characters/setting with prior panels and avoid adding unrelated elements.\n' +
+      '- Render exactly one scene for this panel; do not create a collage, comic strip, split-screen, or multi-panel page.\n' +
       '- No text overlays unless explicitly required by the caption.'
   },
   gemini: {
@@ -257,6 +258,7 @@ var DEFAULT_PROVIDER_PROMPT_TEMPLATES = {
       '- Depict the exact event/claim in caption+summary, not a generic scene.\n' +
       '- Reuse key entities/details from caption+summary (who/where/what/objects/context) when provided.\n' +
       '- Keep consistent characters/setting with prior panels and avoid adding unrelated elements.\n' +
+      '- Render exactly one scene for this panel; do not create a collage, comic strip, split-screen, or multi-panel page.\n' +
       '- No text overlays unless explicitly required by the caption.'
   }
 };
@@ -268,7 +270,7 @@ var STORYBOARD_CONTENT_GROUNDING_RULE =
 var STORYBOARD_OBJECTIVE_RULE =
   'Follow the user objective "{{objective_label}}". Objective guidance: {{objective_guidance}}';
 var IMAGE_PROMPT_GROUNDING_RULE =
-  'Each image_prompt must depict the specific caption/summary facts (who/where/what), stay consistent with prior panels, and avoid unrelated generic scenes.';
+  'Each image_prompt must depict the specific caption/summary facts (who/where/what), stay consistent with prior panels, avoid unrelated generic scenes, and represent exactly one panel scene (no collage/comic-strip/grid/split-screen outputs).';
 
 var DEFAULT_FETCH_TIMEOUT_MS = 45000;
 var STORYBOARD_TIMEOUT_MS = 90000;
@@ -514,6 +516,7 @@ function normalizeStoryboardPanels(parsed, requestedPanelCount, options) {
       if (!p || typeof p !== 'object') return null;
       var beat = normalizeLooseTextValue(p.beat_summary || p.summary || p.beat || p.description || p.text || p.narration || '');
       var caption = normalizeLooseTextValue(p.caption || p.title || p.dialogue || p.caption_text || p.text_content) || beat || (fallbackText.panelLabelPrefix + ' ' + (i + 1));
+      caption = stripNarrativeStagePrefix(caption);
       var imagePrompt = normalizeLooseTextValue(p.image_prompt || p.prompt || p.imagePrompt || p.visual_prompt || p.visual || p.image || p.scene_prompt) || (fallbackText.imagePromptPrefix + ' ' + caption);
       return {
         panel_id: 'panel_' + (i + 1),
@@ -633,6 +636,53 @@ function looksLikeImagePromptText(value) {
   return false;
 }
 
+function stripNarrativeStagePrefix(value) {
+  var text = normalizeLooseTextValue(value).trim();
+  if (!text) return '';
+  var stageLabels = [
+    'hook',
+    'context',
+    'setup',
+    'mechanism',
+    'caveat',
+    'caveats',
+    'example',
+    'examples',
+    'recap',
+    'summary',
+    'takeaway',
+    'outcome',
+    'development',
+    'key concept',
+    'practical tip',
+    'close',
+    'ending',
+    'intro',
+    'introduction'
+  ];
+  var labelsPattern = stageLabels
+    .map(function(label) { return label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '\\s+'); })
+    .join('|');
+  var patterns = [
+    new RegExp('^\\s*\\[(?:' + labelsPattern + ')\\]\\s*', 'i'),
+    new RegExp('^\\s*(?:panel|scene|frame|shot)\\s*\\d+\\s*(?:\\/\\s*\\d+)?\\s*(?:[:\\-\\u2013\\u2014|).])+\\s*', 'i'),
+    new RegExp('^\\s*(?:panel|step)?\\s*\\d+\\s*[).:-]?\\s*(?:' + labelsPattern + ')\\s*(?:[:\\-\\u2013\\u2014|])+\\s*', 'i'),
+    new RegExp('^\\s*(?:' + labelsPattern + ')\\s*(?:[:\\-\\u2013\\u2014|])+\\s*', 'i')
+  ];
+
+  var stripped = text;
+  for (var i = 0; i < 3; i += 1) {
+    var next = stripped;
+    for (var j = 0; j < patterns.length; j += 1) {
+      next = next.replace(patterns[j], '');
+    }
+    next = next.replace(/^\s+|\s+$/g, '');
+    if (next === stripped) break;
+    stripped = next;
+  }
+  return stripped || text;
+}
+
 function rewritePromptLikeCaptionToStoryBeat(captionText, panel, index, options) {
   var fallbackText = getOutputLanguageFallbackText(options);
   var storyCandidates = [
@@ -683,7 +733,8 @@ function validateStoryboardContract(storyboard, requestedPanelCount, options) {
     nonEmptyCaptions: 0,
     storyLikeCaptions: 0,
     promptLikeCaptions: 0,
-    fallbackPanelLabelCaptions: 0
+    fallbackPanelLabelCaptions: 0,
+    stagePrefixStripped: 0
   };
 
   normalized.panels = normalized.panels
@@ -702,6 +753,14 @@ function validateStoryboardContract(storyboard, requestedPanelCount, options) {
         if (repairedCaption && repairedCaption !== caption) {
           caption = repairedCaption;
           promptLikeCaptionRepairs += 1;
+        }
+      }
+
+      if (caption) {
+        var cleanedCaption = stripNarrativeStagePrefix(caption);
+        if (cleanedCaption && cleanedCaption !== caption) {
+          caption = cleanedCaption;
+          captionQuality.stagePrefixStripped += 1;
         }
       }
 
@@ -747,6 +806,26 @@ function getProviderPromptTemplateScope(providerId) {
   return null;
 }
 
+function enforceImagePromptQualityRules(template) {
+  var base = String(template || '').trim();
+  if (!base) return base;
+  var requiredRules = [
+    '- Render exactly one scene for this panel; do not create a collage, comic strip, split-screen, or multi-panel page.',
+    '- Keep one clear focal subject/action per image with uncluttered composition.',
+    '- Use caption and summary as semantic guidance only; do not copy full caption text into the image.',
+    '- Avoid text overlays, labels, speech bubbles, watermarks, and UI chrome unless explicitly required.'
+  ];
+  var out = base;
+  for (var i = 0; i < requiredRules.length; i += 1) {
+    var rule = requiredRules[i];
+    var escaped = rule.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    if (!(new RegExp(escaped, 'i')).test(out)) {
+      out += '\n' + rule;
+    }
+  }
+  return out;
+}
+
 function resolvePromptTemplatesForProviders(storedPromptTemplates, textProviderId, imageProviderId) {
   var stored = storedPromptTemplates && typeof storedPromptTemplates === 'object' ? storedPromptTemplates : {};
   function resolveByProvider(providerId) {
@@ -754,7 +833,7 @@ function resolvePromptTemplatesForProviders(storedPromptTemplates, textProviderI
     if (!scope) return null;
     return {
       storyboard: (stored[scope] && stored[scope].storyboard) || DEFAULT_PROVIDER_PROMPT_TEMPLATES[scope].storyboard,
-      image: (stored[scope] && stored[scope].image) || DEFAULT_PROVIDER_PROMPT_TEMPLATES[scope].image
+      image: enforceImagePromptQualityRules((stored[scope] && stored[scope].image) || DEFAULT_PROVIDER_PROMPT_TEMPLATES[scope].image)
     };
   }
   return {
@@ -2378,6 +2457,50 @@ var ServiceWorker = function() {
     return out;
   };
 
+  this.prepareImagePromptForGeneration = function(prompt, panel, panelIndex, totalPanels) {
+    var out = String(prompt || '').trim();
+    var caption = stripNarrativeStagePrefix(panel && panel.caption ? panel.caption : '');
+    var summary = stripNarrativeStagePrefix(panel && panel.beat_summary ? panel.beat_summary : '');
+    var lineJoin = '\n';
+
+    // Remove structural labels that often leak into generated image text overlays.
+    out = out
+      .replace(/(^|\n)\s*(?:comic\s*)?(?:panel|scene|frame|shot)\s*\d+\s*(?:\/\s*\d+)?\s*(?:[:.)\-–—|])+?\s*/gi, '$1')
+      .replace(/(^|\n)\s*(?:panel\s*)?(?:caption|summary|beat[_\s-]*summary|panel\s+caption|panel\s+summary)\s*:\s*/gi, '$1')
+      .replace(/\b(?:panel|scene|frame|shot)\s*\d+\s*\/\s*\d+\b/gi, '')
+      .replace(/\b(?:panel|scene|frame|shot)\s*\d+\b\s*[:.)\-–—|]*/gi, '')
+      .replace(/\bno text overlays unless explicitly required by the caption\.?/gi, '')
+      .replace(/\n{3,}/g, '\n\n')
+      .replace(/[ \t]{2,}/g, ' ')
+      .trim();
+
+    // If template cleanup removed too much content, rebuild from panel semantics.
+    if (!out || out.length < 24) {
+      var semantic = [summary, caption].filter(Boolean).join('. ').trim();
+      out = semantic || ('Comic scene for panel ' + (Number(panelIndex || 0) + 1) + ' of ' + Number(totalPanels || 0));
+    }
+
+    if (!/no text|without text|no letters|no numbers|no words/i.test(out)) {
+      out += lineJoin + 'Do not render any text, letters, numbers, symbols, labels, captions, logos, or watermarks.';
+    }
+    out += lineJoin + 'Use caption/summary as scene intent only. Never render the full caption text inside the image.';
+    out += lineJoin + 'Render exactly one panel scene. Do not generate collages, comic strips, split-screens, grids, contact sheets, or multiple sub-panels.';
+    return out;
+  };
+
+  this.buildImageTextHint = function(value, maxWords) {
+    var cleaned = stripNarrativeStagePrefix(value);
+    if (!cleaned) return '';
+    var words = cleaned.split(/\s+/).filter(Boolean);
+    var limit = Math.max(4, Number(maxWords || 10));
+    var compact = words.slice(0, limit).join(' ');
+    compact = compact
+      .replace(/["'`]/g, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+    return compact;
+  };
+
   this.buildBlockedPlaceholderImageResult = function(panel, panelIndex, refusalInfo) {
     var placeholderText = 'Panel blocked by image provider policy';
     return {
@@ -2395,7 +2518,10 @@ var ServiceWorker = function() {
   this.generateImageWithRefusalHandling = function(imageProvider, panel, panelIndex, totalPanels, job, imagePromptTemplate) {
     var settings = (job && job.settings) || {};
     var policy = self.getImageRefusalPolicy(settings);
-    var prompt = panel.image_prompt || '';
+    var rawPrompt = panel.image_prompt || '';
+    var prompt = self.prepareImagePromptForGeneration(rawPrompt, panel, panelIndex, totalPanels);
+    var panelCaptionHint = self.buildImageTextHint(panel.caption || '', 10);
+    var panelSummaryHint = self.buildImageTextHint(panel.beat_summary || '', 14);
     var baseOptions = {
       negativePrompt: panel.negative_prompt,
       style: settings.style_id,
@@ -2407,8 +2533,8 @@ var ServiceWorker = function() {
       customStyleName: settings.custom_style_name,
       panelIndex: panelIndex,
       panelCount: totalPanels,
-      panelCaption: panel.caption || '',
-      panelSummary: panel.beat_summary || '',
+      panelCaption: panelCaptionHint,
+      panelSummary: panelSummaryHint,
       sourceTitle: job.sourceTitle,
       sourceUrl: job.sourceUrl,
       imageTemplate: imagePromptTemplate
@@ -2422,7 +2548,7 @@ var ServiceWorker = function() {
       };
       if (policy.logRewrittenPrompts || policy.debugFlag) {
         enriched.refusalDebug = {
-          originalPrompt: prompt,
+          originalPrompt: rawPrompt,
           effectivePrompt: refusalMeta && refusalMeta.rewrittenPrompt ? refusalMeta.rewrittenPrompt : prompt
         };
       }
