@@ -16,15 +16,15 @@ Web2Comics is a Chrome extension that:
 
 Release links:
 - [Releases page](https://github.com/ApartsinProjects/Web2Comics/releases)
-- [Current release (`v1.0.2`) ZIP](https://github.com/ApartsinProjects/Web2Comics/releases/download/v1.0.2/Web2Comics-v1.0.2-extension.zip)
+- [Current release (`v1.0.3`) ZIP](https://github.com/ApartsinProjects/Web2Comics/releases/download/v1.0.3/Web2Comics-v1.0.3-extension.zip)
 
 1. Open the repository `Releases` page on GitHub (link above).
-2. Download the latest release asset ZIP (for example `Web2Comics-v1.0.2-extension.zip`).
+2. Download the latest release asset ZIP (for example `Web2Comics-v1.0.3-extension.zip`).
 3. Extract the ZIP to a folder (for example `C:\Web2Comics`).
 4. Open Chrome and go to `chrome://extensions`.
 5. Turn on `Developer mode` (top-right).
 6. Click `Load unpacked`.
-7. Select the extracted folder that contains `manifest.json` (for example `Web2Comics-v1.0.2`).
+7. Select the extracted folder that contains `manifest.json` (for example `Web2Comics-v1.0.3`).
 8. In `chrome://extensions`, confirm the `Web2Comics` card is enabled (toggle ON).
 9. Open the Chrome Extensions menu (puzzle icon), find `Web2Comics`, and click the pin icon to show it in the toolbar.
 10. Open the extension and configure a [`Google Gemini` API key (free tier)](docs/Gemini_key.md) in `Options -> Providers` (recommended first-run setup).

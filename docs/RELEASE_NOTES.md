@@ -1,5 +1,16 @@
 # Web2Comics Release Notes
 
+## v1.0.3 (2026-03-03)
+
+### Highlights
+- Updated README badges and release links for the new release artifact.
+- Refreshed installation documentation and root docs references to `v1.0.3`.
+- Published new packaged extension ZIP for Chrome unpacked installation flow.
+
+### Packaging
+- Release artifact: `Web2Comics-v1.0.3-extension.zip`
+- Built via: `scripts/package-release.ps1`
+
 ## v1.0.2 (2026-02-28)
 
 ### Highlights
