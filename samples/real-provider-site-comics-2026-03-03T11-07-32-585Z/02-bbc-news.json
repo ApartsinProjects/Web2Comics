@@ -1,0 +1,14 @@
+{
+  "storyTitle": "Iran führte Vergeltungsschläge gegen Israel, den Golf und eine britische Basis in Zypern",
+  "storyDescription": "Iran führte Vergeltungsschläge gegen Israel, den Golf und eine britische Basis in Zypern aus, was die Spannungen in der Region dramatisch erhöhte. Drei Tage später eskaliert der Konflikt mit israelischen Angriffen auf Teherans Präsidentenbü",
+  "panelCount": 3,
+  "sourceUrl": "https://www.bbc.com/news",
+  "sourceTitle": "BBC News",
+  "providerText": "gemini-free",
+  "providerImage": "gemini-free",
+  "objective": "timeline",
+  "language": "de",
+  "style": "noir",
+  "bytes": 1659353,
+  "output": "samples/real-provider-site-comics-2026-03-03T11-07-32-585Z/02-bbc-news.png"
+}

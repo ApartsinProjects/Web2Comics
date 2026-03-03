@@ -1,0 +1,16 @@
+{
+  "ok": true,
+  "site": "MDN JavaScript",
+  "category": "Developer Docs",
+  "url": "https://developer.mozilla.org/en-US/docs/Web/JavaScript",
+  "language": "en",
+  "objective": "study-guide",
+  "style": "pixel",
+  "selectedLayout": "grid-9",
+  "provider": "gemini-free",
+  "panelCount": 8,
+  "title": "Exploring the Core Concepts and Paradigms of JavaScript Programming",
+  "description": "This storyboard details JavaScript as a dynamic, prototype-based language supporting multiple programming paradigms. It covers its standards, memory management, and diverse execution environments beyond the browser.",
+  "output": "samples/real-gemini-10sites-square-2026-03-03T12-07-23-132Z/04-mdn-javascript.png",
+  "bytes": 1987602
+}

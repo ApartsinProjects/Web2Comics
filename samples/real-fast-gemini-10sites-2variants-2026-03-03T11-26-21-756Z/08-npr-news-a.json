@@ -1,0 +1,17 @@
+{
+  "ok": true,
+  "site": "NPR News",
+  "category": "Public Radio",
+  "url": "https://www.npr.org/sections/news/",
+  "language": "en",
+  "variant": "A",
+  "variantLabel": "Fact Sprint",
+  "objective": "news-recap",
+  "style": "newspaper-strip",
+  "provider": "gemini-free",
+  "panelCount": 8,
+  "title": "A Visual Summary of Today's Top U.S. and Global News Developments",
+  "description": "This storyboard visualizes the most significant ongoing U.S. political story, a critical international conflict, and key economic data updates. It also covers recent major court rulings and public health news.",
+  "output": "samples/real-fast-gemini-10sites-2variants-2026-03-03T11-26-21-756Z/08-npr-news-a.png",
+  "bytes": 3798289
+}

@@ -1,0 +1,17 @@
+{
+  "ok": true,
+  "site": "Wikipedia AI",
+  "category": "Reference",
+  "url": "https://en.wikipedia.org/wiki/Artificial_intelligence",
+  "language": "en",
+  "variant": "A",
+  "variantLabel": "Fact Sprint",
+  "objective": "news-recap",
+  "style": "newspaper-strip",
+  "provider": "gemini-free",
+  "panelCount": 8,
+  "title": "The Evolution and Core Concepts of Artificial Intelligence Research",
+  "description": "This storyboard outlines the definition of AI, its founding in 1956, and the cycles of research funding it has experienced. It also highlights key applications and traditional research goals like learning and reasoning.",
+  "output": "samples/real-fast-gemini-10sites-2variants-2026-03-03T11-26-21-756Z/03-wikipedia-ai-a.png",
+  "bytes": 3949688
+}

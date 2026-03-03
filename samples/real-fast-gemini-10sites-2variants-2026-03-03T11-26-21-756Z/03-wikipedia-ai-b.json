@@ -1,0 +1,17 @@
+{
+  "ok": true,
+  "site": "Wikipedia AI",
+  "category": "Reference",
+  "url": "https://en.wikipedia.org/wiki/Artificial_intelligence",
+  "language": "en",
+  "variant": "B",
+  "variantLabel": "Explain & Learn",
+  "objective": "learn-step-by-step",
+  "style": "manga",
+  "provider": "gemini-free",
+  "panelCount": 8,
+  "title": "Understanding Artificial Intelligence: From Mimicry to Modern Applications",
+  "description": "This storyboard introduces AI as machine capability mimicking human intelligence, defining it as a computer science research field. It details the cognitive tasks AI systems aim to replicate using various computational methods.",
+  "output": "samples/real-fast-gemini-10sites-2variants-2026-03-03T11-26-21-756Z/03-wikipedia-ai-b.png",
+  "bytes": 4466910
+}

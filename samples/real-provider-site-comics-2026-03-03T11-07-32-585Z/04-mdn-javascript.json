@@ -1,0 +1,14 @@
+{
+  "storyTitle": "JavaScript es un lenguaje de programación ligero, interpretado y con funciones de primer",
+  "storyDescription": "JavaScript es un lenguaje de programación ligero, interpretado y con funciones de primer nivel. JavaScript es un lenguaje basado en prototipos, recoge basura y dinámico, que soporta múltiples paradigmas como imperativo, funcional y orientad",
+  "panelCount": 3,
+  "sourceUrl": "https://developer.mozilla.org/en-US/docs/Web/JavaScript",
+  "sourceTitle": "MDN JavaScript",
+  "providerText": "huggingface",
+  "providerImage": "huggingface",
+  "objective": "study-guide",
+  "language": "es",
+  "style": "pixel",
+  "bytes": 877547,
+  "output": "samples/real-provider-site-comics-2026-03-03T11-07-32-585Z/04-mdn-javascript.png"
+}

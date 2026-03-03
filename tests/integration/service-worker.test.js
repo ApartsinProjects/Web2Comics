@@ -409,25 +409,26 @@ describe('Objective Guidance Semantics', () => {
   const OBJECTIVE_PROFILES = {
     summarize: { label: 'Quick Summary' },
     fun: { label: 'Have Fun' },
-    'learn-step-by-step': { label: 'Learn Step by Step' }
+    'learn-step-by-step': { label: 'Learn Step by Step' },
+    'explain-like-im-five': { label: "Explain Like I'm Five" }
   };
 
   function getObjectiveSpec(options) {
-    const objectiveId = String((options && options.objective) || 'summarize');
-    const profile = OBJECTIVE_PROFILES[objectiveId] || OBJECTIVE_PROFILES.summarize;
+    const objectiveId = String((options && options.objective) || 'explain-like-im-five');
+    const profile = OBJECTIVE_PROFILES[objectiveId] || OBJECTIVE_PROFILES['explain-like-im-five'];
     return {
-      id: OBJECTIVE_PROFILES[objectiveId] ? objectiveId : 'summarize',
+      id: OBJECTIVE_PROFILES[objectiveId] ? objectiveId : 'explain-like-im-five',
       label: profile.label
     };
   }
 
-  it('defaults objective to summarize when unset', () => {
-    expect(getObjectiveSpec({}).id).toBe('summarize');
-    expect(getObjectiveSpec({}).label).toBe('Quick Summary');
+  it('defaults objective to explain-like-im-five when unset', () => {
+    expect(getObjectiveSpec({}).id).toBe('explain-like-im-five');
+    expect(getObjectiveSpec({}).label).toBe("Explain Like I'm Five");
   });
 
-  it('falls back to summarize for unknown objective values', () => {
-    expect(getObjectiveSpec({ objective: 'unknown-mode' }).id).toBe('summarize');
+  it('falls back to explain-like-im-five for unknown objective values', () => {
+    expect(getObjectiveSpec({ objective: 'unknown-mode' }).id).toBe('explain-like-im-five');
   });
 
   it('keeps selected objective when valid', () => {
@@ -550,6 +551,72 @@ describe('Service Worker Resilience Logic (helper semantics)', () => {
     expect(l3.storyboard.panels.length).toBe(20);
     expect(l3.storyboard.panels_truncated_for_quota).toBe(true);
     expect(l3.storyboard.panels[0].beat_summary.length).toBeLessThanOrEqual(163);
+  });
+
+  it('keeps history thumbnail during quota compaction while removing panel image blobs', () => {
+    function compactHistoryForQuota(history) {
+      return history.map((item) => {
+        if (!item || !item.storyboard || !Array.isArray(item.storyboard.panels)) return item;
+        const compactItem = JSON.parse(JSON.stringify(item));
+        compactItem.storyboard.panels = compactItem.storyboard.panels.map((panel) => {
+          const p = panel && typeof panel === 'object' ? JSON.parse(JSON.stringify(panel)) : panel;
+          if (p && p.artifacts && p.artifacts.image_blob_ref) {
+            p.artifacts.image_omitted_due_to_quota = true;
+            delete p.artifacts.image_blob_ref;
+          }
+          return p;
+        });
+        return compactItem;
+      });
+    }
+
+    const thumbnail = 'data:image/png;base64,thumbnail-data';
+    const history = [{
+      id: 'h1',
+      thumbnail,
+      storyboard: {
+        panels: [{ artifacts: { image_blob_ref: 'data:image/png;base64,panel-image' } }]
+      }
+    }];
+
+    const compact = compactHistoryForQuota(history);
+    expect(compact[0].thumbnail).toBe(thumbnail);
+    expect(compact[0].storyboard.panels[0].artifacts.image_blob_ref).toBeUndefined();
+    expect(compact[0].storyboard.panels[0].artifacts.image_omitted_due_to_quota).toBe(true);
+  });
+
+  it('derives history thumbnail from first available panel image across supported shapes', () => {
+    function resolveImageSourceValue(value) {
+      if (!value) return '';
+      if (typeof value === 'string') return value.trim();
+      if (typeof value === 'object') {
+        const candidate = value.url || value.data_url || value.href || value.src || '';
+        return typeof candidate === 'string' ? candidate.trim() : '';
+      }
+      return '';
+    }
+    function deriveHistoryThumbnail(storyboard) {
+      const explicit = resolveImageSourceValue(storyboard?.thumbnail);
+      if (explicit) return explicit;
+      const panels = Array.isArray(storyboard?.panels) ? storyboard.panels : [];
+      for (const panel of panels) {
+        const src =
+          resolveImageSourceValue(panel?.artifacts?.image_blob_ref) ||
+          resolveImageSourceValue(panel?.artifacts?.image_url) ||
+          resolveImageSourceValue(panel?.image_blob_ref) ||
+          resolveImageSourceValue(panel?.image_url);
+        if (src) return src;
+      }
+      return '';
+    }
+
+    const storyboard = {
+      panels: [
+        { artifacts: {} },
+        { artifacts: { image_url: { url: 'data:image/png;base64,SECOND_PANEL_URL' } } }
+      ]
+    };
+    expect(deriveHistoryThumbnail(storyboard)).toContain('data:image/png;base64,SECOND_PANEL_URL');
   });
 
   it('filters invalid dates during cleanup logic', () => {

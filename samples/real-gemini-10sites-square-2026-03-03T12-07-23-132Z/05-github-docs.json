@@ -1,0 +1,16 @@
+{
+  "ok": true,
+  "site": "GitHub Docs",
+  "category": "Open Source Docs",
+  "url": "https://docs.github.com/en/get-started/start-your-journey/about-github-and-git",
+  "language": "en",
+  "objective": "how-to-guide",
+  "style": "manga",
+  "selectedLayout": "square-comic-grid",
+  "provider": "gemini-free",
+  "panelCount": 8,
+  "title": "Understanding the Core Relationship Between Git and GitHub for Collaboration",
+  "description": "This storyboard explains that GitHub is the cloud platform for code storage, while Git is the version control system tracking file changes. Collaboration involves branching, editing independently, and merging changes back to the main reposi",
+  "output": "samples/real-gemini-10sites-square-2026-03-03T12-07-23-132Z/05-github-docs.png",
+  "bytes": 4712557
+}

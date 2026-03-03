@@ -1,0 +1,14 @@
+{
+  "storyTitle": "Tensions rise as the US and Iran's conflict escalates, with US embassies under attack in",
+  "storyDescription": "Tensions rise as the US and Iran's conflict escalates, with US embassies under attack in the Middle East. Iran retaliates with strikes on US positions, leading to casualties among US service members in Kuwait.",
+  "panelCount": 3,
+  "sourceUrl": "https://www.cnn.com",
+  "sourceTitle": "CNN",
+  "providerText": "openai",
+  "providerImage": "openai",
+  "objective": "news-recap",
+  "language": "en",
+  "style": "newspaper-strip",
+  "bytes": 900102,
+  "output": "samples/real-provider-site-comics-2026-03-03T11-07-32-585Z/01-cnn.png"
+}

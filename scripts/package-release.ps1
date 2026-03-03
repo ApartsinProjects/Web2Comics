@@ -6,6 +6,30 @@ $ErrorActionPreference = "Stop"
 
 $manifest = Get-Content -Raw "manifest.json" | ConvertFrom-Json
 $version = [string]$manifest.version
+$packageJson = Get-Content -Raw "package.json" | ConvertFrom-Json
+$packageVersion = [string]$packageJson.version
+if ($packageVersion -ne $version) {
+    throw "Version mismatch: manifest.json=$version, package.json=$packageVersion. Update both before release."
+}
+
+$releaseNotesPath = "docs/RELEASE_NOTES.md"
+if (-not (Test-Path $releaseNotesPath)) {
+    throw "Missing $releaseNotesPath"
+}
+$releaseNotes = Get-Content -Raw $releaseNotesPath
+if ($releaseNotes -notmatch [regex]::Escape("## v$version")) {
+    throw "docs/RELEASE_NOTES.md must include a section header for v$version."
+}
+
+$readmePath = "docs/ROOT_README.md"
+if (-not (Test-Path $readmePath)) {
+    throw "Missing $readmePath"
+}
+$readme = Get-Content -Raw $readmePath
+if ($readme -notmatch [regex]::Escape("v$version")) {
+    throw "docs/ROOT_README.md must reference v$version."
+}
+
 $packageName = "Web2Comics-v$version"
 $stagingRoot = Join-Path $OutputDir $packageName
 $zipPath = Join-Path $OutputDir "$packageName-extension.zip"
@@ -32,7 +56,7 @@ foreach ($dir in $runtimeDirs) {
 }
 
 Copy-Item "manifest.json" -Destination $stagingRoot
-Copy-Item "INSTALL.md" -Destination $stagingRoot
+Copy-Item "docs/INSTALL.md" -Destination $stagingRoot
 
 $docsDir = Join-Path $stagingRoot "docs"
 New-Item -ItemType Directory -Path $docsDir | Out-Null

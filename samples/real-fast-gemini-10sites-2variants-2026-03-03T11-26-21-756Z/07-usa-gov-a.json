@@ -1,0 +1,17 @@
+{
+  "ok": true,
+  "site": "USA.gov",
+  "category": "Government",
+  "url": "https://www.usa.gov",
+  "language": "en",
+  "variant": "A",
+  "variantLabel": "Fact Sprint",
+  "objective": "news-recap",
+  "style": "newspaper-strip",
+  "provider": "gemini-free",
+  "panelCount": 8,
+  "title": "Navigating Essential Government Services and Benefits Through USA.gov",
+  "description": "This storyboard illustrates how USA.gov simplifies locating and understanding critical government services, from taxes and passports to housing and disaster relief. It covers major life events and administrative tasks made accessible via th",
+  "output": "samples/real-fast-gemini-10sites-2variants-2026-03-03T11-26-21-756Z/07-usa-gov-a.png",
+  "bytes": 4461546
+}

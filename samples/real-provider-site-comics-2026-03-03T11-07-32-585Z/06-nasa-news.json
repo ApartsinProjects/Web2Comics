@@ -1,0 +1,14 @@
+{
+  "storyTitle": "Em fevereiro de 2026, a NASA anunciou que está aumentando a cadência de missões de explo",
+  "storyDescription": "Em fevereiro de 2026, a NASA anunciou que está aumentando a cadência de missões de exploração lunar sob o programa Artemis. O Artemis II SLS e a espaçonave Orion chegaram ao Edifício de Montagem de Veículos para reparos, após uma missão cru",
+  "panelCount": 3,
+  "sourceUrl": "https://www.nasa.gov/news/all-news/",
+  "sourceTitle": "NASA News",
+  "providerText": "openai",
+  "providerImage": "openai",
+  "objective": "summarize",
+  "language": "pt",
+  "style": "watercolor",
+  "bytes": 2277310,
+  "output": "samples/real-provider-site-comics-2026-03-03T11-07-32-585Z/06-nasa-news.png"
+}

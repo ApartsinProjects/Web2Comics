@@ -1,0 +1,17 @@
+{
+  "ok": true,
+  "site": "USA.gov",
+  "category": "Government",
+  "url": "https://www.usa.gov",
+  "language": "en",
+  "variant": "B",
+  "variantLabel": "Explain & Learn",
+  "objective": "learn-step-by-step",
+  "style": "manga",
+  "provider": "gemini-free",
+  "panelCount": 8,
+  "title": "Navigating Government Services Easily with the USA.gov Portal",
+  "description": "This storyboard illustrates how USA.gov simplifies finding and understanding federal benefits and programs. Users can browse by topic or life event to locate necessary government resources.",
+  "output": "samples/real-fast-gemini-10sites-2variants-2026-03-03T11-26-21-756Z/07-usa-gov-b.png",
+  "bytes": 3540055
+}

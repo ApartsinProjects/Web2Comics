@@ -1,0 +1,17 @@
+{
+  "ok": true,
+  "site": "NASA News",
+  "category": "Science",
+  "url": "https://www.nasa.gov/news/all-news/",
+  "language": "en",
+  "variant": "A",
+  "variantLabel": "Fact Sprint",
+  "objective": "news-recap",
+  "style": "newspaper-strip",
+  "provider": "gemini-free",
+  "panelCount": 8,
+  "title": "Florida Wildfire, Lunar Eclipse, and ISS Crew Preparations in March Updates",
+  "description": "A major Florida wildfire burned thousands of acres while the Expedition 74 crew prepared for a spacewalk and a Japanese cargo craft departure. March 2026 also features a total lunar eclipse and the start of a new Earth science mission.",
+  "output": "samples/real-fast-gemini-10sites-2variants-2026-03-03T11-26-21-756Z/06-nasa-news-a.png",
+  "bytes": 4860016
+}

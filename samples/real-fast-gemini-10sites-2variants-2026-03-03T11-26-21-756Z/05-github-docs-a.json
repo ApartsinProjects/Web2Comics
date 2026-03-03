@@ -1,0 +1,17 @@
+{
+  "ok": true,
+  "site": "GitHub Docs",
+  "category": "Open Source Docs",
+  "url": "https://docs.github.com/en/get-started/start-your-journey/about-github-and-git",
+  "language": "en",
+  "variant": "A",
+  "variantLabel": "Fact Sprint",
+  "objective": "news-recap",
+  "style": "newspaper-strip",
+  "provider": "gemini-free",
+  "panelCount": 8,
+  "title": "Understanding the Relationship Between Git Version Control and GitHub Collaboration",
+  "description": "GitHub offers a cloud platform for storing code repositories, enabling tracking and sharing. This platform is built upon Git, which provides intelligent version control for managing changes.",
+  "output": "samples/real-fast-gemini-10sites-2variants-2026-03-03T11-26-21-756Z/05-github-docs-a.png",
+  "bytes": 3716384
+}

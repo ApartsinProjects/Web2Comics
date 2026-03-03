@@ -1,0 +1,5 @@
+{
+  "model": "gemini-2.0-flash-exp-image-generation",
+  "prompt": "Create a polished illustration for a \"Comicify\" button in a Chrome extension. Scene: a person looking at a computer display and sketching a comic page. The display should show comic-like panels and speech bubbles as abstract shapes. Style: modern digital illustration, vibrant, clean, dynamic composition. No text, no logos, no watermark. Center-focused composition suitable for a rounded square icon crop.",
+  "responseText": "I will generate a modern digital illustration for a \"Comicify\" button. The scene will depict a person gazing at a computer screen and sketching on a drawing tablet. The computer display will feature abstract shapes representing comic panels and speech bubbles. The illustration will have a vibrant color palette, a clean aesthetic, and a dynamic, center-focused composition suitable for a rounded square icon."
+}

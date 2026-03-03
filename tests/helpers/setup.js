@@ -12,7 +12,8 @@ global.chrome = {
       addListener: vi.fn()
     },
     openOptionsPage: vi.fn(),
-    getURL: vi.fn((path) => `chrome-extension://test/${path}`)
+    getURL: vi.fn((path) => `chrome-extension://test/${path}`),
+    getManifest: vi.fn(() => ({ version: '1.0.2' }))
   },
   storage: {
     local: {

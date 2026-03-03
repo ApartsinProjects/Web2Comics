@@ -1,0 +1,16 @@
+{
+  "ok": true,
+  "site": "Khan Academy",
+  "category": "Education",
+  "url": "https://www.khanacademy.org",
+  "language": "he",
+  "objective": "explain-like-im-five",
+  "style": "clay-stopmotion",
+  "selectedLayout": "square-comic-grid",
+  "provider": "gemini-free",
+  "panelCount": 8,
+  "title": "מסע לתוך האקדמיה של חאן: חנות הצעצועים הדיגיטלית ללמידה",
+  "description": "הסיפור מדמיין את Khan Academy כחנות צעצועים ענקית המציעה קוביות לגו ללימוד מתמטיקה, ערכות הרכבה למדעים ומשחקי שפה. הדמויות לומדות באמצעות תרגול עם מכונת משחק ועוזר רובוט חכם בשם ח'אןמיגו.",
+  "output": "samples/real-gemini-10sites-square-2026-03-03T12-07-23-132Z/10-khan-academy.png",
+  "bytes": 4172508
+}

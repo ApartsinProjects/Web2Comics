@@ -36,6 +36,17 @@ function makeHistoryItem(index) {
   };
 }
 
+function formatLikeViewerDateTime(value) {
+  return new Date(value).toLocaleString(undefined, {
+    weekday: 'short',
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit'
+  });
+}
+
 describe('Sidepanel Page UX', () => {
   beforeEach(() => {
     vi.resetModules();
@@ -100,6 +111,32 @@ describe('Sidepanel Page UX', () => {
     expect(sidebar.classList.contains('hidden')).toBe(true);
   });
 
+  it('opens in My Collection view when URL requests view=history', async () => {
+    window.history.replaceState({}, '', '?view=history');
+    chrome.storage.local.get.mockImplementation(async (key) => {
+      if (key === 'currentJob') return { currentJob: null };
+      if (key === 'history') return { history: [makeHistoryItem(1)] };
+      return {};
+    });
+
+    await import('../../sidepanel/sidepanel.js');
+    document.dispatchEvent(new Event('DOMContentLoaded'));
+    await flush();
+    await flush();
+
+    const comicBtn = document.getElementById('mode-comic-btn');
+    const historyBtn = document.getElementById('mode-history-btn');
+    const comicShell = document.getElementById('comic-view-shell');
+    const historyShell = document.getElementById('history-browser-view');
+
+    expect(historyBtn.getAttribute('aria-selected')).toBe('true');
+    expect(comicBtn.getAttribute('aria-selected')).toBe('false');
+    expect(historyShell.classList.contains('hidden')).toBe(false);
+    expect(comicShell.classList.contains('hidden')).toBe(true);
+
+    window.history.replaceState({}, '', '/');
+  });
+
   it('renders History Browser in chunks and loads more items on demand', async () => {
     const history = Array.from({ length: 15 }, (_, i) => makeHistoryItem(i + 1));
     chrome.storage.local.get.mockImplementation(async (key) => {
@@ -131,6 +168,238 @@ describe('Sidepanel Page UX', () => {
     expect(actions.classList.contains('hidden')).toBe(true);
   });
 
+  it('rehydrates distinct archived panel images even when panel_id values are duplicated', async () => {
+    chrome.storage.local.get.mockImplementation(async (key) => {
+      if (key === 'currentJob') return { currentJob: null };
+      if (key === 'history') return { history: [] };
+      if (key === 'sidepanelPrefs') return { sidepanelPrefs: {} };
+      return {};
+    });
+    chrome.runtime.sendMessage.mockImplementation(async (msg) => {
+      if (msg?.type === 'GET_ARCHIVED_PANEL_IMAGES') {
+        return {
+          images: {
+            'comic-dup::panel_1': 'data:image/png;base64,AAA111',
+            'comic-dup::panel_2': 'data:image/png;base64,BBB222'
+          }
+        };
+      }
+      return { success: true };
+    });
+
+    await import('../../sidepanel/sidepanel.js');
+    document.dispatchEvent(new Event('DOMContentLoaded'));
+    await flush();
+    await flush();
+
+    const viewer = window.__sidepanelViewer;
+    const storyboard = {
+      panels: [
+        { panel_id: 'panel_1', artifacts: {} },
+        { panel_id: 'panel_1', artifacts: {} }
+      ]
+    };
+    const hydrated = await viewer.hydrateStoryboardImagesFromArchive(storyboard, 'comic-dup');
+    const first = String(hydrated?.panels?.[0]?.artifacts?.image_blob_ref || '');
+    const second = String(hydrated?.panels?.[1]?.artifacts?.image_blob_ref || '');
+
+    expect(first).toContain('AAA111');
+    expect(second).toContain('BBB222');
+    expect(first).not.toBe(second);
+  });
+
+  it('prefers index archive keys over stale explicit image_archive_key values', async () => {
+    chrome.storage.local.get.mockImplementation(async (key) => {
+      if (key === 'currentJob') return { currentJob: null };
+      if (key === 'history') return { history: [] };
+      if (key === 'sidepanelPrefs') return { sidepanelPrefs: {} };
+      return {};
+    });
+    chrome.runtime.sendMessage.mockImplementation(async (msg) => {
+      if (msg?.type === 'GET_ARCHIVED_PANEL_IMAGES') {
+        return {
+          images: {
+            'comic-stale::panel_1': 'data:image/png;base64,IDX1',
+            'comic-stale::panel_2': 'data:image/png;base64,IDX2',
+            stale_shared_key: 'data:image/png;base64,STALE'
+          }
+        };
+      }
+      return { success: true };
+    });
+
+    await import('../../sidepanel/sidepanel.js');
+    document.dispatchEvent(new Event('DOMContentLoaded'));
+    await flush();
+    await flush();
+
+    const viewer = window.__sidepanelViewer;
+    const storyboard = {
+      panels: [
+        { panel_id: 'panel_1', artifacts: { image_archive_key: 'stale_shared_key' } },
+        { panel_id: 'panel_2', artifacts: { image_archive_key: 'stale_shared_key' } }
+      ]
+    };
+    const hydrated = await viewer.hydrateStoryboardImagesFromArchive(storyboard, 'comic-stale');
+    const first = String(hydrated?.panels?.[0]?.artifacts?.image_blob_ref || '');
+    const second = String(hydrated?.panels?.[1]?.artifacts?.image_blob_ref || '');
+    const firstKey = String(hydrated?.panels?.[0]?.artifacts?.image_archive_key || '');
+    const secondKey = String(hydrated?.panels?.[1]?.artifacts?.image_archive_key || '');
+
+    expect(first).toContain('IDX1');
+    expect(second).toContain('IDX2');
+    expect(first).not.toContain('STALE');
+    expect(second).not.toContain('STALE');
+    expect(firstKey).toBe('comic-stale::panel_1');
+    expect(secondKey).toBe('comic-stale::panel_2');
+  });
+
+  it('prefers panel-id archive keys over stale explicit keys when index keys are missing', async () => {
+    chrome.storage.local.get.mockImplementation(async (key) => {
+      if (key === 'currentJob') return { currentJob: null };
+      if (key === 'history') return { history: [] };
+      if (key === 'sidepanelPrefs') return { sidepanelPrefs: {} };
+      return {};
+    });
+    chrome.runtime.sendMessage.mockImplementation(async (msg) => {
+      if (msg?.type === 'GET_ARCHIVED_PANEL_IMAGES') {
+        return {
+          images: {
+            // No index keys available on purpose.
+            'comic-id-fallback::custom_a': 'data:image/png;base64,IDA',
+            'comic-id-fallback::custom_b': 'data:image/png;base64,IDB',
+            stale_shared_key: 'data:image/png;base64,STALE'
+          }
+        };
+      }
+      return { success: true };
+    });
+
+    await import('../../sidepanel/sidepanel.js');
+    document.dispatchEvent(new Event('DOMContentLoaded'));
+    await flush();
+    await flush();
+
+    const viewer = window.__sidepanelViewer;
+    const storyboard = {
+      panels: [
+        { panel_id: 'custom_a', artifacts: { image_archive_key: 'stale_shared_key' } },
+        { panel_id: 'custom_b', artifacts: { image_archive_key: 'stale_shared_key' } }
+      ]
+    };
+    const hydrated = await viewer.hydrateStoryboardImagesFromArchive(storyboard, 'comic-id-fallback');
+    const first = String(hydrated?.panels?.[0]?.artifacts?.image_blob_ref || '');
+    const second = String(hydrated?.panels?.[1]?.artifacts?.image_blob_ref || '');
+    const firstKey = String(hydrated?.panels?.[0]?.artifacts?.image_archive_key || '');
+    const secondKey = String(hydrated?.panels?.[1]?.artifacts?.image_archive_key || '');
+
+    expect(first).toContain('IDA');
+    expect(second).toContain('IDB');
+    expect(first).not.toContain('STALE');
+    expect(second).not.toContain('STALE');
+    expect(firstKey).toBe('comic-id-fallback::custom_a');
+    expect(secondKey).toBe('comic-id-fallback::custom_b');
+  });
+
+  it('does not clone single history thumbnail across all panels for multi-panel comics', async () => {
+    chrome.storage.local.get.mockImplementation(async (key) => {
+      if (key === 'currentJob') return { currentJob: null };
+      if (key === 'history') return { history: [] };
+      if (key === 'sidepanelPrefs') return { sidepanelPrefs: {} };
+      return {};
+    });
+
+    await import('../../sidepanel/sidepanel.js');
+    document.dispatchEvent(new Event('DOMContentLoaded'));
+    await flush();
+    await flush();
+
+    const viewer = window.__sidepanelViewer;
+    const item = {
+      id: 'comic-x',
+      thumbnail: 'data:image/png;base64,THUMBONLY',
+      storyboard: {
+        source: { url: 'https://example.com', title: 'Example' },
+        panels: [{ artifacts: {} }, { artifacts: {} }, { artifacts: {} }]
+      }
+    };
+    const prepared = viewer.prepareHistoryStoryboardForDisplay(item);
+    const panelSources = (prepared?.panels || []).map((p) => viewer.getPanelImageSource(p));
+
+    expect(panelSources.filter(Boolean).length).toBe(0);
+  });
+
+  it('filters My Collection to favorites only when favorites toggle is enabled', async () => {
+    const a = makeHistoryItem(1);
+    const b = makeHistoryItem(2);
+    const c = makeHistoryItem(3);
+    a.favorite = true;
+    b.favorite = false;
+    c.favorite = true;
+    chrome.storage.local.get.mockImplementation(async (key) => {
+      if (key === 'currentJob') return { currentJob: null };
+      if (key === 'history') return { history: [a, b, c] };
+      if (key === 'sidepanelPrefs') return { sidepanelPrefs: {} };
+      return {};
+    });
+
+    await import('../../sidepanel/sidepanel.js');
+    document.dispatchEvent(new Event('DOMContentLoaded'));
+    await flush();
+    await flush();
+
+    document.getElementById('mode-history-btn').click();
+    await flush();
+
+    const before = document.querySelectorAll('#history-browser-grid .history-item');
+    expect(before.length).toBe(3);
+
+    document.getElementById('history-filter-favorites-btn').click();
+    await flush();
+
+    const after = document.querySelectorAll('#history-browser-grid .history-item');
+    expect(after.length).toBe(2);
+    const btn = document.getElementById('history-filter-favorites-btn');
+    expect(btn.classList.contains('is-active')).toBe(true);
+    expect(btn.getAttribute('aria-pressed')).toBe('true');
+  });
+
+  it('sorts My Collection by title and toggles between A-Z and Z-A', async () => {
+    const a = makeHistoryItem(1);
+    const b = makeHistoryItem(2);
+    const c = makeHistoryItem(3);
+    a.source.title = 'Zulu Update';
+    b.source.title = 'Alpha Brief';
+    c.source.title = 'Bravo Story';
+    chrome.storage.local.get.mockImplementation(async (key) => {
+      if (key === 'currentJob') return { currentJob: null };
+      if (key === 'history') return { history: [a, b, c] };
+      if (key === 'sidepanelPrefs') return { sidepanelPrefs: {} };
+      return {};
+    });
+
+    await import('../../sidepanel/sidepanel.js');
+    document.dispatchEvent(new Event('DOMContentLoaded'));
+    await flush();
+    await flush();
+
+    document.getElementById('mode-history-btn').click();
+    await flush();
+
+    const sortTitleBtn = document.getElementById('history-sort-title-btn');
+    sortTitleBtn.click(); // A-Z
+    await flush();
+
+    const firstAsc = String(document.querySelector('#history-browser-grid .history-title')?.textContent || '');
+    expect(firstAsc).toContain('Alpha Brief');
+
+    sortTitleBtn.click(); // Z-A
+    await flush();
+
+    const firstDesc = String(document.querySelector('#history-browser-grid .history-title')?.textContent || '');
+    expect(firstDesc).toContain('Zulu Update');
+  });
+
   it('renders history thumbnail fallback from storyboard panel image when thumbnail is missing', async () => {
     const item = makeHistoryItem(1);
     delete item.thumbnail;
@@ -155,6 +424,290 @@ describe('Sidepanel Page UX', () => {
     expect(String(thumb.getAttribute('src') || '')).toContain('data:image/png;base64');
   });
 
+  it('renders history thumbnail using the first available panel image', async () => {
+    const item = makeHistoryItem(1);
+    item.thumbnail = '';
+    item.storyboard.panels = [
+      { artifacts: { image_blob_ref: 'data:image/png;base64,AAA1' } },
+      { artifacts: { image_blob_ref: 'data:image/png;base64,AAA2' } },
+      { artifacts: { image_blob_ref: 'data:image/png;base64,AAA3' } },
+      { artifacts: { image_blob_ref: 'data:image/png;base64,AAA4' } }
+    ];
+    chrome.storage.local.get.mockImplementation(async (key) => {
+      if (key === 'currentJob') return { currentJob: null };
+      if (key === 'history') return { history: [item] };
+      return {};
+    });
+
+    await import('../../sidepanel/sidepanel.js');
+    document.dispatchEvent(new Event('DOMContentLoaded'));
+    await flush();
+    await flush();
+
+    document.getElementById('mode-history-btn').click();
+    await flush();
+
+    const thumb = document.querySelector('#history-browser-grid .history-thumb img');
+    expect(thumb).toBeTruthy();
+    expect(String(thumb.getAttribute('src') || '')).toContain('data:image/png;base64,AAA1');
+  });
+
+  it('uses persisted historyThumbnails map to keep preview visible when panel images are compacted', async () => {
+    const item = makeHistoryItem(1);
+    item.thumbnail = '';
+    item.storyboard.panels = [
+      { caption: 'Compacted panel', artifacts: { image_omitted_due_to_quota: true } }
+    ];
+    chrome.storage.local.get.mockImplementation(async (key) => {
+      if (Array.isArray(key)) {
+        return {
+          history: [item],
+          historyThumbnails: { 'history-1': 'data:image/jpeg;base64,TINY_PREVIEW_1' }
+        };
+      }
+      if (key === 'currentJob') return { currentJob: null };
+      if (key === 'history') return { history: [item] };
+      return {};
+    });
+
+    await import('../../sidepanel/sidepanel.js');
+    document.dispatchEvent(new Event('DOMContentLoaded'));
+    await flush();
+    await flush();
+
+    document.getElementById('mode-history-btn').click();
+    await flush();
+
+    const thumb = document.querySelector('#history-browser-grid .history-thumb img');
+    expect(thumb).toBeTruthy();
+    expect(String(thumb.getAttribute('src') || '')).toContain('data:image/jpeg;base64,TINY_PREVIEW_1');
+  });
+
+  it('renders history thumbnail fallback from panel image_url when image_blob_ref is missing', async () => {
+    const item = makeHistoryItem(1);
+    item.thumbnail = '';
+    item.storyboard.panels = [
+      { artifacts: { image_url: 'data:image/png;base64,URL1' } },
+      { image_url: 'data:image/png;base64,URL2' }
+    ];
+    chrome.storage.local.get.mockImplementation(async (key) => {
+      if (key === 'currentJob') return { currentJob: null };
+      if (key === 'history') return { history: [item] };
+      return {};
+    });
+
+    await import('../../sidepanel/sidepanel.js');
+    document.dispatchEvent(new Event('DOMContentLoaded'));
+    await flush();
+    await flush();
+
+    document.getElementById('mode-history-btn').click();
+    await flush();
+
+    const thumb = document.querySelector('#history-browser-grid .history-thumb img');
+    expect(thumb).toBeTruthy();
+    expect(String(thumb.getAttribute('src') || '')).toContain('data:image/png;base64,URL1');
+  });
+
+  it('renders history thumbnail when image_url is stored as an object shape', async () => {
+    const item = makeHistoryItem(1);
+    item.thumbnail = '';
+    item.storyboard.panels = [
+      { artifacts: { image_url: { url: 'data:image/png;base64,OBJECT_URL_1' } } }
+    ];
+    chrome.storage.local.get.mockImplementation(async (key) => {
+      if (key === 'currentJob') return { currentJob: null };
+      if (key === 'history') return { history: [item] };
+      return {};
+    });
+
+    await import('../../sidepanel/sidepanel.js');
+    document.dispatchEvent(new Event('DOMContentLoaded'));
+    await flush();
+    await flush();
+
+    document.getElementById('mode-history-btn').click();
+    await flush();
+
+    const thumb = document.querySelector('#history-browser-grid .history-thumb img');
+    expect(thumb).toBeTruthy();
+    expect(String(thumb.getAttribute('src') || '')).toContain('data:image/png;base64,OBJECT_URL_1');
+  });
+
+  it('hydrates and persists missing history thumbnail from panel image source', async () => {
+    const item = makeHistoryItem(1);
+    item.thumbnail = '';
+    item.storyboard.panels = [
+      { artifacts: { image_url: { url: 'data:image/png;base64,HYDRATE_URL_1' } } }
+    ];
+    chrome.storage.local.get.mockImplementation(async (key) => {
+      if (key === 'currentJob') return { currentJob: null };
+      if (key === 'history') return { history: [item] };
+      return {};
+    });
+
+    await import('../../sidepanel/sidepanel.js');
+    document.dispatchEvent(new Event('DOMContentLoaded'));
+    await flush();
+    await flush();
+    document.getElementById('mode-history-btn').click();
+    await flush();
+
+    expect(chrome.storage.local.set).toHaveBeenCalledWith(expect.objectContaining({
+      history: expect.any(Array)
+    }));
+    const persistedCall = chrome.storage.local.set.mock.calls.find((args) =>
+      args && args[0] && Array.isArray(args[0].history)
+    );
+    expect(persistedCall).toBeTruthy();
+    const persistedItem = persistedCall[0].history[0];
+    expect(String(persistedItem.thumbnail || '')).toContain('data:image/png;base64,HYDRATE_URL_1');
+
+    const thumb = document.querySelector('#history-browser-grid .history-thumb img');
+    expect(thumb).toBeTruthy();
+    expect(String(thumb.getAttribute('src') || '')).toContain('data:image/png;base64,HYDRATE_URL_1');
+  });
+
+  it('shows panel image when opening a history card that stores image_url only', async () => {
+    const item = makeHistoryItem(1);
+    item.thumbnail = '';
+    item.storyboard.panels = [
+      {
+        caption: 'Image URL only panel',
+        artifacts: {
+          image_url: 'data:image/png;base64,URL_PANEL_ONLY'
+        }
+      }
+    ];
+    chrome.storage.local.get.mockImplementation(async (key) => {
+      if (key === 'currentJob') return { currentJob: null };
+      if (key === 'history') return { history: [item] };
+      return {};
+    });
+
+    await import('../../sidepanel/sidepanel.js');
+    document.dispatchEvent(new Event('DOMContentLoaded'));
+    await flush();
+    await flush();
+
+    document.getElementById('mode-history-btn').click();
+    await flush();
+    document.querySelector('#history-browser-grid .history-item').click();
+    await flush();
+    await flush();
+
+    const panelImage = document.querySelector('#comic-strip .panel .panel-image img');
+    expect(panelImage).toBeTruthy();
+    expect(String(panelImage.getAttribute('src') || '')).toContain('data:image/png;base64,URL_PANEL_ONLY');
+  });
+
+  it('falls back to history thumbnail when opening a card whose panels have no image refs', async () => {
+    const item = makeHistoryItem(1);
+    item.thumbnail = 'data:image/png;base64,HISTORY_THUMB_ONLY';
+    item.storyboard.panels = [
+      {
+        caption: 'Panel missing image refs',
+        artifacts: {}
+      }
+    ];
+    chrome.storage.local.get.mockImplementation(async (key) => {
+      if (key === 'currentJob') return { currentJob: null };
+      if (key === 'history') return { history: [item] };
+      return {};
+    });
+
+    await import('../../sidepanel/sidepanel.js');
+    document.dispatchEvent(new Event('DOMContentLoaded'));
+    await flush();
+    await flush();
+
+    document.getElementById('mode-history-btn').click();
+    await flush();
+    document.querySelector('#history-browser-grid .history-item').click();
+    await flush();
+    await flush();
+
+    const panelImage = document.querySelector('#comic-strip .panel .panel-image img');
+    expect(panelImage).toBeTruthy();
+    expect(String(panelImage.getAttribute('src') || '')).toContain('data:image/png;base64,HISTORY_THUMB_ONLY');
+  });
+
+  it('rehydrates full panel image from archive when history panel image refs were compacted', async () => {
+    const item = makeHistoryItem(1);
+    item.thumbnail = 'data:image/jpeg;base64,TINY_PREVIEW_ONLY';
+    item.storyboard.panels = [
+      {
+        panel_id: 'panel_1',
+        caption: 'Archived panel image',
+        artifacts: {
+          image_omitted_due_to_quota: true,
+          image_archive_key: 'history-1::panel_1'
+        }
+      }
+    ];
+    chrome.storage.local.get.mockImplementation(async (key) => {
+      if (key === 'currentJob') return { currentJob: null };
+      if (key === 'history') return { history: [item] };
+      return {};
+    });
+    chrome.runtime.sendMessage.mockImplementation(async (msg) => {
+      if (msg?.type === 'GET_ARCHIVED_PANEL_IMAGES') {
+        return {
+          success: true,
+          images: {
+            'history-1::panel_1': 'data:image/png;base64,ARCHIVE_PANEL_1'
+          }
+        };
+      }
+      return { success: true };
+    });
+
+    await import('../../sidepanel/sidepanel.js');
+    document.dispatchEvent(new Event('DOMContentLoaded'));
+    await flush();
+    await flush();
+
+    document.getElementById('mode-history-btn').click();
+    await flush();
+    document.querySelector('#history-browser-grid .history-item').click();
+    await flush();
+    await flush();
+
+    const archiveCall = chrome.runtime.sendMessage.mock.calls.find((args) => args?.[0]?.type === 'GET_ARCHIVED_PANEL_IMAGES');
+    expect(archiveCall).toBeTruthy();
+    const panelImage = document.querySelector('#comic-strip .panel .panel-image img');
+    expect(panelImage).toBeTruthy();
+    expect(String(panelImage.getAttribute('src') || '')).toContain('data:image/png;base64,ARCHIVE_PANEL_1');
+  });
+
+  it('renders a fallback preview image when no history thumbnail images are available', async () => {
+    const item = makeHistoryItem(1);
+    item.thumbnail = '';
+    item.storyboard.panels = [{ caption: 'Only text panel', artifacts: {} }];
+    chrome.storage.local.get.mockImplementation(async (key) => {
+      if (key === 'currentJob') return { currentJob: null };
+      if (key === 'history') return { history: [item] };
+      return {};
+    });
+
+    await import('../../sidepanel/sidepanel.js');
+    document.dispatchEvent(new Event('DOMContentLoaded'));
+    await flush();
+    await flush();
+
+    const viewer = window.__sidepanelViewer;
+    vi.spyOn(viewer, 'getHistoryFallbackPreviewImage').mockReturnValue('data:image/png;base64,FALLBACK_PREVIEW');
+
+    document.getElementById('mode-history-btn').click();
+    await flush();
+    viewer.renderHistoryBrowser();
+    await flush();
+
+    const thumb = document.querySelector('#history-browser-grid .history-thumb img');
+    expect(thumb).toBeTruthy();
+    expect(String(thumb.getAttribute('src') || '')).toContain('data:image/png;base64,FALLBACK_PREVIEW');
+  });
+
   it('renders history title and source link from sourceTitle/sourceUrl fallback fields', async () => {
     const item = makeHistoryItem(1);
     delete item.source;
@@ -176,6 +729,28 @@ describe('Sidepanel Page UX', () => {
     expect(String(titleEl?.textContent || '')).toContain('CNN Fallback Source Title');
     expect(originalLink).toBeTruthy();
     expect(String(originalLink?.getAttribute('href') || '').toLowerCase()).not.toContain('javascript:');
+  });
+
+  it('renders Source label and human-readable date time in history cards', async () => {
+    const item = makeHistoryItem(1);
+    chrome.storage.local.get.mockImplementation(async (key) => {
+      if (key === 'currentJob') return { currentJob: null };
+      if (key === 'history') return { history: [item] };
+      return {};
+    });
+
+    await import('../../sidepanel/sidepanel.js');
+    document.dispatchEvent(new Event('DOMContentLoaded'));
+    await flush();
+    await flush();
+
+    document.getElementById('mode-history-btn').click();
+    await flush();
+
+    const link = document.querySelector('#history-browser-grid .history-source-link');
+    const dateEl = document.querySelector('#history-browser-grid .history-date');
+    expect(String(link?.textContent || '').trim()).toBe('Source');
+    expect(String(dateEl?.textContent || '').trim()).toBe(formatLikeViewerDateTime(item.generated_at));
   });
 
   it('opens a history card with keyboard and returns to Comic View', async () => {
@@ -248,6 +823,109 @@ describe('Sidepanel Page UX', () => {
     expect(persistedPrefs.layoutPreset).toBe('carousel');
   });
 
+  it('prefers generated storyboard title for comic title', async () => {
+    const item = makeHistoryItem(1);
+    item.storyboard.title = 'Israel: Key Timeline in 3 Panels';
+    item.storyboard.description = 'Inflation cooled in 2024 while policymakers held rates steady and signaled caution.';
+    chrome.storage.local.get.mockImplementation(async (key) => {
+      if (key === 'currentJob') return { currentJob: { status: 'completed', storyboard: item.storyboard } };
+      if (key === 'history') return { history: [item] };
+      return {};
+    });
+
+    await import('../../sidepanel/sidepanel.js');
+    document.dispatchEvent(new Event('DOMContentLoaded'));
+    await flush();
+    await flush();
+
+    expect(document.getElementById('comic-title').textContent).toBe('Israel: Key Timeline in 3 Panels');
+    expect(document.getElementById('comic-description').textContent).toContain('Inflation cooled in 2024');
+    expect(document.getElementById('comic-description').classList.contains('hidden')).toBe(false);
+  });
+
+  it('avoids noisy multi-headline source title mashups in comic title', async () => {
+    const item = makeHistoryItem(1);
+    item.storyboard.title = '';
+    item.storyboard.source.title =
+      'Austin mass shooting death toll Epstein deposition videos Total lunar eclipse to turn the moon red Global breast cancer cases Why Jim Carrey face is up for de';
+    item.storyboard.panels = [
+      {
+        caption: 'Austin shooting investigation advances as officials release updated details.',
+        artifacts: { image_blob_ref: 'data:image/png;base64,AAA' }
+      }
+    ];
+
+    chrome.storage.local.get.mockImplementation(async (key) => {
+      if (key === 'currentJob') return { currentJob: { status: 'completed', storyboard: item.storyboard } };
+      if (key === 'history') return { history: [item] };
+      return {};
+    });
+
+    await import('../../sidepanel/sidepanel.js');
+    document.dispatchEvent(new Event('DOMContentLoaded'));
+    await flush();
+    await flush();
+
+    const titleText = String(document.getElementById('comic-title').textContent || '');
+    expect(titleText).not.toContain('Epstein deposition videos');
+    expect(titleText).toContain('Austin shooting investigation advances');
+  });
+
+  it('uses a story short title in My Collection cards instead of generic Web2Comics label', async () => {
+    const item = makeHistoryItem(1);
+    item.storyboard.title = 'Web2Comics';
+    item.storyboard.collection_title_short = '';
+    item.source.title = 'Web2Comics';
+    item.storyboard.source.title = 'Web2Comics';
+    item.storyboard.panels = [
+      {
+        caption: 'Israel inflation cools as the central bank holds rates steady.',
+        artifacts: { image_blob_ref: 'data:image/png;base64,AAA' }
+      }
+    ];
+
+    chrome.storage.local.get.mockImplementation(async (key) => {
+      if (key === 'currentJob') return { currentJob: { status: 'completed', storyboard: item.storyboard } };
+      if (key === 'history') return { history: [item] };
+      return {};
+    });
+
+    await import('../../sidepanel/sidepanel.js');
+    document.dispatchEvent(new Event('DOMContentLoaded'));
+    await flush();
+    await flush();
+
+    document.getElementById('mode-history-btn').click();
+    await flush();
+    const historyTitle = document.querySelector('#history-browser-grid .history-title');
+    expect(historyTitle).toBeTruthy();
+    expect(String(historyTitle.textContent || '')).not.toBe('Web2Comics');
+    expect(String(historyTitle.textContent || '')).toContain('Israel inflation cools');
+  });
+
+  it('shows page favicon next to source link when source URL is available', async () => {
+    const item = makeHistoryItem(1);
+    item.storyboard.source.url = 'https://www.cnn.com/world';
+    chrome.storage.local.get.mockImplementation(async (key) => {
+      if (key === 'currentJob') return { currentJob: { status: 'completed', storyboard: item.storyboard } };
+      if (key === 'history') return { history: [item] };
+      return {};
+    });
+
+    await import('../../sidepanel/sidepanel.js');
+    document.dispatchEvent(new Event('DOMContentLoaded'));
+    await flush();
+    await flush();
+
+    const viewer = window.__sidepanelViewer;
+    expect(viewer).toBeTruthy();
+    expect(viewer.getFaviconUrl('https://www.cnn.com/world')).toBe('https://www.cnn.com/favicon.ico');
+    viewer.updateComicSourceFavicon('https://www.cnn.com/world');
+
+    const favicon = document.getElementById('comic-source-favicon');
+    expect(favicon).toBeTruthy();
+  });
+
   it('downloads debug logs from sidepanel header icon', async () => {
     chrome.storage.local.get.mockImplementation(async (key) => {
       if (key === 'currentJob') return { currentJob: null };
@@ -300,7 +978,7 @@ describe('Sidepanel Page UX', () => {
     global.confirm = vi.fn(() => false);
     deleteBtn.click();
     await flush();
-    expect(global.confirm).toHaveBeenCalledWith('Delete this comic from history?');
+    expect(global.confirm).toHaveBeenCalledWith('Delete this comic from My Collection?');
     expect(history).toHaveLength(2);
 
     global.confirm = vi.fn(() => true);
@@ -309,6 +987,60 @@ describe('Sidepanel Page UX', () => {
     await flush();
     expect(history).toHaveLength(1);
     expect(history[0].id).toBe('history-2');
+  });
+
+  it('toggles favorite on history item via star icon and persists', async () => {
+    let history = [makeHistoryItem(1), makeHistoryItem(2)];
+    chrome.storage.local.get.mockImplementation(async (key) => {
+      if (key === 'currentJob') return { currentJob: null };
+      if (key === 'history') return { history };
+      if (key === 'sidepanelPrefs') return { sidepanelPrefs: {} };
+      return {};
+    });
+    chrome.storage.local.set.mockImplementation(async (payload) => {
+      if (payload.history) history = payload.history;
+    });
+
+    await import('../../sidepanel/sidepanel.js');
+    document.dispatchEvent(new Event('DOMContentLoaded'));
+    await flush();
+    await flush();
+
+    document.getElementById('mode-history-btn').click();
+    await flush();
+
+    const starBtn = document.querySelector('#history-browser-grid .history-item-favorite-btn');
+    expect(starBtn).toBeTruthy();
+    expect(starBtn.classList.contains('is-active')).toBe(false);
+
+    starBtn.click();
+    await flush();
+    await flush();
+
+    expect(history[0].favorite).toBe(true);
+    const updatedStarBtn = document.querySelector('#history-browser-grid .history-item-favorite-btn');
+    expect(updatedStarBtn.classList.contains('is-active')).toBe(true);
+  });
+
+  it('does not render share icon on My Collection cards', async () => {
+    const history = [makeHistoryItem(1), makeHistoryItem(2)];
+    chrome.storage.local.get.mockImplementation(async (key) => {
+      if (key === 'currentJob') return { currentJob: null };
+      if (key === 'history') return { history };
+      if (key === 'sidepanelPrefs') return { sidepanelPrefs: {} };
+      return {};
+    });
+
+    await import('../../sidepanel/sidepanel.js');
+    document.dispatchEvent(new Event('DOMContentLoaded'));
+    await flush();
+    await flush();
+
+    document.getElementById('mode-history-btn').click();
+    await flush();
+
+    const shareBtn = document.querySelector('#history-browser-grid .history-item-share-btn');
+    expect(shareBtn).toBeFalsy();
   });
 
   it('shows expanded deduplicated layout preset list', async () => {
@@ -328,13 +1060,17 @@ describe('Sidepanel Page UX', () => {
     const values = Array.from(select.options).map((o) => o.value);
     const labels = Array.from(select.options).map((o) => o.textContent.trim());
 
-    expect(values.length).toBe(22);
+    expect(values.length).toBeGreaterThanOrEqual(26);
     expect(new Set(values).size).toBe(values.length);
     expect(labels).toContain('Single panel (Full-page)');
     expect(labels).toContain('Manga page (Right-to-left flow)');
     expect(labels).toContain('Webtoon scroll (Vertical strip)');
     expect(labels).toContain('Carousel (Swipe panels)');
     expect(labels).toContain('Guided path (Numbered / arrowed flow)');
+    expect(labels).toContain('4-panel strip (Horizontal)');
+    expect(labels).toContain('Square comic grid (1:1)');
+    expect(labels).toContain('A4 comic page (Portrait)');
+    expect(labels).toContain('A5 comic page (Portrait)');
   });
 
   it('restores persisted layout preset and matching view mode on load', async () => {
@@ -592,6 +1328,7 @@ describe('Sidepanel Page UX', () => {
 
   it('exports a composite comic image on Download using canvas and image APIs', async () => {
     const history = [makeHistoryItem(1)];
+    history[0].storyboard.description = 'Short export summary';
     chrome.storage.local.get.mockImplementation(async (key) => {
       if (key === 'currentJob') return { currentJob: { status: 'completed', storyboard: history[0].storyboard } };
       if (key === 'history') return { history };
@@ -665,12 +1402,99 @@ describe('Sidepanel Page UX', () => {
       expect(fakeCanvas.getContext).toHaveBeenCalledWith('2d');
       expect(fakeCanvas.toDataURL).toHaveBeenCalledWith('image/png');
       expect(fakeCtx.drawImage).toHaveBeenCalled();
+      const exportTexts = fakeCtx.fillText.mock.calls.map((call) => String(call?.[0] || ''));
+      expect(exportTexts.some((text) => text === '1. Panel 1 caption')).toBe(true);
+      expect(exportTexts.some((text) => text === 'Panel 1')).toBe(false);
+      expect(exportTexts.some((text) => text === 'Short export summary')).toBe(true);
       expect(fakeCtx.fillText).toHaveBeenCalledWith('Made with Web2Comics', expect.any(Number), expect.any(Number));
       expect(anchorClicks.length).toBeGreaterThan(0);
       const exportClick = [...anchorClicks].reverse().find((c) => String(c.download || '').includes('-comic-sheet.png'));
       expect(exportClick).toBeTruthy();
       expect(exportClick.download).toContain('CNN-Story-1-comic-sheet.png');
       expect(exportClick.href.startsWith('data:image/png;base64,')).toBe(true);
+    } finally {
+      document.createElement = originalCreateElement;
+      global.Image = OriginalImage;
+    }
+  });
+
+  it('exports panel images when only image_url is available in artifacts', async () => {
+    const item = makeHistoryItem(1);
+    item.storyboard.panels = [
+      {
+        caption: 'Image URL export panel',
+        artifacts: {
+          image_url: 'data:image/png;base64,URL_ONLY_FOR_EXPORT'
+        }
+      }
+    ];
+    const history = [item];
+    chrome.storage.local.get.mockImplementation(async (key) => {
+      if (key === 'currentJob') return { currentJob: { status: 'completed', storyboard: item.storyboard } };
+      if (key === 'history') return { history };
+      if (key === 'sidepanelPrefs') return { sidepanelPrefs: {} };
+      return {};
+    });
+
+    const originalCreateElement = document.createElement.bind(document);
+    const fakeGradient = { addColorStop: vi.fn() };
+    const fakeCtx = {
+      beginPath: vi.fn(),
+      moveTo: vi.fn(),
+      arcTo: vi.fn(),
+      closePath: vi.fn(),
+      fillRect: vi.fn(),
+      fill: vi.fn(),
+      stroke: vi.fn(),
+      fillText: vi.fn(),
+      save: vi.fn(),
+      clip: vi.fn(),
+      drawImage: vi.fn(),
+      restore: vi.fn(),
+      createLinearGradient: vi.fn(() => fakeGradient),
+      measureText: vi.fn((text) => ({ width: String(text || '').length * 8 })),
+      font: '',
+      fillStyle: '',
+      strokeStyle: '',
+      lineWidth: 1
+    };
+    const fakeCanvas = {
+      width: 0,
+      height: 0,
+      getContext: vi.fn(() => fakeCtx),
+      toDataURL: vi.fn(() => 'data:image/png;base64,ZmFrZS1wbmc=')
+    };
+
+    document.createElement = vi.fn((tagName, ...rest) => {
+      if (String(tagName).toLowerCase() === 'canvas') return fakeCanvas;
+      const el = originalCreateElement(tagName, ...rest);
+      if (String(tagName).toLowerCase() === 'a') el.click = vi.fn();
+      return el;
+    });
+
+    const OriginalImage = global.Image;
+    global.Image = class FakeImage {
+      constructor() {
+        this.width = 800;
+        this.height = 600;
+      }
+      set src(_value) {
+        setTimeout(() => this.onload && this.onload(), 0);
+      }
+    };
+
+    try {
+      await import('../../sidepanel/sidepanel.js');
+      document.dispatchEvent(new Event('DOMContentLoaded'));
+      await flush();
+      await flush();
+      await new Promise((resolve) => setTimeout(resolve, 10));
+
+      document.getElementById('download-btn').click();
+      await flush();
+      await flush();
+
+      expect(fakeCtx.drawImage).toHaveBeenCalled();
     } finally {
       document.createElement = originalCreateElement;
       global.Image = OriginalImage;
@@ -839,6 +1663,86 @@ describe('Sidepanel Page UX', () => {
     const panelProfile = viewer.getExportLayoutProfile();
     expect(panelProfile.kind).toBe('strip');
     expect(panelProfile.columns).toBe(3);
+
+    select.value = 'strip-4-horizontal';
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+    await flush();
+    const strip4Profile = viewer.getExportLayoutProfile();
+    expect(strip4Profile.kind).toBe('strip');
+    expect(strip4Profile.columns).toBe(4);
+
+    select.value = 'square-comic-grid';
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+    await flush();
+    const squareProfile = viewer.getExportLayoutProfile();
+    expect(squareProfile.kind).toBe('grid');
+    expect(squareProfile.cols).toBe(2);
+    expect(squareProfile.aspect).toBeCloseTo(1, 4);
+
+    select.value = 'a4-comic-page';
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+    await flush();
+    const a4Profile = viewer.getExportLayoutProfile();
+    expect(a4Profile.kind).toBe('grid');
+    expect(a4Profile.cols).toBe(2);
+    expect(a4Profile.aspect).toBeCloseTo(0.75, 4);
+
+    select.value = 'a5-comic-page';
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+    await flush();
+    const a5Profile = viewer.getExportLayoutProfile();
+    expect(a5Profile.kind).toBe('grid');
+    expect(a5Profile.cols).toBe(2);
+    expect(a5Profile.aspect).toBeCloseTo(0.8, 4);
+
+    select.value = 'masonry-landscape-2';
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+    await flush();
+    const masonry2Profile = viewer.getExportLayoutProfile();
+    expect(masonry2Profile.kind).toBe('masonry');
+    expect(masonry2Profile.cols).toBe(2);
+
+    select.value = 'masonry-landscape-3';
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+    await flush();
+    const masonry3Profile = viewer.getExportLayoutProfile();
+    expect(masonry3Profile.kind).toBe('masonry');
+    expect(masonry3Profile.cols).toBe(3);
+
+    select.value = 'masonry-landscape-4';
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+    await flush();
+    const masonry4Profile = viewer.getExportLayoutProfile();
+    expect(masonry4Profile.kind).toBe('masonry');
+    expect(masonry4Profile.cols).toBe(4);
+    expect(masonry4Profile.compact).toBe(true);
+  });
+
+  it('includes new comic book layout presets in layout selector', async () => {
+    const history = [makeHistoryItem(1)];
+    chrome.storage.local.get.mockImplementation(async (key) => {
+      if (key === 'currentJob') return { currentJob: { status: 'completed', storyboard: history[0].storyboard } };
+      if (key === 'history') return { history };
+      if (key === 'sidepanelPrefs') return { sidepanelPrefs: {} };
+      return {};
+    });
+
+    await import('../../sidepanel/sidepanel.js');
+    document.dispatchEvent(new Event('DOMContentLoaded'));
+    await flush();
+    await flush();
+
+    const select = document.getElementById('layout-preset-select');
+    const values = Array.from(select.options).map((opt) => opt.value);
+    expect(values).toEqual(expect.arrayContaining([
+      'strip-4-horizontal',
+      'square-comic-grid',
+      'a4-comic-page',
+      'a5-comic-page',
+      'masonry-landscape-2',
+      'masonry-landscape-3',
+      'masonry-landscape-4'
+    ]));
   });
 
   it('alerts when composite export fails', async () => {
@@ -944,7 +1848,7 @@ describe('Sidepanel Page UX', () => {
     expect(String(global.alert.mock.calls.at(-1)?.[0] || '')).toContain('Original prompt');
   });
 
-  it('renders compact panel quick actions and collapsible grounding/entities details', async () => {
+  it('renders compact panel quick actions without grounding indicator', async () => {
     const item = makeHistoryItem(1);
     item.storyboard.panels = [
       {
@@ -975,29 +1879,22 @@ describe('Sidepanel Page UX', () => {
     await flush();
 
     const quickActionButtons = Array.from(document.querySelectorAll('.comic-strip .panel-action-btn'));
-    expect(quickActionButtons.length).toBeGreaterThanOrEqual(3);
-    expect(quickActionButtons.map((el) => String(el.textContent || '').trim())).toEqual(
-      expect.arrayContaining(['Img', 'Cap', 'Fact'])
-    );
+    expect(quickActionButtons.length).toBe(1);
+    expect(quickActionButtons.every((el) => el.classList.contains('panel-action-btn-icon'))).toBe(true);
     expect(document.querySelector('[data-panel-action="regenerate-image"]')).toBeTruthy();
-    expect(document.querySelector('[data-panel-action="regenerate-caption"]')).toBeTruthy();
-    expect(document.querySelector('[data-panel-action="make-factual"]')).toBeTruthy();
+    expect(document.querySelector('[data-panel-action="regenerate-caption"]')).toBeFalsy();
+    expect(document.querySelector('[data-panel-action="make-factual"]')).toBeFalsy();
+    expect(String(document.querySelector('[data-panel-action="regenerate-image"]')?.getAttribute('title') || '')).toContain('Regenerate panel image');
+    expect(document.querySelector('.comic-strip .panel-image .panel-image-corner-actions [data-panel-action="regenerate-image"]')).toBeTruthy();
 
-    const factsShell = document.querySelector('.comic-strip .panel-facts-shell');
-    expect(factsShell).toBeTruthy();
-    expect(String(factsShell.querySelector('summary')?.textContent || '')).toContain('Grounding');
-
-    const entitiesDetails = factsShell.querySelector('.panel-facts-sublist');
-    expect(entitiesDetails).toBeTruthy();
-    expect(String(entitiesDetails.querySelector('summary')?.textContent || '')).toContain('Entities');
-    expect(entitiesDetails.querySelectorAll('.panel-fact-chip').length).toBeGreaterThanOrEqual(2);
+    expect(document.querySelector('.comic-strip .panel-facts-shell')).toBeFalsy();
   });
 
-  it('applies make-simpler from panel action menu and updates caption text', async () => {
+  it('does not render panel More dropdown actions', async () => {
     const item = makeHistoryItem(1);
     item.storyboard.panels = [
       {
-        caption: 'This is a long and complex caption, with extra clauses, and too much detail.',
+        caption: 'Panel caption without More actions',
         artifacts: {
           image_blob_ref:
             'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMB/axlF8UAAAAASUVORK5CYII='
@@ -1011,48 +1908,18 @@ describe('Sidepanel Page UX', () => {
       if (key === 'sidepanelPrefs') return { sidepanelPrefs: {} };
       return {};
     });
-    chrome.runtime.sendMessage.mockImplementation(async (msg) => {
-      if (msg?.type === 'EDIT_PANEL' && msg?.payload?.action === 'make-simpler') {
-        return {
-          success: true,
-          job: {
-            storyboard: {
-              source: item.storyboard.source,
-              panels: [
-                {
-                  caption: 'This is a long and complex caption',
-                  artifacts: item.storyboard.panels[0].artifacts
-                }
-              ]
-            }
-          }
-        };
-      }
-      return { success: true };
-    });
 
     await import('../../sidepanel/sidepanel.js');
     document.dispatchEvent(new Event('DOMContentLoaded'));
     await flush();
     await flush();
 
-    const more = document.querySelector('.comic-strip .panel-more-actions');
-    more.setAttribute('open', '');
-    const simplerBtn = document.querySelector('.comic-strip [data-panel-action="make-simpler"]');
-    expect(simplerBtn).toBeTruthy();
-    simplerBtn.click();
-    await flush();
-    await flush();
-
-    expect(chrome.runtime.sendMessage).toHaveBeenCalledWith({
-      type: 'EDIT_PANEL',
-      payload: { panelIndex: 0, action: 'make-simpler', comicId: '' }
-    });
-    const captionEl = document.querySelector('.comic-strip .panel-caption');
-    expect(String(captionEl.textContent || '')).toContain('This is a long and complex caption');
+    expect(document.querySelector('.comic-strip .panel-more-actions')).toBeFalsy();
+    expect(document.querySelector('.comic-strip [data-panel-action="make-simpler"]')).toBeFalsy();
+    expect(document.querySelector('.comic-strip [data-panel-action="jump-source"]')).toBeFalsy();
   });
 
-  it('shows per-panel spinner/status while panel regenerate action is running', async () => {
+  it('shows per-panel spinner/status while image regenerate action is running', async () => {
     const item = makeHistoryItem(1);
     item.storyboard.panels = [
       {
@@ -1072,7 +1939,7 @@ describe('Sidepanel Page UX', () => {
       return {};
     });
     chrome.runtime.sendMessage.mockImplementation(async (msg) => {
-      if (msg?.type === 'EDIT_PANEL' && msg?.payload?.action === 'regenerate-caption') {
+      if (msg?.type === 'EDIT_PANEL' && msg?.payload?.action === 'regenerate-image') {
         return await new Promise((resolve) => {
           resolveEdit = resolve;
         });
@@ -1085,15 +1952,15 @@ describe('Sidepanel Page UX', () => {
     await flush();
     await flush();
 
-    const capBtn = document.querySelector('.comic-strip [data-panel-action="regenerate-caption"]');
-    expect(capBtn).toBeTruthy();
-    capBtn.click();
+    const imageBtn = document.querySelector('.comic-strip [data-panel-action="regenerate-image"]');
+    expect(imageBtn).toBeTruthy();
+    imageBtn.click();
     await flush();
     await flush();
 
     const editStatus = document.querySelector('.comic-strip .panel-edit-status');
     expect(editStatus).toBeTruthy();
-    expect(String(editStatus.textContent || '')).toContain('Regenerating caption');
+    expect(String(editStatus.textContent || '')).toContain('Regenerating image');
     const actionButtons = Array.from(document.querySelectorAll('.comic-strip .panel-action-btn'));
     expect(actionButtons.every((btn) => btn.disabled)).toBe(true);
 
@@ -1119,48 +1986,7 @@ describe('Sidepanel Page UX', () => {
     expect(String(updatedCaption.textContent || '')).toContain('Updated caption');
   });
 
-  it('opens More menu inside panel and keeps quick actions visible', async () => {
-    const item = makeHistoryItem(1);
-    item.storyboard.panels = [
-      {
-        caption: 'Panel caption for More menu behavior',
-        facts_used: {
-          entities: ['CNN'],
-          dates: ['2026'],
-          numbers: ['3']
-        },
-        artifacts: {
-          image_blob_ref:
-            'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMB/axlF8UAAAAASUVORK5CYII='
-        }
-      }
-    ];
-
-    chrome.storage.local.get.mockImplementation(async (key) => {
-      if (key === 'currentJob') return { currentJob: { status: 'completed', storyboard: item.storyboard } };
-      if (key === 'history') return { history: [item] };
-      if (key === 'sidepanelPrefs') return { sidepanelPrefs: {} };
-      return {};
-    });
-
-    await import('../../sidepanel/sidepanel.js');
-    document.dispatchEvent(new Event('DOMContentLoaded'));
-    await flush();
-    await flush();
-
-    const detailsEl = document.querySelector('.comic-strip .panel-more-actions');
-    expect(detailsEl).toBeTruthy();
-    expect(detailsEl.hasAttribute('open')).toBe(false);
-    detailsEl.setAttribute('open', '');
-
-    const menuEl = detailsEl.querySelector('.panel-more-actions-menu');
-    expect(menuEl).toBeTruthy();
-    expect(menuEl.querySelector('[data-panel-action="make-simpler"]')).toBeTruthy();
-    const panelEl = document.querySelector('.comic-strip .panel');
-    expect(panelEl.querySelector('.panel-quick-actions')).toBeTruthy();
-  });
-
-  it('sends panel edit requests with history comic id when comic is opened from history', async () => {
+  it('sends image panel edit requests with history comic id when comic is opened from history', async () => {
     const history = [makeHistoryItem(1), makeHistoryItem(2)];
     chrome.storage.local.get.mockImplementation(async (key) => {
       if (Array.isArray(key) && key.includes('selectedHistoryComicId')) {
@@ -1181,7 +2007,7 @@ describe('Sidepanel Page UX', () => {
     await flush();
     await flush();
 
-    const quickBtn = document.querySelector('.comic-strip [data-panel-action="make-factual"]');
+    const quickBtn = document.querySelector('.comic-strip [data-panel-action="regenerate-image"]');
     expect(quickBtn).toBeTruthy();
     quickBtn.click();
     await flush();
@@ -1189,8 +2015,47 @@ describe('Sidepanel Page UX', () => {
 
     expect(chrome.runtime.sendMessage).toHaveBeenCalledWith({
       type: 'EDIT_PANEL',
-      payload: { panelIndex: 0, action: 'make-factual', comicId: 'history-2' }
+      payload: { panelIndex: 0, action: 'regenerate-image', comicId: 'history-2' }
     });
+  });
+
+  it('does not render grounding indicator after image panel action', async () => {
+    const history = [makeHistoryItem(1)];
+    const storyboardAfterEdit = JSON.parse(JSON.stringify(history[0].storyboard));
+    storyboardAfterEdit.panels[0].caption = 'Fact-focused caption';
+    storyboardAfterEdit.panels[0].facts_used = {
+      entities: ['Israel'],
+      dates: ['2026'],
+      numbers: ['3.2%'],
+      source_snippet: 'Israel inflation reached 3.2% in 2026.'
+    };
+
+    chrome.storage.local.get.mockImplementation(async (key) => {
+      if (Array.isArray(key) && key.includes('selectedHistoryComicId')) {
+        return { selectedHistoryComicId: 'history-1', history };
+      }
+      if (key === 'currentJob') return { currentJob: null };
+      if (key === 'history') return { history };
+      if (key === 'sidepanelPrefs') return { sidepanelPrefs: {} };
+      return {};
+    });
+    chrome.runtime.sendMessage.mockResolvedValue({
+      success: true,
+      job: { storyboard: storyboardAfterEdit }
+    });
+
+    await import('../../sidepanel/sidepanel.js');
+    document.dispatchEvent(new Event('DOMContentLoaded'));
+    await flush();
+    await flush();
+
+    const imageBtn = document.querySelector('.comic-strip [data-panel-action="regenerate-image"]');
+    expect(imageBtn).toBeTruthy();
+    imageBtn.click();
+    await flush();
+    await flush();
+
+    expect(document.querySelector('.comic-strip .panel .panel-facts-shell')).toBeFalsy();
   });
 
   it('renders caption fallback text when panel.caption is missing', async () => {
@@ -1456,6 +2321,47 @@ describe('Sidepanel Page UX', () => {
     expect(document.body.textContent).toContain('Live beat A');
   });
 
+  it('resets comic canvas to empty generation placeholder when a fresh job starts', async () => {
+    const history = [makeHistoryItem(1)];
+    let currentJobState = { id: 'job-old', status: 'completed', storyboard: history[0].storyboard };
+    chrome.storage.local.get.mockImplementation(async (key) => {
+      if (key === 'currentJob') return { currentJob: currentJobState };
+      if (key === 'history') return { history };
+      if (key === 'sidepanelPrefs') return { sidepanelPrefs: {} };
+      return {};
+    });
+
+    await import('../../sidepanel/sidepanel.js');
+    document.dispatchEvent(new Event('DOMContentLoaded'));
+    await flush();
+    await flush();
+
+    expect(document.getElementById('comic-display').classList.contains('hidden')).toBe(false);
+    expect(document.querySelector('#comic-strip .panel-image img')).toBeTruthy();
+
+    const listener = chrome.storage.onChanged.addListener.mock.calls[0]?.[0];
+    expect(typeof listener).toBe('function');
+    currentJobState = {
+      id: 'job-new',
+      status: 'pending',
+      completedPanels: 0,
+      settings: { panel_count: 3 },
+      storyboard: { panels: [] }
+    };
+    listener({
+      currentJob: {
+        newValue: currentJobState
+      }
+    }, 'local');
+    await flush();
+    await flush();
+
+    expect(document.getElementById('generation-view').classList.contains('hidden')).toBe(false);
+    expect(document.getElementById('comic-display').classList.contains('hidden')).toBe(true);
+    expect(document.querySelectorAll('#gen-panels .gen-panel').length).toBe(3);
+    expect(document.querySelector('#gen-panels .gen-panel-thumb img')).toBeNull();
+  });
+
   it('updates viewer from runtime progress broadcast so multiple open sidepanels can refresh', async () => {
     chrome.storage.local.get.mockImplementation(async (key) => {
       if (key === 'currentJob') return { currentJob: null };
@@ -1569,6 +2475,94 @@ describe('Sidepanel Page UX', () => {
     await flush();
     expect(shareBtn.disabled).toBe(true);
     expect(openTabBtn.disabled).toBe(true);
+  });
+
+  it('restores comic panel images when switching back from History to Comic view', async () => {
+    const history = [makeHistoryItem(1)];
+    chrome.storage.local.get.mockImplementation(async (key) => {
+      if (key === 'currentJob') return { currentJob: null };
+      if (key === 'history') return { history };
+      if (key === 'sidepanelPrefs') return { sidepanelPrefs: {} };
+      return {};
+    });
+
+    await import('../../sidepanel/sidepanel.js');
+    document.dispatchEvent(new Event('DOMContentLoaded'));
+    await flush();
+    await flush();
+
+    document.getElementById('mode-history-btn').click();
+    await flush();
+    document.querySelector('#history-browser-grid .history-item').click();
+    await flush();
+    await flush();
+
+    document.getElementById('mode-history-btn').click();
+    await flush();
+    document.getElementById('mode-comic-btn').click();
+    await flush();
+    await flush();
+
+    const comicDisplay = document.getElementById('comic-display');
+    const panelImage = document.querySelector('#comic-strip .panel .panel-image img');
+    expect(comicDisplay.classList.contains('hidden')).toBe(false);
+    expect(panelImage).toBeTruthy();
+    expect(String(panelImage.getAttribute('src') || '')).toContain('data:image/png;base64');
+  });
+
+  it('keeps panel images when a compacted completed currentJob update arrives before switching back to Comic view', async () => {
+    const richItem = makeHistoryItem(1);
+    const richStoryboard = richItem.storyboard;
+    const compactedStoryboard = {
+      ...richStoryboard,
+      panels: [
+        {
+          caption: richStoryboard.panels[0].caption,
+          artifacts: {}
+        }
+      ]
+    };
+    chrome.storage.local.get.mockImplementation(async (key) => {
+      if (key === 'currentJob') {
+        return { currentJob: { id: 'job-compacted', status: 'completed', storyboard: richStoryboard } };
+      }
+      if (key === 'history') return { history: [richItem] };
+      if (key === 'sidepanelPrefs') return { sidepanelPrefs: {} };
+      return {};
+    });
+
+    await import('../../sidepanel/sidepanel.js');
+    document.dispatchEvent(new Event('DOMContentLoaded'));
+    await flush();
+    await flush();
+
+    const initialImage = document.querySelector('#comic-strip .panel .panel-image img');
+    const initialSrc = String(initialImage?.getAttribute('src') || '');
+    expect(initialSrc.startsWith('data:image/')).toBe(true);
+
+    const listener = chrome.storage.onChanged.addListener.mock.calls[0]?.[0];
+    expect(typeof listener).toBe('function');
+    listener({
+      currentJob: {
+        newValue: {
+          id: 'job-compacted',
+          status: 'completed',
+          storyboard: compactedStoryboard
+        }
+      }
+    }, 'local');
+    await flush();
+    await flush();
+
+    document.getElementById('mode-history-btn').click();
+    await flush();
+    document.getElementById('mode-comic-btn').click();
+    await flush();
+    await flush();
+
+    const recoveredImage = document.querySelector('#comic-strip .panel .panel-image img');
+    expect(recoveredImage).toBeTruthy();
+    expect(String(recoveredImage.getAttribute('src') || '')).toBe(initialSrc);
   });
 
   it('shows counters for comics, panels, and unique pages processed', async () => {
@@ -1686,6 +2680,69 @@ describe('Sidepanel Page UX', () => {
     const call = chrome.tabs.create.mock.calls.at(-1)?.[0] || {};
     expect(String(call.url || '')).toBe('https://www.instagram.com/');
     expect(global.alert).toHaveBeenCalled();
+  });
+
+  it('uses Facebook fallback flow by downloading image and opening Facebook composer', async () => {
+    const history = [makeHistoryItem(1)];
+    chrome.storage.local.get.mockImplementation(async (key) => {
+      if (key === 'currentJob') return { currentJob: { status: 'completed', storyboard: history[0].storyboard } };
+      if (key === 'history') return { history };
+      if (key === 'sidepanelPrefs') return { sidepanelPrefs: {} };
+      return {};
+    });
+
+    const anchorClick = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+
+    await import('../../sidepanel/sidepanel.js');
+    document.dispatchEvent(new Event('DOMContentLoaded'));
+    await flush();
+    await flush();
+
+    const viewer = window.__sidepanelViewer;
+    vi.spyOn(viewer, 'exportComicAsCompositeImage').mockResolvedValue({
+      dataUrl: 'data:image/png;base64,ZmFrZS1wbmc=',
+      filename: 'cnn-story-comic-sheet.png',
+      sourceTitle: 'CNN Story 1',
+      sourceUrl: 'https://www.cnn.com/1'
+    });
+
+    document.getElementById('share-btn').click();
+    await flush();
+    document.querySelector('[data-share-target="facebook"]').click();
+    await flush();
+    await flush();
+
+    expect(viewer.exportComicAsCompositeImage).toHaveBeenCalledWith({ download: false });
+    expect(anchorClick).toHaveBeenCalled();
+    const call = chrome.tabs.create.mock.calls.at(-1)?.[0] || {};
+    expect(String(call.url || '')).toBe('https://www.facebook.com/?sk=composer');
+    expect(global.alert).toHaveBeenCalled();
+  });
+
+  it('keeps Facebook visible in share menu even when connector is not connected', async () => {
+    const history = [makeHistoryItem(1)];
+    chrome.storage.local.get.mockImplementation(async (key) => {
+      if (key === 'currentJob') return { currentJob: { status: 'completed', storyboard: history[0].storyboard } };
+      if (key === 'history') return { history };
+      if (key === 'connectionStates') return { connectionStates: {} };
+      if (key === 'sidepanelPrefs') return { sidepanelPrefs: {} };
+      return {};
+    });
+    chrome.runtime.sendMessage.mockResolvedValue({ success: true, status: { connected: false } });
+
+    await import('../../sidepanel/sidepanel.js');
+    document.dispatchEvent(new Event('DOMContentLoaded'));
+    await flush();
+    await flush();
+
+    document.getElementById('share-btn').click();
+    await flush();
+
+    const facebookItem = document.querySelector('[data-share-target="facebook"]');
+    const emptyState = document.getElementById('share-target-empty');
+    expect(facebookItem).toBeTruthy();
+    expect(facebookItem.classList.contains('hidden')).toBe(false);
+    expect(emptyState.classList.contains('hidden')).toBe(true);
   });
 
   it('shows safe alert when share export fails', async () => {
@@ -1815,5 +2872,33 @@ describe('Sidepanel Page UX', () => {
     await flush();
 
     expect(global.alert).toHaveBeenCalledWith('Unsupported share target.');
+  });
+
+  it('opens settings on Connections tab from the share menu "Connect more" action', async () => {
+    const history = [makeHistoryItem(1)];
+    chrome.storage.local.get.mockImplementation(async (key) => {
+      if (key === 'currentJob') return { currentJob: { status: 'completed', storyboard: history[0].storyboard } };
+      if (key === 'history') return { history };
+      if (key === 'connectionStates') return { connectionStates: {} };
+      if (key === 'sidepanelPrefs') return { sidepanelPrefs: {} };
+      return {};
+    });
+
+    await import('../../sidepanel/sidepanel.js');
+    document.dispatchEvent(new Event('DOMContentLoaded'));
+    await flush();
+    await flush();
+
+    document.getElementById('share-btn').click();
+    await flush();
+
+    const connectMoreBtn = document.querySelector('[data-share-action="connect-more"]');
+    expect(connectMoreBtn).toBeTruthy();
+    connectMoreBtn.click();
+    await flush();
+
+    expect(chrome.tabs.create).toHaveBeenCalled();
+    const call = chrome.tabs.create.mock.calls.at(-1)?.[0] || {};
+    expect(String(call.url || '')).toContain('chrome-extension://test/options/options.html?section=connections');
   });
 });

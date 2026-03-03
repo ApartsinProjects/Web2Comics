@@ -1,0 +1,16 @@
+{
+  "ok": true,
+  "site": "BBC News",
+  "category": "Public News",
+  "url": "https://www.bbc.com/news",
+  "language": "en",
+  "objective": "timeline",
+  "style": "noir",
+  "selectedLayout": "grid-4",
+  "provider": "gemini-free",
+  "panelCount": 8,
+  "title": "Escalating Conflict: Iran Strikes Back and Israel Broadens the War",
+  "description": "Iran initiates strikes against Israel and a British base, prompting Israeli counterattacks on Tehran and plans for a ground invasion into Lebanon. European leaders show division while the US endgame remains unclear.",
+  "output": "samples/real-gemini-10sites-square-2026-03-03T12-07-23-132Z/02-bbc-news.png",
+  "bytes": 2589885
+}

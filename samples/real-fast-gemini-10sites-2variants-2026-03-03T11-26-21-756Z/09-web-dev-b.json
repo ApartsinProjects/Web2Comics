@@ -1,0 +1,17 @@
+{
+  "ok": true,
+  "site": "web.dev",
+  "category": "Web Engineering",
+  "url": "https://web.dev/articles/browser-level-image-lazy-loading",
+  "language": "es",
+  "variant": "B",
+  "variantLabel": "Explain & Learn",
+  "objective": "learn-step-by-step",
+  "style": "manga",
+  "provider": "gemini-free",
+  "panelCount": 8,
+  "title": "Carga Perezosa de Imágenes a Nivel de Navegador Sin Código Adicional",
+  "description": "El atributo 'loading' permite al navegador gestionar la carga diferida de imágenes fuera de la vista. Usa 'loading=\"lazy\"' para optimizar el ancho de banda sin depender de JavaScript externo.",
+  "output": "samples/real-fast-gemini-10sites-2variants-2026-03-03T11-26-21-756Z/09-web-dev-b.png",
+  "bytes": 3378025
+}

@@ -1,0 +1,14 @@
+{
+  "storyTitle": "过去，网站常因图片资源庞大而加载缓慢，用户体验受损。HTTP Archive数据显示，图片是多数网站最耗带宽的资源，90%的网站图片数据量超过5MB。",
+  "storyDescription": "过去，网站常因图片资源庞大而加载缓慢，用户体验受损。HTTP Archive数据显示，图片是多数网站最耗带宽的资源，90%的网站图片数据量超过5MB。. 浏览器级懒加载提供了简洁高效的解决方案。通过在`<img>`标签上添加`loading=\"lazy\"`属性，开发者无需编写自定义JS，即可推迟加载视口外的图片，显著提升页面性能。.",
+  "panelCount": 3,
+  "sourceUrl": "https://web.dev/articles/browser-level-image-lazy-loading",
+  "sourceTitle": "web.dev Lazy Loading",
+  "providerText": "huggingface",
+  "providerImage": "huggingface",
+  "objective": "debate-map",
+  "language": "zh",
+  "style": "cyberpunk-neon",
+  "bytes": 2020915,
+  "output": "samples/real-provider-site-comics-2026-03-03T11-07-32-585Z/09-web-dev-lazy-loading.png"
+}

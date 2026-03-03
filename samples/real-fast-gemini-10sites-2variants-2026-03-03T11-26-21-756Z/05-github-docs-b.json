@@ -1,0 +1,17 @@
+{
+  "ok": true,
+  "site": "GitHub Docs",
+  "category": "Open Source Docs",
+  "url": "https://docs.github.com/en/get-started/start-your-journey/about-github-and-git",
+  "language": "en",
+  "variant": "B",
+  "variantLabel": "Explain & Learn",
+  "objective": "learn-step-by-step",
+  "style": "manga",
+  "provider": "gemini-free",
+  "panelCount": 8,
+  "title": "Understanding the Collaboration Between Git and the GitHub Platform",
+  "description": "This storyboard explains how Git tracks changes locally while GitHub serves as the centralized cloud repository for shared code projects. It details the workflow involving branching, committing, and synchronizing work via push and pull acti",
+  "output": "samples/real-fast-gemini-10sites-2variants-2026-03-03T11-26-21-756Z/05-github-docs-b.png",
+  "bytes": 3758512
+}

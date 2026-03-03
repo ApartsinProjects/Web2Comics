@@ -1,0 +1,17 @@
+{
+  "ok": true,
+  "site": "MDN JavaScript",
+  "category": "Developer Docs",
+  "url": "https://developer.mozilla.org/en-US/docs/Web/JavaScript",
+  "language": "en",
+  "variant": "A",
+  "variantLabel": "Fact Sprint",
+  "objective": "news-recap",
+  "style": "newspaper-strip",
+  "provider": "gemini-free",
+  "panelCount": 8,
+  "title": "Understanding JavaScript: Core Features, Standards, and Usage Beyond Browsers",
+  "description": "This storyboard defines JavaScript as a dynamic, lightweight language used widely beyond web pages, citing standards like ECMA-262. It also clarifies the distinction between JavaScript and the Java programming language.",
+  "output": "samples/real-fast-gemini-10sites-2variants-2026-03-03T11-26-21-756Z/04-mdn-javascript-a.png",
+  "bytes": 3707944
+}

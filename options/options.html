@@ -11,7 +11,7 @@
     <header class="options-header">
       <div class="title-help-row">
         <h1>Web2Comics Settings</h1>
-        <a class="help-link-icon" href="../docs/user-manual.html#options-overview" target="_blank" rel="noopener noreferrer" title="Open user manual (options)">?</a>
+        <a class="help-link-icon" href="../docs/user-manual.html#options-overview" target="_blank" rel="noopener noreferrer" title="Open User Manual (Options)">?</a>
       </div>
     </header>
 
@@ -20,14 +20,13 @@
       <button class="nav-btn" data-section="providers">Providers</button>
       <button class="nav-btn" data-section="prompts">Prompts</button>
       <button class="nav-btn" data-section="storage">Storage</button>
-      <button class="nav-btn" data-section="connections">Connections</button>
       <button class="nav-btn" data-section="about">About</button>
     </nav>
 
     <main class="options-main">
       <!-- General Settings -->
       <section id="general-section" class="settings-section active">
-        <div class="section-title-row"><h2>General Settings</h2><a class="help-link-icon inline" href="../docs/user-manual.html#options-general" target="_blank" rel="noopener noreferrer" title="General settings help">?</a></div>
+        <div class="section-title-row"><h2>General Settings</h2><a class="help-link-icon inline" href="../docs/user-manual.html#options-general" target="_blank" rel="noopener noreferrer" title="General Settings Help">?</a></div>
         
         <div class="setting-group">
           <h3>Generation Defaults</h3>
@@ -53,6 +52,25 @@
               <option value="medium" selected>Medium - Balanced</option>
               <option value="high">High - More detailed</option>
             </select>
+          </div>
+
+          <div class="setting-item">
+            <label for="default-objective">Default Story Goal Template</label>
+            <select id="default-objective">
+              <option value="summarize">Quick Summary</option>
+              <option value="fun">Have Fun</option>
+              <option value="learn-step-by-step">Learn Step by Step</option>
+              <option value="news-recap">News Recap</option>
+              <option value="timeline">Timeline Breakdown</option>
+              <option value="key-facts">Key Facts Only</option>
+              <option value="compare-views">Compare Viewpoints</option>
+              <option value="explain-like-im-five" selected>Explain Like I'm Five</option>
+              <option value="study-guide">Study Guide</option>
+              <option value="meeting-recap">Meeting Recap</option>
+              <option value="how-to-guide">How-To Guide</option>
+              <option value="debate-map">Debate Map</option>
+            </select>
+            <p class="setting-description">Used as the default goal/template in popup generation. Edit templates under Prompts.</p>
           </div>
 
           <div class="setting-item">
@@ -99,6 +117,7 @@
               <option value="de">German</option>
               <option value="it">Italian</option>
               <option value="pt">Portuguese</option>
+              <option value="ru">Russian</option>
               <option value="ja">Japanese</option>
               <option value="ko">Korean</option>
               <option value="zh">Chinese</option>
@@ -165,14 +184,14 @@
 
       <!-- Providers Settings -->
       <section id="providers-section" class="settings-section">
-        <div class="section-title-row"><h2>Provider Configuration</h2><a class="help-link-icon inline" href="../docs/user-manual.html#options-providers" target="_blank" rel="noopener noreferrer" title="Provider settings help">?</a></div>
+        <div class="section-title-row"><h2>Provider Configuration</h2><a class="help-link-icon inline" href="../docs/user-manual.html#options-providers" target="_blank" rel="noopener noreferrer" title="Provider Settings Help">?</a></div>
         
         <div class="provider-presets">
           <h3>Provider Presets</h3>
           
           <div class="provider-card active" data-provider="gemini-free">
             <div class="provider-header">
-              <h4 class="with-inline-icon"><span class="inline-icon inline-icon-provider-gemini" aria-hidden="true">G</span>Google Gemini (Free Tier)</h4>
+              <h4 class="with-inline-icon"><img class="provider-logo" src="./assets/provider-logos/gemini.svg" alt="" aria-hidden="true">Google Gemini (Free Tier)</h4>
               <span class="badge free">Free</span>
             </div>
             <p>Text generation and image generation. Free tier available with rate limits.</p>
@@ -215,7 +234,7 @@
 
           <div class="provider-card" data-provider="cloudflare-free">
             <div class="provider-header">
-              <h4 class="with-inline-icon"><span class="inline-icon inline-icon-provider-cloudflare" aria-hidden="true">C</span>Cloudflare Workers AI</h4>
+              <h4 class="with-inline-icon"><img class="provider-logo" src="./assets/provider-logos/cloudflare.svg" alt="" aria-hidden="true">Cloudflare Workers AI</h4>
               <span class="badge free">Free</span>
             </div>
             <p>Text generation using Workers AI. Free daily neuron allocation.</p>
@@ -266,7 +285,7 @@
 
           <div class="provider-card" data-provider="openrouter">
             <div class="provider-header">
-              <h4 class="with-inline-icon"><span class="inline-icon inline-icon-provider-openrouter" aria-hidden="true">R</span>OpenRouter</h4>
+              <h4 class="with-inline-icon"><img class="provider-logo" src="./assets/provider-logos/openrouter.svg" alt="" aria-hidden="true">OpenRouter</h4>
               <span class="badge free">Free/Paid</span>
             </div>
             <p>Text and image generation through OpenRouter model routing (image support is model/account dependent and may require paid access).</p>
@@ -316,7 +335,7 @@
 
           <div class="provider-card" data-provider="huggingface">
             <div class="provider-header">
-              <h4 class="with-inline-icon"><span class="inline-icon inline-icon-provider-huggingface" aria-hidden="true">H</span>Hugging Face Inference API</h4>
+              <h4 class="with-inline-icon"><img class="provider-logo" src="./assets/provider-logos/huggingface.svg" alt="" aria-hidden="true">Hugging Face Inference API</h4>
               <span class="badge free">Free/Paid</span>
             </div>
             <p>Text and image generation through Hugging Face Inference API (chat + hf-inference image tasks).</p>
@@ -376,7 +395,7 @@
 
           <div class="provider-card" data-provider="openai">
             <div class="provider-header">
-              <h4 class="with-inline-icon"><span class="inline-icon inline-icon-provider-openai" aria-hidden="true">O</span>OpenAI (GPT & DALL-E)</h4>
+              <h4 class="with-inline-icon"><img class="provider-logo" src="./assets/provider-logos/openai.svg" alt="" aria-hidden="true">OpenAI (GPT & DALL-E)</h4>
               <span class="badge paid">Paid</span>
             </div>
             <p>Text generation with GPT models and image generation with DALL-E.</p>
@@ -443,7 +462,7 @@
 
       <!-- Prompt Templates -->
       <section id="prompts-section" class="settings-section">
-        <div class="section-title-row"><h2>Prompt Templates (Phase 1)</h2><a class="help-link-icon inline" href="../docs/user-manual.html#options-prompts" target="_blank" rel="noopener noreferrer" title="Prompt template help">?</a></div>
+        <div class="section-title-row"><h2>Prompt Templates (Phase 1)</h2><a class="help-link-icon inline" href="../docs/user-manual.html#options-prompts" target="_blank" rel="noopener noreferrer" title="Prompt Template Help">?</a></div>
 
         <div class="setting-group">
           <h3>Provider Scope</h3>
@@ -493,7 +512,7 @@
         </div>
 
         <div class="setting-group">
-          <h3>Storyboard Template</h3>
+          <h3>Customize Story Template</h3>
           <div class="setting-item">
             <label for="storyboard-template">Template Text</label>
             <textarea id="storyboard-template" class="textarea prompt-template-textarea" rows="8"></textarea>
@@ -505,7 +524,7 @@
         </div>
 
         <div class="setting-group">
-          <h3>Image Template</h3>
+          <h3>Customize Image Template</h3>
           <div class="setting-item">
             <label for="image-template">Template Text</label>
             <textarea id="image-template" class="textarea prompt-template-textarea" rows="6"></textarea>
@@ -529,14 +548,14 @@
 
       <!-- Storage Settings -->
       <section id="storage-section" class="settings-section">
-        <div class="section-title-row"><h2>Storage & History</h2><a class="help-link-icon inline" href="../docs/user-manual.html#options-storage" target="_blank" rel="noopener noreferrer" title="Storage help">?</a></div>
+        <div class="section-title-row"><h2>Storage & My Collection</h2><a class="help-link-icon inline" href="../docs/user-manual.html#options-storage" target="_blank" rel="noopener noreferrer" title="Storage Help">?</a></div>
         
         <div class="setting-group">
           <h3>Storage Usage</h3>
           
           <div class="storage-info">
             <div class="storage-item">
-              <span>Comic History</span>
+              <span>My Collection</span>
               <span id="history-size">0 comics</span>
             </div>
             <div class="storage-item">
@@ -555,7 +574,7 @@
           </div>
 
           <div class="setting-item">
-            <label for="history-retention">History Retention (days)</label>
+            <label for="history-retention">My Collection Retention (days)</label>
             <input type="number" id="history-retention" value="30" min="1" max="365">
           </div>
         </div>
@@ -564,7 +583,7 @@
           <h3>Data Management</h3>
           
           <div class="actions">
-            <button id="clear-history-btn" class="btn danger">Clear History</button>
+            <button id="clear-history-btn" class="btn danger">Clear My Collection</button>
             <button id="clear-cache-btn" class="btn danger">Clear Image Cache</button>
             <button id="export-data-btn" class="btn secondary">Export All Data</button>
             <button id="export-debug-logs-btn" class="btn secondary">Export Debug Logs</button>
@@ -575,11 +594,11 @@
 
       <!-- Connections Settings -->
       <section id="connections-section" class="settings-section">
-        <div class="section-title-row"><h2>Connections</h2><a class="help-link-icon inline" href="../docs/user-manual.html#options-storage" target="_blank" rel="noopener noreferrer" title="Connections help">?</a></div>
+        <div class="section-title-row"><h2>Connections</h2><a class="help-link-icon inline" href="../docs/user-manual.html#options-storage" target="_blank" rel="noopener noreferrer" title="Connections Help">?</a></div>
 
         <div class="setting-group connection-card">
-          <h3 class="with-inline-icon"><span class="inline-icon inline-icon-target-gdrive" aria-hidden="true">D</span>Google Drive (Automatic Sync)</h3>
-          <p class="setting-description">Connect once to auto-save comics into your <code>Web2Comics</code> Drive folder.</p>
+          <h3 class="with-inline-icon"><img class="connection-logo" src="./assets/connection-logos/gdrive.svg" alt="" aria-hidden="true">Google Drive (Automatic Sync)</h3>
+          <p class="setting-description">Connect once to auto-save comics into your <code>MyComics</code> Drive folder.</p>
           <div id="google-drive-auto-save-item" class="setting-item checkbox" style="display: none;">
             <label>
               <input type="checkbox" id="google-drive-auto-save">
@@ -605,13 +624,19 @@
         </div>
 
         <div class="setting-group connection-card">
-          <h3 class="with-inline-icon"><span class="inline-icon inline-icon-target-facebook" aria-hidden="true">f</span>Facebook (Share Target)</h3>
-          <p class="setting-description">Connect Facebook with OAuth. No manual token entry.</p>
+          <h3 class="with-inline-icon"><img class="connection-logo" src="./assets/connection-logos/facebook.svg" alt="" aria-hidden="true">Facebook (Share Target)</h3>
+          <p class="setting-description">Connect Facebook with OAuth and choose the Page used for direct posting.</p>
           <div class="drive-status-box" id="facebook-status-box">
             <div class="storage-item">
               <span>Connection Status</span>
               <span id="facebook-connection-status" class="connection-status">Not connected</span>
             </div>
+          </div>
+          <div id="facebook-page-select-item" class="setting-item" style="display: none;">
+            <label for="facebook-page-select">Posting Page</label>
+            <select id="facebook-page-select" class="model-select">
+              <option value="">No pages available</option>
+            </select>
           </div>
           <div class="actions connection-actions">
             <button id="connect-facebook-btn" class="btn secondary icon-control" type="button" title="Connect Facebook" aria-label="Connect Facebook">
@@ -626,7 +651,7 @@
         </div>
 
         <div class="setting-group connection-card">
-          <h3 class="with-inline-icon"><span class="inline-icon inline-icon-target-x" aria-hidden="true">X</span>X (Share Target)</h3>
+          <h3 class="with-inline-icon"><img class="connection-logo" src="./assets/connection-logos/x.svg" alt="" aria-hidden="true">X (Share Target)</h3>
           <p class="setting-description">Connect X with OAuth. No manual token entry.</p>
           <div class="drive-status-box" id="x-status-box">
             <div class="storage-item">
@@ -647,7 +672,7 @@
         </div>
 
         <div class="setting-group connection-card">
-          <h3 class="with-inline-icon"><span class="inline-icon inline-icon-target-instagram" aria-hidden="true">I</span>Instagram (Share Target)</h3>
+          <h3 class="with-inline-icon"><img class="connection-logo" src="./assets/connection-logos/instagram.svg" alt="" aria-hidden="true">Instagram (Share Target)</h3>
           <div class="drive-status-box" id="instagram-status-box">
             <div class="storage-item">
               <span>Connection Status</span>
@@ -667,27 +692,59 @@
         </div>
 
         <div class="setting-group connection-card">
-          <h3 class="with-inline-icon"><span class="inline-icon inline-icon-target-other" aria-hidden="true">+</span>All Other Share Targets</h3>
-          <div class="setting-item">
-            <label for="other-share-target-select">Share Target</label>
-            <select id="other-share-target-select">
-              <option value="linkedin">in LinkedIn</option>
-              <option value="reddit">R Reddit</option>
-              <option value="email">@ Email</option>
-            </select>
-          </div>
-          <div class="drive-status-box" id="other-share-status-box">
+          <h3 class="with-inline-icon"><img class="connection-logo" src="./assets/connection-logos/linkedin.svg" alt="" aria-hidden="true">LinkedIn (Share Target)</h3>
+          <div class="drive-status-box">
             <div class="storage-item">
               <span>Connection Status</span>
-              <span id="other-share-connection-status" class="connection-status">Not connected</span>
+              <span id="other-share-linkedin-connection-status" class="connection-status">Not connected</span>
             </div>
           </div>
           <div class="actions connection-actions">
-            <button id="connect-other-share-btn" class="btn secondary icon-control" type="button" title="Connect selected share target" aria-label="Connect selected share target">
+            <button id="connect-other-share-linkedin-btn" data-target="linkedin" class="btn secondary icon-control connect-other-share-btn" type="button" title="Connect LinkedIn" aria-label="Connect LinkedIn">
               <span class="icon-control-glyph" aria-hidden="true">+</span>
               <span>Connect</span>
             </button>
-            <button id="disconnect-other-share-btn" class="btn secondary icon-control" type="button" title="Disconnect selected share target" aria-label="Disconnect selected share target">
+            <button id="disconnect-other-share-linkedin-btn" data-target="linkedin" class="btn secondary icon-control disconnect-other-share-btn" type="button" title="Disconnect LinkedIn" aria-label="Disconnect LinkedIn">
+              <span class="icon-control-glyph" aria-hidden="true">-</span>
+              <span>Disconnect</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="setting-group connection-card">
+          <h3 class="with-inline-icon"><img class="connection-logo" src="./assets/connection-logos/reddit.svg" alt="" aria-hidden="true">Reddit (Share Target)</h3>
+          <div class="drive-status-box">
+            <div class="storage-item">
+              <span>Connection Status</span>
+              <span id="other-share-reddit-connection-status" class="connection-status">Not connected</span>
+            </div>
+          </div>
+          <div class="actions connection-actions">
+            <button id="connect-other-share-reddit-btn" data-target="reddit" class="btn secondary icon-control connect-other-share-btn" type="button" title="Connect Reddit" aria-label="Connect Reddit">
+              <span class="icon-control-glyph" aria-hidden="true">+</span>
+              <span>Connect</span>
+            </button>
+            <button id="disconnect-other-share-reddit-btn" data-target="reddit" class="btn secondary icon-control disconnect-other-share-btn" type="button" title="Disconnect Reddit" aria-label="Disconnect Reddit">
+              <span class="icon-control-glyph" aria-hidden="true">-</span>
+              <span>Disconnect</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="setting-group connection-card">
+          <h3 class="with-inline-icon"><img class="connection-logo" src="./assets/connection-logos/email.svg" alt="" aria-hidden="true">Email (Share Target)</h3>
+          <div class="drive-status-box">
+            <div class="storage-item">
+              <span>Connection Status</span>
+              <span id="other-share-email-connection-status" class="connection-status">Not connected</span>
+            </div>
+          </div>
+          <div class="actions connection-actions">
+            <button id="connect-other-share-email-btn" data-target="email" class="btn secondary icon-control connect-other-share-btn" type="button" title="Connect Email" aria-label="Connect Email">
+              <span class="icon-control-glyph" aria-hidden="true">+</span>
+              <span>Connect</span>
+            </button>
+            <button id="disconnect-other-share-email-btn" data-target="email" class="btn secondary icon-control disconnect-other-share-btn" type="button" title="Disconnect Email" aria-label="Disconnect Email">
               <span class="icon-control-glyph" aria-hidden="true">-</span>
               <span>Disconnect</span>
             </button>
@@ -701,14 +758,14 @@
 
       <!-- About Section -->
       <section id="about-section" class="settings-section">
-        <div class="section-title-row"><h2>About Web2Comics</h2><a class="help-link-icon inline" href="../docs/user-manual.html#options-about" target="_blank" rel="noopener noreferrer" title="About page help">?</a></div>
+        <div class="section-title-row"><h2>About Web2Comics</h2><a class="help-link-icon inline" href="../docs/user-manual.html#options-about" target="_blank" rel="noopener noreferrer" title="About Page Help">?</a></div>
         
         <div class="about-info">
           <div class="about-logo">
             <img src="../icons/icon48.png" alt="Web2Comics" width="64" height="64">
           </div>
           <h3>Web2Comics</h3>
-          <p class="version">Version 1.0.2</p>
+          <p id="options-version-label" class="version">Version 0.0.0</p>
           <p class="description">
             Transform any web page into an engaging comic strip summary. 
             Uses AI to generate panel-by-panel narratives with images.
@@ -722,7 +779,7 @@
             <li><a href="../docs/privacy.html" id="link-privacy" target="_blank" rel="noopener noreferrer">Privacy Policy</a></li>
             <li><a href="../docs/terms.html" id="link-terms" target="_blank" rel="noopener noreferrer">Terms of Service</a></li>
             <li><a href="../docs/support.html" id="link-support" target="_blank" rel="noopener noreferrer">Support</a></li>
-            <li><a href="../README.md" id="link-repo" target="_blank" rel="noopener noreferrer">Home Repo</a></li>
+            <li><a href="../docs/ROOT_README.md" id="link-repo" target="_blank" rel="noopener noreferrer">Home Repo</a></li>
           </ul>
         </div>
 

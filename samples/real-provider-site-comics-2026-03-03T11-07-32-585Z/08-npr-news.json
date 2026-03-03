@@ -1,0 +1,14 @@
+{
+  "storyTitle": "התחלה: משבר הסוכר העולמי מאיים על מחירים ועל תעשיית המזון",
+  "storyDescription": "התחלה: משבר הסוכר העולמי מאיים על מחירים ועל תעשיית המזון. הצד האמריקאי: חקלאים דורשים הגבלות יבוא סוכר כדי להגן על התעשייה המקומית, תוך התעלמות מההשפעה על הצרכנים.",
+  "panelCount": 3,
+  "sourceUrl": "https://www.npr.org/sections/news/",
+  "sourceTitle": "NPR News",
+  "providerText": "openrouter",
+  "providerImage": "openai",
+  "objective": "compare-views",
+  "language": "he",
+  "style": "superhero",
+  "bytes": 2281524,
+  "output": "samples/real-provider-site-comics-2026-03-03T11-07-32-585Z/08-npr-news.png"
+}

@@ -88,6 +88,96 @@ describe('Popup Page Startup', () => {
     expect(String(readinessText.textContent)).toContain('Connect a model provider in Settings to continue');
   });
 
+  it('opens sidepanel directly in My Collection view from the launcher card', async () => {
+    chrome.sidePanel.open = vi.fn().mockResolvedValue(undefined);
+    chrome.sidePanel.setOptions = vi.fn().mockResolvedValue(undefined);
+    chrome.storage.local.set = vi.fn().mockResolvedValue(undefined);
+    window.close = vi.fn();
+
+    await import('../../popup/popup.js');
+    document.dispatchEvent(new Event('DOMContentLoaded'));
+    await flush();
+    await flush();
+
+    document.getElementById('view-history-btn').click();
+    await flush();
+    await flush();
+
+    expect(chrome.storage.local.set).toHaveBeenCalledWith(expect.objectContaining({ sidepanelInitialView: 'history' }));
+    expect(chrome.sidePanel.setOptions).toHaveBeenCalledWith(expect.objectContaining({
+      path: 'sidepanel/sidepanel.html?view=history'
+    }));
+    expect(window.close).toHaveBeenCalled();
+  });
+
+  it('keeps Comicify clickable while content extraction is still pending', async () => {
+    chrome.tabs.sendMessage.mockImplementation((tabId, message) => {
+      if (message?.type === 'EXTRACT_CONTENT') {
+        return new Promise(() => {});
+      }
+      return Promise.resolve({ success: true, text: 'short text' });
+    });
+
+    await import('../../popup/popup.js');
+    document.dispatchEvent(new Event('DOMContentLoaded'));
+    await flush();
+    await flush();
+
+    const homeSection = document.getElementById('home-section');
+    const mainSection = document.getElementById('main-section');
+    expect(homeSection.classList.contains('hidden')).toBe(false);
+    expect(mainSection.classList.contains('hidden')).toBe(true);
+
+    document.getElementById('create-comic-btn').click();
+    await flush();
+
+    expect(homeSection.classList.contains('hidden')).toBe(true);
+    expect(mainSection.classList.contains('hidden')).toBe(false);
+  });
+
+  it('shows story detection spinner while full-page story detection is in progress', async () => {
+    let resolveExtract = null;
+    const pendingExtract = new Promise((resolve) => {
+      resolveExtract = resolve;
+    });
+    chrome.tabs.query.mockResolvedValue([{ id: 1, status: 'complete', url: 'https://www.cnn.com/world', title: 'CNN' }]);
+    chrome.tabs.sendMessage.mockImplementation((tabId, message) => {
+      if (message?.type === 'EXTRACT_CONTENT') {
+        return pendingExtract;
+      }
+      return Promise.resolve({ success: true, text: 'short text' });
+    });
+
+    await import('../../popup/popup.js');
+    document.dispatchEvent(new Event('DOMContentLoaded'));
+    await flush();
+    await flush();
+
+    document.getElementById('create-comic-btn').click();
+    await flush();
+
+    const progressShell = document.getElementById('story-detection-progress');
+    const progressText = document.getElementById('story-detection-progress-text');
+    expect(progressShell.classList.contains('hidden')).toBe(false);
+    expect(String(progressText.textContent || '')).toContain('Detecting top stories');
+
+    resolveExtract({ success: true, text: 'x '.repeat(500) });
+    await waitForCondition(() => progressShell.classList.contains('hidden'), 1200);
+  });
+
+  it('renders popup footer version from manifest version', async () => {
+    chrome.runtime.getManifest.mockReturnValue({ version: '9.8.7' });
+
+    await import('../../popup/popup.js');
+    document.dispatchEvent(new Event('DOMContentLoaded'));
+    await flush();
+    await flush();
+
+    const versionLabel = document.getElementById('popup-version-label');
+    expect(versionLabel).toBeTruthy();
+    expect(String(versionLabel.textContent || '')).toBe('v9.8.7');
+  });
+
   it('opens create composer with context-menu selected text prepopulated', async () => {
     const selectedText = 'Selected text from page for comic generation context menu flow.';
     chrome.storage.local.get.mockImplementation(async (keys) => {
@@ -377,6 +467,236 @@ describe('Popup Page Startup', () => {
     expect(selectedWrap).toContain('History section summary');
   });
 
+  it('disables generate while switching selected story to avoid stale-text generation', async () => {
+    let resolveSelectedStory;
+    chrome.tabs.query.mockResolvedValue([{ id: 1, status: 'complete', url: 'https://en.wikipedia.org/wiki/Israel' }]);
+    chrome.tabs.sendMessage.mockImplementation(async (_tabId, msg) => {
+      if (msg.type !== 'EXTRACT_CONTENT') return { success: true };
+      const selectedId = msg.payload?.selectedCandidateId || 'candidate_0';
+      if (selectedId === 'candidate_1') {
+        return await new Promise((resolve) => {
+          resolveSelectedStory = resolve;
+        });
+      }
+      return {
+        success: true,
+        text: 'Lead extracted story text. '.repeat(70),
+        selectedCandidateId: selectedId,
+        autoSelectedCandidateId: 'candidate_0',
+        candidates: [
+          { id: 'candidate_0', summary: 'Lead section summary', summaryMethod: 'chrome-summarizer', chars: 1200, score: 140 },
+          { id: 'candidate_1', summary: 'History section summary', summaryMethod: 'chrome-summarizer', chars: 950, score: 118 }
+        ],
+        quality: { pass: true, words: 240, uniqueRatio: 0.32, shortLineRatio: 0.4, boilerplateHits: 1 }
+      };
+    });
+
+    await import('../../popup/popup.js');
+    document.dispatchEvent(new Event('DOMContentLoaded'));
+    await flush();
+    await flush();
+
+    document.getElementById('create-comic-btn').click();
+    await flush();
+    await flush();
+
+    document.getElementById('story-picker-btn').click();
+    await flush();
+
+    const second = document.querySelector('.story-picker-item[data-candidate-id="candidate_1"]');
+    second.click();
+    await flush();
+
+    const generateBtn = document.getElementById('generate-btn');
+    expect(generateBtn.disabled).toBe(true);
+    expect(String(generateBtn.title || '')).toContain('Story selection is being updated');
+
+    resolveSelectedStory({
+      success: true,
+      text: 'History extracted story text. '.repeat(70),
+      selectedCandidateId: 'candidate_1',
+      autoSelectedCandidateId: 'candidate_0',
+      candidates: [
+        { id: 'candidate_0', summary: 'Lead section summary', summaryMethod: 'chrome-summarizer', chars: 1200, score: 140 },
+        { id: 'candidate_1', summary: 'History section summary', summaryMethod: 'chrome-summarizer', chars: 950, score: 118 }
+      ],
+      quality: { pass: true, words: 240, uniqueRatio: 0.32, shortLineRatio: 0.4, boilerplateHits: 1 }
+    });
+    await flush();
+    await flush();
+
+    expect(String(generateBtn.title || '')).not.toContain('Story selection is being updated');
+  });
+
+  it('expands story preview with + in story picker without auto-selecting the story', async () => {
+    chrome.tabs.query.mockResolvedValue([{ id: 1, status: 'complete', url: 'https://en.wikipedia.org/wiki/Israel' }]);
+    chrome.tabs.sendMessage.mockImplementation(async (_tabId, msg) => {
+      if (msg.type !== 'EXTRACT_CONTENT') return { success: true };
+      const selectedId = msg.payload?.selectedCandidateId || 'candidate_0';
+      if (selectedId === 'candidate_1') {
+        return {
+          success: true,
+          text: 'History full extracted story preview. '.repeat(60),
+          selectedCandidateId: selectedId,
+          autoSelectedCandidateId: 'candidate_0',
+          candidates: [
+            { id: 'candidate_0', summary: 'Lead section summary from Chrome summarizer', summaryMethod: 'chrome-summarizer', chars: 1200, score: 140 },
+            { id: 'candidate_1', summary: 'History section summary from Chrome summarizer', summaryMethod: 'chrome-summarizer', chars: 950, score: 118 }
+          ],
+          quality: { pass: true, words: 240, uniqueRatio: 0.32, shortLineRatio: 0.4, boilerplateHits: 1 }
+        };
+      }
+      return {
+        success: true,
+        text: 'Lead extracted story. '.repeat(60),
+        selectedCandidateId: selectedId,
+        autoSelectedCandidateId: 'candidate_0',
+        candidates: [
+          { id: 'candidate_0', summary: 'Lead section summary from Chrome summarizer', summaryMethod: 'chrome-summarizer', chars: 1200, score: 140 },
+          { id: 'candidate_1', summary: 'History section summary from Chrome summarizer', summaryMethod: 'chrome-summarizer', chars: 950, score: 118 }
+        ],
+        quality: { pass: true, words: 240, uniqueRatio: 0.32, shortLineRatio: 0.4, boilerplateHits: 1 }
+      };
+    });
+
+    await import('../../popup/popup.js');
+    document.dispatchEvent(new Event('DOMContentLoaded'));
+    await flush();
+    await flush();
+
+    document.getElementById('create-comic-btn').click();
+    await flush();
+    await flush();
+
+    const storyBtn = document.getElementById('story-picker-btn');
+    storyBtn.click();
+    await flush();
+
+    const expandBtn = document.querySelector('.story-picker-expand-btn[data-candidate-id="candidate_1"]');
+    expect(expandBtn).toBeTruthy();
+    expandBtn.click();
+    await flush();
+    await flush();
+
+    const modal = document.getElementById('story-picker-modal');
+    expect(modal.classList.contains('hidden')).toBe(false);
+    const previewText = String(
+      document.querySelector('.story-picker-preview[data-candidate-id="candidate_1"] .story-picker-preview-text')?.textContent || ''
+    );
+    expect(previewText).toContain('History full extracted story preview');
+    const selectedWrap = String(document.getElementById('story-flow-hint')?.textContent || '');
+    expect(selectedWrap).toContain('Lead section summary');
+  });
+
+  it('uses LLM story selection output as canonical stories for picker and selected text', async () => {
+    chrome.tabs.query.mockResolvedValue([{ id: 1, status: 'complete', url: 'https://www.cnn.com/world', title: 'CNN World' }]);
+    chrome.tabs.sendMessage.mockImplementation(async (_tabId, msg) => {
+      if (msg.type !== 'EXTRACT_CONTENT') return { success: true };
+      return {
+        success: true,
+        text: 'Lead article raw extraction. '.repeat(80),
+        sourceHtml: '<html><body><main><article><h1>World News</h1><p>Lead article raw extraction.</p></article></main></body></html>',
+        selectedCandidateId: 'candidate_0',
+        autoSelectedCandidateId: 'candidate_0',
+        fullSourceText: 'Lead article raw extraction. '.repeat(200),
+        candidatePayloads: [
+          { id: 'candidate_0', summary: 'Politics lead summary', chars: 1300, score: 120, text: 'Lead candidate text. '.repeat(80) },
+          { id: 'candidate_1', summary: 'Markets summary', chars: 1050, score: 110, text: 'Markets candidate text. '.repeat(70) }
+        ],
+        candidates: [
+          { id: 'candidate_0', summary: 'Politics lead summary', chars: 1300, score: 120 },
+          { id: 'candidate_1', summary: 'Markets summary', chars: 1050, score: 110 }
+        ]
+      };
+    });
+    chrome.runtime.sendMessage.mockImplementation(async (msg) => {
+      if (msg?.type !== 'PROCESS_CONTENT_STORIES') return { success: true };
+      return {
+        success: true,
+        providerUsed: 'gemini-free',
+        selectedStoryId: 'story_2',
+        stories: [
+          {
+            id: 'story_1',
+            title: 'Election Pressure Builds',
+            summary: 'Campaign pressure rises as parties react to new polling and turnout concerns.',
+            score: 84,
+            chars: 1260,
+            text: 'Election story text. '.repeat(60)
+          },
+          {
+            id: 'story_2',
+            title: 'Markets React to Policy Signals',
+            summary: 'Global markets moved after policy guidance and inflation updates shaped expectations.',
+            score: 91,
+            chars: 1040,
+            text: 'Markets story text. '.repeat(60)
+          }
+        ]
+      };
+    });
+
+    await import('../../popup/popup.js');
+    document.dispatchEvent(new Event('DOMContentLoaded'));
+    await flush();
+    await flush();
+
+    document.getElementById('create-comic-btn').click();
+    await flush();
+    await flush();
+
+    const llmCall = chrome.runtime.sendMessage.mock.calls.find((call) => call[0]?.type === 'PROCESS_CONTENT_STORIES');
+    expect(llmCall).toBeTruthy();
+    expect(String(llmCall[0]?.payload?.sourceHtml || '')).toContain('<html>');
+    const flowHint = String(document.getElementById('story-flow-hint')?.textContent || '');
+    expect(flowHint).toContain('Markets React to Policy Signals');
+
+    document.getElementById('story-picker-btn').click();
+    await flush();
+    const listText = String(document.getElementById('story-picker-list').textContent || '');
+    expect(listText).toContain('Election Pressure Builds');
+    expect(listText).toContain('Markets React to Policy Signals');
+  });
+
+  it('shows low grounding confidence indicator and keeps Stories button available when candidates exist', async () => {
+    chrome.tabs.query.mockResolvedValue([{ id: 1, status: 'complete', url: 'https://www.cnn.com/world' }]);
+    chrome.tabs.sendMessage.mockImplementation(async (_tabId, msg) => {
+      if (msg.type !== 'EXTRACT_CONTENT') return { success: true };
+      return {
+        success: true,
+        text: 'Short and noisy text that should produce low confidence.',
+        selectedCandidateId: 'candidate_0',
+        autoSelectedCandidateId: 'candidate_0',
+        candidates: [
+          { id: 'candidate_0', summary: 'Noisy extraction', summaryMethod: 'fallback', chars: 110, score: 25 }
+        ],
+        quality: { pass: false, words: 28, uniqueRatio: 0.08, shortLineRatio: 0.92, boilerplateHits: 18 }
+      };
+    });
+
+    await import('../../popup/popup.js');
+    document.dispatchEvent(new Event('DOMContentLoaded'));
+    await flush();
+    await flush();
+
+    document.getElementById('create-comic-btn').click();
+    await flush();
+    await flush();
+
+    const shell = document.getElementById('quality-confidence');
+    const badge = document.getElementById('quality-confidence-badge');
+    const level = document.getElementById('quality-confidence-level');
+    const text = document.getElementById('quality-confidence-text');
+    const storyBtn = document.getElementById('story-picker-btn');
+
+    expect(shell.classList.contains('hidden')).toBe(false);
+    expect(badge.classList.contains('low')).toBe(true);
+    expect(String(level.textContent || '')).toContain('Low');
+    expect(String(text.textContent || '')).toContain('Auto-pick a tighter section');
+    expect(storyBtn.classList.contains('hidden')).toBe(false);
+    expect(storyBtn.disabled).toBe(false);
+  });
+
   it('simulates user flow: navigate to Wikipedia article, click Create Comic, then click Generate Comic', async () => {
     let startPayload = null;
     const articleUrl = 'https://en.wikipedia.org/wiki/Israel';
@@ -439,6 +759,47 @@ describe('Popup Page Startup', () => {
     expect(startPayload.settings.provider_image).toBe('openai');
     expect(startPayload.settings.output_language).toBe('fr');
     expect(document.getElementById('progress-section').classList.contains('hidden')).toBe(false);
+    expect(document.getElementById('comicify-progress-modal')?.classList.contains('hidden')).toBe(false);
+    expect(String(document.getElementById('comicify-progress-percent')?.textContent || '')).toBe('0%');
+  });
+
+  it('shows playful Comicify progress popup and updates status/percent', async () => {
+    chrome.tabs.sendMessage.mockResolvedValue({ success: true, text: 'x '.repeat(600) });
+
+    await import('../../popup/popup.js');
+    document.dispatchEvent(new Event('DOMContentLoaded'));
+    await flush();
+    await flush();
+
+    const ctrl = window.__popupController;
+    expect(ctrl).toBeTruthy();
+
+    ctrl.showProgress();
+    await flush();
+
+    const modal = document.getElementById('comicify-progress-modal');
+    expect(modal).toBeTruthy();
+    expect(modal.classList.contains('hidden')).toBe(false);
+    expect(String(document.getElementById('comicify-progress-title')?.textContent || '')).toContain('Comicify');
+    expect(String(document.getElementById('comicify-progress-percent')?.textContent || '')).toBe('0%');
+
+    ctrl.updateComicifyProgressModal(
+      {
+        status: 'generating_images',
+        completedPanels: 2,
+        currentPanelIndex: 2
+      },
+      4
+    );
+    await flush();
+
+    expect(String(document.getElementById('comicify-progress-title')?.textContent || '')).toContain('Rendering comic panels');
+    expect(String(document.getElementById('comicify-progress-percent')?.textContent || '')).toBe('50%');
+    expect(String(document.getElementById('comicify-progress-subtitle')?.textContent || '')).toContain('Drawing panel magic');
+
+    ctrl.hideProgress();
+    await flush();
+    expect(modal.classList.contains('hidden')).toBe(true);
   });
 
   it('respects manual collapse intent for content extras when readiness updates repeat', async () => {
@@ -505,6 +866,55 @@ describe('Popup Page Startup', () => {
     expect(controller.settings.outputLanguage).toBe('en');
     const outputLanguageSelect = document.getElementById('output-language');
     expect(outputLanguageSelect.value).toBe('en');
+  });
+
+  it('accepts Russian output language and sends ru in generation payload', async () => {
+    let startPayload = null;
+    chrome.storage.local.get.mockImplementation(async (keys) => {
+      if (Array.isArray(keys)) {
+        const result = {
+          settings: { activeTextProvider: 'openai', activeImageProvider: 'openai', outputLanguage: 'ru' },
+          providers: {}
+        };
+        if (keys.includes('apiKeys')) result.apiKeys = { openai: global.TEST_OPENAI_API_KEY };
+        if (keys.includes('providerValidation')) result.providerValidation = { openai: { valid: true } };
+        return result;
+      }
+      if (keys === 'onboardingComplete') return { onboardingComplete: true };
+      if (keys === 'history') return { history: [] };
+      if (keys === 'apiKeys') return { apiKeys: { openai: global.TEST_OPENAI_API_KEY } };
+      if (keys === 'providerValidation') return { providerValidation: { openai: { valid: true } } };
+      if (keys === 'currentJob') return { currentJob: null };
+      if (keys === 'debugLogs') return { debugLogs: [] };
+      return {};
+    });
+    chrome.tabs.sendMessage.mockImplementation(async (_tabId, msg) => {
+      if (msg.type === 'EXTRACT_CONTENT') return { success: true, text: 'x'.repeat(500) };
+      if (msg.type === 'START_GENERATION') {
+        startPayload = msg.payload;
+        return { success: true, jobId: 'job-ru-1' };
+      }
+      return { success: true };
+    });
+
+    await import('../../popup/popup.js');
+    document.dispatchEvent(new Event('DOMContentLoaded'));
+    await flush();
+    await flush();
+
+    document.getElementById('create-comic-btn').click();
+    await flush();
+    await flush();
+    const outputLanguageSelect = document.getElementById('output-language');
+    expect(outputLanguageSelect.value).toBe('ru');
+    const generateBtn = document.getElementById('generate-btn');
+    await waitForCondition(() => generateBtn && generateBtn.disabled === false, 4000);
+    generateBtn.click();
+    await flush();
+    await flush();
+
+    expect(startPayload).toBeTruthy();
+    expect(startPayload.settings.output_language).toBe('ru');
   });
 
   it('shows selection fallback note and allows retrying full-page extraction', async () => {
@@ -625,7 +1035,7 @@ describe('Popup Page Startup', () => {
     await flush();
     await flush();
 
-    document.getElementById('view-history-btn').click();
+    document.getElementById('history-btn').click();
     await flush();
 
     const deleteBtn = document.querySelector('#history-list .history-item-delete-btn');
@@ -634,7 +1044,7 @@ describe('Popup Page Startup', () => {
     global.confirm = vi.fn(() => false);
     deleteBtn.click();
     await flush();
-    expect(global.confirm).toHaveBeenCalledWith('Delete this comic from history?');
+    expect(global.confirm).toHaveBeenCalledWith('Delete this comic from My Collection?');
     expect(storedHistory).toHaveLength(2);
 
     global.confirm = vi.fn(() => true);
@@ -667,7 +1077,7 @@ describe('Popup Page Startup', () => {
     await flush();
     await flush();
 
-    document.getElementById('view-history-btn').click();
+    document.getElementById('history-btn').click();
     await flush();
     const secondItem = document.querySelectorAll('#history-list .history-item')[1];
     secondItem.click();
@@ -807,7 +1217,7 @@ describe('Popup Page Startup', () => {
     const startCall = chrome.tabs.sendMessage.mock.calls.find((call) => call[1]?.type === 'START_GENERATION');
     expect(startCall).toBeTruthy();
     expect(startCall[1].payload.settings.panel_count).toBe(3);
-    expect(startCall[1].payload.settings.objective).toBe('summarize');
+    expect(startCall[1].payload.settings.objective).toBe('explain-like-im-five');
   });
 
   it('sends selected objective in START_GENERATION payload', async () => {
@@ -851,8 +1261,9 @@ describe('Popup Page Startup', () => {
     objective.value = 'learn-step-by-step';
     objective.dispatchEvent(new Event('change', { bubbles: true }));
     await flush();
+    await flush();
 
-    await waitForCondition(() => !document.getElementById('generate-btn').disabled, 3000);
+    await waitForCondition(() => !document.getElementById('generate-btn').disabled, 6000);
     document.getElementById('generate-btn').click();
     await flush();
 
@@ -1360,7 +1771,7 @@ describe('Popup Page Startup', () => {
     await flush();
     await flush();
 
-    document.getElementById('view-history-btn').click();
+    document.getElementById('history-btn').click();
     await flush();
     await flush();
 
@@ -1368,7 +1779,7 @@ describe('Popup Page Startup', () => {
     const list = document.getElementById('history-list');
     expect(modal.classList.contains('hidden')).toBe(false);
     expect(list.querySelectorAll('.history-item').length).toBe(2);
-    expect(global.alert).not.toHaveBeenCalledWith('Failed to open history.');
+    expect(global.alert).not.toHaveBeenCalledWith('Failed to open My Collection.');
   });
 
   it('escapes popup history item titles when rendering history modal', async () => {
@@ -1403,7 +1814,7 @@ describe('Popup Page Startup', () => {
     await flush();
     await flush();
 
-    document.getElementById('view-history-btn').click();
+    document.getElementById('history-btn').click();
     await flush();
     await flush();
 
@@ -1411,6 +1822,153 @@ describe('Popup Page Startup', () => {
     expect(title).toBeTruthy();
     expect(title.innerHTML).not.toContain('<img');
     expect(document.querySelector('#history-list img[src="x"]')).toBeNull();
+  });
+
+  it('renders popup history thumbnail from storyboard panel image when thumbnail is missing', async () => {
+    chrome.storage.local.get.mockImplementation(async (keys) => {
+      if (Array.isArray(keys)) {
+        return {
+          settings: { activeTextProvider: 'openai', activeImageProvider: 'openai', debugFlag: true },
+          providers: {}
+        };
+      }
+      if (keys === 'onboardingComplete') return { onboardingComplete: true };
+      if (keys === 'apiKeys') return { apiKeys: { openai: global.TEST_OPENAI_API_KEY } };
+      if (keys === 'history') {
+        return {
+          history: [
+            {
+              id: 'panel-thumb-1',
+              source: { title: 'Panel Thumbnail Fallback' },
+              generated_at: '2026-02-24T00:00:00.000Z',
+              thumbnail: '',
+              storyboard: {
+                panels: [
+                  {
+                    artifacts: {
+                      image_blob_ref: 'data:image/png;base64,AAAABBBB'
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        };
+      }
+      if (keys === 'currentJob') return { currentJob: null };
+      if (keys === 'debugLogs') return { debugLogs: [] };
+      return {};
+    });
+
+    await import('../../popup/popup.js');
+    document.dispatchEvent(new Event('DOMContentLoaded'));
+    await flush();
+    await flush();
+
+    document.getElementById('history-btn').click();
+    await flush();
+    await flush();
+
+    const thumbImage = document.querySelector('#history-list .history-thumb img');
+    expect(thumbImage).toBeTruthy();
+    expect(String(thumbImage.getAttribute('src') || '')).toContain('data:image/png;base64,AAAABBBB');
+  });
+
+  it('renders popup history thumbnail when panel image_url is object-shaped', async () => {
+    chrome.storage.local.get.mockImplementation(async (keys) => {
+      if (Array.isArray(keys)) {
+        return {
+          settings: { activeTextProvider: 'openai', activeImageProvider: 'openai', debugFlag: true },
+          providers: {}
+        };
+      }
+      if (keys === 'onboardingComplete') return { onboardingComplete: true };
+      if (keys === 'apiKeys') return { apiKeys: { openai: global.TEST_OPENAI_API_KEY } };
+      if (keys === 'history') {
+        return {
+          history: [
+            {
+              id: 'panel-thumb-object-1',
+              source: { title: 'Panel Thumbnail Object Fallback' },
+              generated_at: '2026-02-24T00:00:00.000Z',
+              thumbnail: '',
+              storyboard: {
+                panels: [
+                  {
+                    artifacts: {
+                      image_url: { url: 'data:image/png;base64,OBJECT_POPUP_1' }
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        };
+      }
+      if (keys === 'currentJob') return { currentJob: null };
+      if (keys === 'debugLogs') return { debugLogs: [] };
+      return {};
+    });
+
+    await import('../../popup/popup.js');
+    document.dispatchEvent(new Event('DOMContentLoaded'));
+    await flush();
+    await flush();
+
+    document.getElementById('history-btn').click();
+    await flush();
+    await flush();
+
+    const thumbImage = document.querySelector('#history-list .history-thumb img');
+    expect(thumbImage).toBeTruthy();
+    expect(String(thumbImage.getAttribute('src') || '')).toContain('data:image/png;base64,OBJECT_POPUP_1');
+  });
+
+  it('uses persisted historyThumbnails map for popup history previews when panels are compacted', async () => {
+    chrome.storage.local.get.mockImplementation(async (keys) => {
+      if (Array.isArray(keys)) {
+        if (keys.includes('history')) {
+          return {
+            history: [
+              {
+                id: 'thumb-map-1',
+                source: { title: 'Compacted Preview' },
+                generated_at: '2026-02-24T00:00:00.000Z',
+                thumbnail: '',
+                storyboard: {
+                  panels: [{ artifacts: { image_omitted_due_to_quota: true } }]
+                }
+              }
+            ],
+            historyThumbnails: { 'thumb-map-1': 'data:image/jpeg;base64,TINY_POPUP_1' }
+          };
+        }
+        return {
+          settings: { activeTextProvider: 'openai', activeImageProvider: 'openai', debugFlag: true },
+          providers: {}
+        };
+      }
+      if (keys === 'onboardingComplete') return { onboardingComplete: true };
+      if (keys === 'apiKeys') return { apiKeys: { openai: global.TEST_OPENAI_API_KEY } };
+      if (keys === 'history') return { history: [] };
+      if (keys === 'historyThumbnails') return { historyThumbnails: { 'thumb-map-1': 'data:image/jpeg;base64,TINY_POPUP_1' } };
+      if (keys === 'currentJob') return { currentJob: null };
+      if (keys === 'debugLogs') return { debugLogs: [] };
+      return {};
+    });
+
+    await import('../../popup/popup.js');
+    document.dispatchEvent(new Event('DOMContentLoaded'));
+    await flush();
+    await flush();
+
+    document.getElementById('history-btn').click();
+    await flush();
+    await flush();
+
+    const thumbImage = document.querySelector('#history-list .history-thumb img');
+    expect(thumbImage).toBeTruthy();
+    expect(String(thumbImage.getAttribute('src') || '')).toContain('data:image/jpeg;base64,TINY_POPUP_1');
   });
 
   it('sends selected style preset and custom style name/description in generation payload', async () => {
@@ -1819,6 +2377,8 @@ describe('Popup Page Startup', () => {
     const generateBtn = document.getElementById('generate-btn');
     expect(generateBtn.disabled).toBe(true);
     expect(generateBtn.title).toContain('Wait for top stories to be detected or choose highlighted text');
+    const readinessNextBtn = document.getElementById('readiness-next-btn');
+    expect(readinessNextBtn.classList.contains('hidden')).toBe(true);
 
     generateBtn.disabled = false;
     generateBtn.click();
@@ -1861,8 +2421,11 @@ describe('Popup Page Startup', () => {
     await flush();
 
     const generateBtn = document.getElementById('generate-btn');
+    const readinessBox = document.getElementById('wizard-readiness');
     const readinessText = document.getElementById('wizard-readiness-text');
     expect(generateBtn.disabled).toBe(false);
+    expect(readinessBox.classList.contains('hidden')).toBe(true);
     expect(String(readinessText.textContent)).toContain('Ready to generate.');
   });
 });
+

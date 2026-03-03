@@ -1,0 +1,5 @@
+{
+  "model": "gemini-2.0-flash-exp-image-generation",
+  "prompt": "Create a premium illustration for a \"My Collection\" comic gallery button in a Chrome extension UI. Show many comic cards in a stylish collage/pile composition, dynamic and playful. Use clean modern digital illustration style, high contrast, rich colors, crisp edges. No text, no letters, no logos, no watermark. Center-weighted composition that works when cropped into a rounded square icon. Visual tone: creative, organized collection, energetic but not noisy.",
+  "responseText": "I will create a digital illustration of a stylish and dynamic collage of comic book cards, arranged in a playful pile. The artwork will feature a clean, modern aesthetic with high contrast, rich and vibrant colors, and sharp, crisp edges. The composition will be center-weighted to ensure it looks good even when cropped into a rounded square. The overall visual tone will evoke a sense of a creatively organized collection that is energetic but not visually overwhelming."
+}

@@ -5,8 +5,12 @@ class ComicViewer {
       'split-2-vertical': { mode: 'panels', displayClass: 'preset-storyboard-grid', generationClass: 'preset-storyboard-grid' },
       'split-2-horizontal': { mode: 'strip', displayClass: 'preset-wide-strip', generationClass: 'preset-wide-strip' },
       'classic-strip': { mode: 'strip', displayClass: 'preset-classic-strip', generationClass: 'preset-classic-strip' }, // 3-panel strip (Horizontal)
+      'strip-4-horizontal': { mode: 'strip', displayClass: 'preset-wide-strip', generationClass: 'preset-wide-strip' },
       'stack-3-vertical': { mode: 'panels', displayClass: 'preset-storyboard-grid', generationClass: 'preset-storyboard-grid' },
       'grid-4': { mode: 'panels', displayClass: 'preset-storyboard-grid', generationClass: 'preset-storyboard-grid' },
+      'square-comic-grid': { mode: 'panels', displayClass: 'preset-contact-sheet', generationClass: 'preset-contact-sheet' },
+      'a4-comic-page': { mode: 'panels', displayClass: 'preset-magazine-grid', generationClass: 'preset-magazine-grid' },
+      'a5-comic-page': { mode: 'panels', displayClass: 'preset-storyboard-grid', generationClass: 'preset-storyboard-grid' },
       'grid-6': { mode: 'panels', displayClass: 'preset-magazine-grid', generationClass: 'preset-magazine-grid' },
       'grid-9': { mode: 'panels', displayClass: 'preset-contact-sheet', generationClass: 'preset-contact-sheet' },
       'classic-comic-page': { mode: 'panels', displayClass: 'preset-magazine-grid', generationClass: 'preset-magazine-grid' },
@@ -21,6 +25,9 @@ class ComicViewer {
       'caption-first': { mode: 'panels', displayClass: 'preset-reading-grid', generationClass: 'preset-reading-grid' },
       'polaroid-collage': { mode: 'panels', displayClass: 'preset-contact-sheet', generationClass: 'preset-contact-sheet' },
       'masonry': { mode: 'panels', displayClass: 'preset-contact-sheet', generationClass: 'preset-contact-sheet' },
+      'masonry-landscape-2': { mode: 'panels', displayClass: 'preset-contact-sheet', generationClass: 'preset-contact-sheet' },
+      'masonry-landscape-3': { mode: 'panels', displayClass: 'preset-contact-sheet', generationClass: 'preset-contact-sheet' },
+      'masonry-landscape-4': { mode: 'panels', displayClass: 'preset-contact-sheet', generationClass: 'preset-contact-sheet' },
       'carousel': { mode: 'carousel', displayClass: 'preset-cinema-carousel', generationClass: 'preset-cinema-carousel' },
       'guided-path': { mode: 'panels', displayClass: 'preset-reading-grid', generationClass: 'preset-reading-grid' },
       // Legacy aliases kept for persisted preferences and older tests/links.
@@ -47,12 +54,15 @@ class ComicViewer {
     };
     this.currentComic = null;
     this.currentComicId = '';
-    this.viewMode = 'strip';
-    this.layoutPreset = 'classic-strip';
+    this.viewMode = 'panels';
+    this.layoutPreset = 'polaroid-collage';
     this.primaryView = 'comic';
     this.carouselIndex = 0;
     this.historyItems = [];
     this.historyBrowserLimit = 12;
+    this.historyFavoritesOnly = false;
+    this.historySortMode = 'manual';
+    this.historyThumbnailMap = new Map();
     this.storageUsageBytes = 0;
     this.generationStartedAtMs = 0;
     this.generationFirstPanelAtMs = 0;
@@ -60,7 +70,9 @@ class ComicViewer {
     this.lastTerminalJobNoticeKey = '';
     this.missingCaptionNoticeKeys = new Set();
     this.selectedShareTarget = 'facebook';
+    this.visibleShareTargets = new Set();
     this.panelEditState = {};
+    this.historyPreviewFallbackCache = new Map();
     this.init();
   }
 
@@ -73,7 +85,29 @@ class ComicViewer {
     this.syncLayoutPresetUI();
     this.applyLayoutPreset();
     await this.loadHistory();
+    await this.applyInitialViewPreference();
     await this.refreshStorageUsage();
+    await this.refreshShareTargetVisibility();
+  }
+
+  async applyInitialViewPreference() {
+    try {
+      const params = new URLSearchParams(window.location.search || '');
+      const urlView = String(params.get('view') || '').trim().toLowerCase();
+      if (urlView === 'history' || urlView === 'comic') {
+        this.setPrimaryView(urlView);
+        return;
+      }
+    } catch (_) {}
+
+    try {
+      const stored = await chrome.storage.local.get('sidepanelInitialView');
+      const nextView = String(stored?.sidepanelInitialView || '').trim().toLowerCase();
+      if (nextView === 'history' || nextView === 'comic') {
+        this.setPrimaryView(nextView);
+        await chrome.storage.local.remove('sidepanelInitialView');
+      }
+    } catch (_) {}
   }
 
   async appendDebugLog(event, data) {
@@ -121,6 +155,48 @@ class ComicViewer {
       .join('');
   }
 
+  normalizeTextToken(value) {
+    return String(value || '')
+      .toLowerCase()
+      .replace(/[^a-z0-9\s]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  filterRelevantFacts(values, contextText, maxItems) {
+    const items = Array.isArray(values) ? values.filter(Boolean) : [];
+    if (!items.length) return [];
+    const normalizedContext = this.normalizeTextToken(contextText);
+    if (!normalizedContext) return items.slice(0, maxItems);
+
+    const relevant = items.filter((item) => {
+      const token = this.normalizeTextToken(item);
+      if (!token || token.length < 2) return false;
+      return normalizedContext.includes(token);
+    });
+    if (relevant.length) return relevant.slice(0, maxItems);
+    return items.slice(0, Math.min(maxItems, 2));
+  }
+
+  getGroundingLevel(factCount) {
+    const count = Number(factCount) || 0;
+    if (count >= 5) return 'high';
+    if (count >= 2) return 'medium';
+    return 'low';
+  }
+
+  getGroundingTooltip(level, factCount) {
+    const count = Math.max(0, Number(factCount) || 0);
+    const levelKey = String(level || 'low').toLowerCase();
+    const label = levelKey === 'high' ? 'High' : levelKey === 'medium' ? 'Medium' : 'Low';
+    const meaning = levelKey === 'high'
+      ? 'Strong grounding to extracted source facts.'
+      : levelKey === 'medium'
+        ? 'Partial grounding to extracted source facts.'
+        : 'Limited grounding to extracted source facts.';
+    return `Grounding: ${label} (${count} evidence points). ${meaning}`;
+  }
+
   sanitizeExternalUrl(url) {
     try {
       const parsed = new URL(String(url || ''));
@@ -129,6 +205,39 @@ class ComicViewer {
       }
     } catch (_) {}
     return '#';
+  }
+
+  getFaviconUrl(sourceUrl) {
+    const value = String(sourceUrl || '').trim();
+    if (!value) return '';
+
+    // Prefer native URL parsing when available, but keep a resilient fallback for tests.
+    try {
+      const parsed = new URL(value);
+      if ((parsed.protocol === 'http:' || parsed.protocol === 'https:') && parsed.origin) {
+        return parsed.origin.replace(/\/+$/, '') + '/favicon.ico';
+      }
+    } catch (_) {}
+
+    const match = value.match(/^https?:\/\/[^\/?#]+/i);
+    if (!match) return '';
+    return match[0].replace(/\/+$/, '') + '/favicon.ico';
+  }
+
+  updateComicSourceFavicon(sourceUrl) {
+    const faviconEl = document.getElementById('comic-source-favicon');
+    if (!faviconEl) return;
+    const faviconUrl = this.getFaviconUrl(sourceUrl);
+    if (!faviconUrl) {
+      faviconEl.classList.add('hidden');
+      faviconEl.removeAttribute('src');
+      return;
+    }
+    faviconEl.classList.remove('hidden');
+    faviconEl.src = faviconUrl;
+    faviconEl.onerror = () => {
+      faviconEl.classList.add('hidden');
+    };
   }
 
   getProviderDisplayLabel(providerId) {
@@ -232,6 +341,256 @@ class ComicViewer {
     return fallbackLabel;
   }
 
+  normalizeComicTitleCandidate(value) {
+    return String(value || '')
+      .replace(/\s+/g, ' ')
+      .replace(/^[\s|:/\\\-–—•]+|[\s|:/\\\-–—•]+$/g, '')
+      .trim();
+  }
+
+  truncateComicTitle(value, maxLen = 96) {
+    const normalized = this.normalizeComicTitleCandidate(value);
+    if (!normalized) return '';
+    if (normalized.length <= maxLen) return normalized;
+    return normalized.slice(0, maxLen - 1).trim() + '…';
+  }
+
+  isGenericHistoryTitle(value) {
+    const normalized = this.normalizeComicTitleCandidate(value).toLowerCase();
+    if (!normalized) return true;
+    const generic = new Set([
+      'web2comics',
+      'comic summary',
+      'story summary',
+      'untitled',
+      'untitled comic'
+    ]);
+    if (generic.has(normalized)) return true;
+    return /^web2comics\b/.test(normalized);
+  }
+
+  deriveHistoryCardTitle(item) {
+    const storyboard = item?.storyboard || {};
+    const candidates = [
+      storyboard.collection_title_short,
+      storyboard.title,
+      item?.source?.title,
+      item?.sourceTitle,
+      storyboard?.source?.title
+    ];
+    for (let i = 0; i < candidates.length; i += 1) {
+      const title = this.normalizeComicTitleCandidate(candidates[i]);
+      if (title && !this.isGenericHistoryTitle(title)) {
+        return this.truncateComicTitle(title, 52);
+      }
+    }
+    const panelDerived = this.deriveComicTitleFromPanels(storyboard);
+    if (panelDerived && !this.isGenericHistoryTitle(panelDerived)) {
+      return this.truncateComicTitle(panelDerived, 52);
+    }
+    return 'Story Summary';
+  }
+
+  countStoryboardImagePanels(storyboard) {
+    const panels = Array.isArray(storyboard?.panels) ? storyboard.panels : [];
+    let count = 0;
+    for (let i = 0; i < panels.length; i += 1) {
+      const src = this.getPanelImageSource(panels[i]);
+      if (src) count += 1;
+    }
+    return count;
+  }
+
+  resolveImageSourceValue(value) {
+    if (!value) return '';
+    if (typeof value === 'string') return value.trim();
+    if (typeof value === 'object') {
+      const obj = value || {};
+      const candidate = obj.url || obj.data_url || obj.href || obj.src || '';
+      return typeof candidate === 'string' ? candidate.trim() : '';
+    }
+    return '';
+  }
+
+  getPanelImageSource(panel) {
+    return this.resolveImageSourceValue(panel?.artifacts?.image_blob_ref) ||
+      this.resolveImageSourceValue(panel?.artifacts?.image_url) ||
+      this.resolveImageSourceValue(panel?.image_blob_ref) ||
+      this.resolveImageSourceValue(panel?.image_url) ||
+      '';
+  }
+
+  isSameStoryboardIdentity(left, right) {
+    if (!left || !right) return false;
+    const leftUrl = String(left?.source?.url || '').trim();
+    const rightUrl = String(right?.source?.url || '').trim();
+    if (leftUrl && rightUrl) return leftUrl === rightUrl;
+
+    const leftTitle = this.normalizeComicTitleCandidate(left?.source?.title || left?.title || '');
+    const rightTitle = this.normalizeComicTitleCandidate(right?.source?.title || right?.title || '');
+    if (!leftTitle || !rightTitle) return false;
+    if (leftTitle !== rightTitle) return false;
+    const leftPanels = Array.isArray(left?.panels) ? left.panels.length : 0;
+    const rightPanels = Array.isArray(right?.panels) ? right.panels.length : 0;
+    return leftPanels > 0 && leftPanels === rightPanels;
+  }
+
+  mergeStoryboardImageRefs(storyboard, fallbackStoryboard) {
+    const basePanels = Array.isArray(storyboard?.panels) ? storyboard.panels : null;
+    const fallbackPanels = Array.isArray(fallbackStoryboard?.panels) ? fallbackStoryboard.panels : null;
+    if (!basePanels || !fallbackPanels || !basePanels.length || !fallbackPanels.length) return storyboard;
+
+    let recoveredCount = 0;
+    const nextPanels = basePanels.map((panel, index) => {
+      const sourcePanel = panel && typeof panel === 'object' ? panel : {};
+      const ownArtifacts = sourcePanel.artifacts && typeof sourcePanel.artifacts === 'object'
+        ? { ...sourcePanel.artifacts }
+        : {};
+      const ownSrc = this.getPanelImageSource(sourcePanel);
+      if (ownSrc) return sourcePanel;
+
+      const panelId = sourcePanel?.panel_id;
+      let fallbackPanel = null;
+      if (panelId) {
+        fallbackPanel = fallbackPanels.find((candidate) => candidate && candidate.panel_id === panelId) || null;
+      }
+      if (!fallbackPanel) fallbackPanel = fallbackPanels[index] || null;
+      const fallbackBlob = String(fallbackPanel?.artifacts?.image_blob_ref || '').trim();
+      const fallbackImageUrl = String(
+        fallbackPanel?.artifacts?.image_url ||
+        fallbackPanel?.image_url ||
+        ''
+      ).trim();
+      if (!fallbackBlob && !fallbackImageUrl) return sourcePanel;
+
+      recoveredCount += 1;
+      return {
+        ...sourcePanel,
+        artifacts: {
+          ...ownArtifacts,
+          ...(fallbackBlob ? { image_blob_ref: fallbackBlob } : {}),
+          ...(ownArtifacts.image_url ? {} : (fallbackImageUrl ? { image_url: fallbackImageUrl } : {}))
+        }
+      };
+    });
+
+    if (!recoveredCount) return storyboard;
+    void this.appendDebugLog('comic.image_refs.recovered', {
+      recoveredPanels: recoveredCount,
+      incomingPanels: basePanels.length
+    });
+    return {
+      ...(storyboard || {}),
+      panels: nextPanels
+    };
+  }
+
+  recoverStoryboardAssets(storyboard) {
+    const candidate = storyboard && typeof storyboard === 'object' ? storyboard : null;
+    if (!candidate) return storyboard;
+    if (!this.currentComic || !this.isSameStoryboardIdentity(candidate, this.currentComic)) return candidate;
+
+    const currentCount = this.countStoryboardImagePanels(this.currentComic);
+    const incomingCount = this.countStoryboardImagePanels(candidate);
+    if (incomingCount >= currentCount) return candidate;
+    return this.mergeStoryboardImageRefs(candidate, this.currentComic);
+  }
+
+  prepareHistoryStoryboardForDisplay(item) {
+    const baseStoryboard = this.recoverStoryboardAssets(item?.storyboard || null);
+    if (!baseStoryboard || !Array.isArray(baseStoryboard.panels) || !baseStoryboard.panels.length) {
+      return baseStoryboard;
+    }
+
+    const fallbackImage = this.getHistoryThumbnail(item);
+    if (!fallbackImage) return baseStoryboard;
+    if (baseStoryboard.panels.length > 1) {
+      // Avoid misleading UX where one thumbnail is duplicated across all comic panels.
+      return baseStoryboard;
+    }
+
+    let updatedCount = 0;
+    const nextPanels = baseStoryboard.panels.map((panel) => {
+      if (this.getPanelImageSource(panel)) return panel;
+      const sourcePanel = panel && typeof panel === 'object' ? panel : {};
+      const nextArtifacts = sourcePanel.artifacts && typeof sourcePanel.artifacts === 'object'
+        ? { ...sourcePanel.artifacts }
+        : {};
+
+      if (/^data:image\//i.test(fallbackImage)) {
+        nextArtifacts.image_blob_ref = fallbackImage;
+      } else {
+        nextArtifacts.image_url = fallbackImage;
+      }
+      updatedCount += 1;
+      return {
+        ...sourcePanel,
+        artifacts: nextArtifacts
+      };
+    });
+
+    if (!updatedCount) return baseStoryboard;
+    void this.appendDebugLog('history.storyboard.image_fallback_applied', {
+      comicId: item?.id || null,
+      updatedPanels: updatedCount
+    });
+    return {
+      ...baseStoryboard,
+      panels: nextPanels
+    };
+  }
+
+  looksLikeHeadlineMashup(value) {
+    const title = this.normalizeComicTitleCandidate(value);
+    if (!title) return false;
+
+    const segmented = title.split(/\s*[|•]\s+|\s+-\s+|\s+\/\s+/).filter(Boolean);
+    if (segmented.length >= 3) return true;
+
+    const words = title.split(/\s+/).filter(Boolean);
+    const capitalizedTokens = (title.match(/\b[A-Z][a-z]{2,}\b/g) || []).length;
+    const questionLeadTokens = (title.match(/\b(Why|How|What|Who|When|Where)\b/g) || []).length;
+    const hasPunctuationBreak = /[.!?:;]/.test(title);
+
+    if (words.length >= 16 && capitalizedTokens >= 5 && !hasPunctuationBreak) return true;
+    if (words.length >= 22 && capitalizedTokens >= 6 && questionLeadTokens >= 1) return true;
+    return false;
+  }
+
+  deriveComicTitleFromPanels(storyboard) {
+    const panels = Array.isArray(storyboard?.panels) ? storyboard.panels : [];
+    for (let i = 0; i < panels.length; i += 1) {
+      const caption = this.getPanelCaptionText(panels[i], i, {
+        suppressMissingLog: true,
+        fallbackLabel: ''
+      });
+      const cleaned = this.normalizeComicTitleCandidate(caption).replace(/[.!?]+$/g, '').trim();
+      if (!cleaned) continue;
+      if (/^Panel\s+\d+$/i.test(cleaned)) continue;
+      return this.truncateComicTitle(cleaned, 88);
+    }
+    return '';
+  }
+
+  resolveComicDisplayTitle(storyboard) {
+    const storyboardTitle = this.normalizeComicTitleCandidate(storyboard?.title || '');
+    const sourceTitle = this.normalizeComicTitleCandidate(storyboard?.source?.title || '');
+
+    if (storyboardTitle && !this.looksLikeHeadlineMashup(storyboardTitle)) {
+      return this.truncateComicTitle(storyboardTitle);
+    }
+    if (sourceTitle && !this.looksLikeHeadlineMashup(sourceTitle)) {
+      return this.truncateComicTitle(sourceTitle);
+    }
+
+    const panelDerived = this.deriveComicTitleFromPanels(storyboard);
+    if (panelDerived) return panelDerived;
+
+    if (storyboardTitle) return this.truncateComicTitle(storyboardTitle);
+    if (sourceTitle) return this.truncateComicTitle(sourceTitle);
+    return 'Untitled Comic';
+  }
+
   normalizeCaptionValue(value) {
     if (value == null) return '';
     if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
@@ -305,6 +664,11 @@ class ComicViewer {
       this.layoutPreset = preset;
       this.viewMode = this.layoutPresets[preset].mode;
     }
+    this.historyFavoritesOnly = !!sidepanelPrefs?.historyFavoritesOnly;
+    const rawSortMode = String(sidepanelPrefs?.historySortMode || '').trim();
+    if (rawSortMode === 'manual' || rawSortMode === 'title-asc' || rawSortMode === 'title-desc' || rawSortMode === 'date-asc' || rawSortMode === 'date-desc') {
+      this.historySortMode = rawSortMode;
+    }
   }
 
   async loadCurrentJob() {
@@ -321,7 +685,8 @@ class ComicViewer {
       const item = (Array.isArray(items) ? items : []).find((h) => h && h.id === selectedHistoryComicId);
       if (!item?.storyboard) return false;
       this.currentComicId = String(item.id || '');
-      this.displayComic(item.storyboard);
+      const hydrated = await this.hydrateStoryboardImagesFromArchive(item.storyboard, this.currentComicId);
+      this.displayComic(this.prepareHistoryStoryboardForDisplay({ ...item, storyboard: hydrated }));
       return true;
     } catch (_) {
       void this.appendDebugLog('history.selected.display.error', {});
@@ -333,6 +698,7 @@ class ComicViewer {
     document.getElementById('mode-comic-btn')?.addEventListener('click', () => this.setPrimaryView('comic'));
     document.getElementById('mode-history-btn')?.addEventListener('click', () => this.setPrimaryView('history'));
     document.querySelector('.header-mode-toggle')?.addEventListener('keydown', (e) => this.onHeaderModeKeydown(e));
+    document.getElementById('settings-btn-sidepanel')?.addEventListener('click', () => this.openOptionsPage());
     document.getElementById('new-comic-btn')?.addEventListener('click', () => this.openPopup());
     document.getElementById('open-tab-btn')?.addEventListener('click', () => this.openInTab());
     document.getElementById('download-logs-sidepanel-btn')?.addEventListener('click', () => this.downloadDebugLogs());
@@ -347,6 +713,9 @@ class ComicViewer {
     document.getElementById('carousel-prev-btn')?.addEventListener('click', () => this.showCarouselPanel(this.carouselIndex - 1));
     document.getElementById('carousel-next-btn')?.addEventListener('click', () => this.showCarouselPanel(this.carouselIndex + 1));
     document.getElementById('history-browser-more-btn')?.addEventListener('click', () => this.showMoreHistory());
+    document.getElementById('history-filter-favorites-btn')?.addEventListener('click', () => this.toggleHistoryFavoritesOnly());
+    document.getElementById('history-sort-title-btn')?.addEventListener('click', () => this.toggleHistorySortMode('title'));
+    document.getElementById('history-sort-date-btn')?.addEventListener('click', () => this.toggleHistorySortMode('date'));
     document.getElementById('layout-preset-select')?.addEventListener('change', (e) => this.setLayoutPreset(e.target.value));
     document.getElementById('comic-strip')?.addEventListener('click', (e) => this.handlePanelActionClick(e));
     document.getElementById('comic-panels')?.addEventListener('click', (e) => this.handlePanelActionClick(e));
@@ -355,6 +724,10 @@ class ComicViewer {
   async handlePanelActionClick(event) {
     const actionBtn = event?.target?.closest?.('[data-panel-action]');
     if (!actionBtn) return;
+    const parentMenu = actionBtn.closest('.panel-more-actions');
+    if (parentMenu && parentMenu.hasAttribute('open')) {
+      parentMenu.removeAttribute('open');
+    }
     const panelIndex = Number(actionBtn.dataset.panelIndex || -1);
     const action = String(actionBtn.dataset.panelAction || '');
     if (!Number.isInteger(panelIndex) || panelIndex < 0 || !action) return;
@@ -646,6 +1019,9 @@ class ComicViewer {
       if (Object.prototype.hasOwnProperty.call(changes, 'selectedHistoryComicId')) {
         void this.tryDisplaySelectedHistoryComic();
       }
+      if (Object.prototype.hasOwnProperty.call(changes, 'connectionStates')) {
+        void this.refreshShareTargetVisibility();
+      }
       void this.refreshStorageUsage();
     });
   }
@@ -677,6 +1053,21 @@ class ComicViewer {
     }
   }
 
+  shouldResetForFreshGeneration(currentJob) {
+    const status = String(currentJob?.status || '');
+    if (status !== 'pending' && status !== 'generating_text' && status !== 'generating_images') return false;
+    const jobId = String(currentJob?.id || currentJob?.jobId || '').trim();
+    if (!jobId) return false;
+    if (jobId === String(this.currentComicId || '').trim()) return false;
+
+    const panels = Array.isArray(currentJob?.storyboard?.panels) ? currentJob.storyboard.panels : [];
+    const hasRenderedPanelImage = panels.some((panel) => !!this.getPanelImageSource(panel));
+    const completedPanels = Math.max(0, Number(currentJob?.completedPanels || 0));
+
+    // Only reset when a new generation starts before any panel output exists.
+    return !hasRenderedPanelImage && completedPanels === 0;
+  }
+
   handleCurrentJobState(currentJob) {
     if (!currentJob) return;
     if (currentJob.status === 'completed') {
@@ -687,13 +1078,20 @@ class ComicViewer {
         this.pollTimer = null;
       }
       this.currentComicId = String(currentJob.id || currentJob.jobId || '');
-      this.displayComic(currentJob.storyboard);
+      this.displayComic(this.recoverStoryboardAssets(currentJob.storyboard));
       void this.loadHistory();
       this.updateViewerStats();
       return;
     }
 
     if (currentJob.status === 'generating_text' || currentJob.status === 'generating_images' || currentJob.status === 'pending') {
+      if (this.shouldResetForFreshGeneration(currentJob)) {
+        this.currentComic = null;
+        this.currentComicId = '';
+        this.carouselIndex = 0;
+        this.hideShareMenu();
+        this.setHeaderActionState();
+      }
       this.showGenerationView(currentJob);
       this.updateGenerationUI(currentJob);
       this.startPolling();
@@ -722,7 +1120,7 @@ class ComicViewer {
   }
 
   getPresetIdClass(presetId) {
-    return 'preset-id-' + String(presetId || 'classic-strip').replace(/[^a-z0-9_-]/gi, '-');
+    return 'preset-id-' + String(presetId || 'polaroid-collage').replace(/[^a-z0-9_-]/gi, '-');
   }
 
   getLayoutPresetIdClasses() {
@@ -780,7 +1178,8 @@ class ComicViewer {
     comicShell?.classList.toggle('active', this.primaryView === 'comic');
     historyShell?.classList.toggle('hidden', this.primaryView !== 'history');
     historyShell?.classList.toggle('active', this.primaryView === 'history');
-    sidebar?.classList.toggle('hidden', this.primaryView === 'history');
+    // Keep comic view focused on a single comic surface; My Collection lives in its own tab.
+    sidebar?.classList.add('hidden');
 
     document.querySelectorAll('.header-mode-btn').forEach((btn) => {
       const active = btn.dataset.view === this.primaryView;
@@ -788,23 +1187,43 @@ class ComicViewer {
       btn.setAttribute('aria-selected', active ? 'true' : 'false');
     });
 
+    // When users switch back to Comic view, restore the comic canvas explicitly.
+    // This avoids stale hidden-state collisions with generation/empty views.
+    if (this.primaryView === 'comic' && this.currentComic && Array.isArray(this.currentComic.panels)) {
+      document.getElementById('empty-state')?.classList.add('hidden');
+      document.getElementById('generation-view')?.classList.add('hidden');
+      document.getElementById('comic-display')?.classList.remove('hidden');
+      this.renderPanels(this.currentComic.panels);
+      this.renderCarousel(this.currentComic.panels);
+      this.setViewMode(this.layoutPresets[this.layoutPreset]?.mode || 'strip');
+    }
+
     // Export/share only applies to the Single Comic Strip View.
     this.setHeaderActionState();
   }
 
   displayComic(storyboard) {
-    this.currentComic = storyboard;
+    const resolvedStoryboard = this.recoverStoryboardAssets(storyboard);
+    this.currentComic = resolvedStoryboard;
     this.setPrimaryView('comic');
     
     document.getElementById('empty-state').classList.add('hidden');
     document.getElementById('generation-view').classList.add('hidden');
     document.getElementById('comic-display').classList.remove('hidden');
     
-    document.getElementById('comic-title').textContent = storyboard.source.title || 'Untitled Comic';
-    document.getElementById('comic-source').href = this.sanitizeExternalUrl(storyboard.source.url);
+    const sourceUrl = String(resolvedStoryboard?.source?.url || '');
+    document.getElementById('comic-title').textContent = this.resolveComicDisplayTitle(resolvedStoryboard);
+    const descriptionEl = document.getElementById('comic-description');
+    if (descriptionEl) {
+      const descriptionText = String(resolvedStoryboard?.description || '').trim();
+      descriptionEl.textContent = descriptionText;
+      descriptionEl.classList.toggle('hidden', !descriptionText);
+    }
+    document.getElementById('comic-source').href = this.sanitizeExternalUrl(sourceUrl);
+    this.updateComicSourceFavicon(sourceUrl);
     
-    this.renderPanels(storyboard.panels);
-    this.renderCarousel(storyboard.panels);
+    this.renderPanels(resolvedStoryboard.panels);
+    this.renderCarousel(resolvedStoryboard.panels);
     // The active layout preset is the single source of truth for display mode.
     this.setViewMode(this.layoutPresets[this.layoutPreset]?.mode || 'strip');
     
@@ -825,6 +1244,7 @@ class ComicViewer {
     const showRewrittenBadge = this.currentComic?.settings?.show_rewritten_badge !== false;
     const debugEnabled = !!this.currentComic?.settings?.debug_flag;
     const panelsHTML = panels.map((panel, index) => {
+      const panelImageSrc = this.getPanelImageSource(panel);
       const editState = this.getPanelEditState(index);
       const isPanelEditing = !!(editState && editState.pending);
       const editLabel = isPanelEditing ? this.getPanelEditLabel(editState.action) : '';
@@ -843,60 +1263,34 @@ class ComicViewer {
         (panel?.artifacts?.refusal_debug?.originalPrompt || refusalHandling.originalPrompt || panel?.artifacts?.refusal_debug?.effectivePrompt || refusalHandling.rewrittenPrompt)
       );
       const safeCaption = this.escapeHtml(this.getPanelCaptionText(panel, index));
-      const facts = panel?.facts_used || {};
-      const entities = Array.isArray(facts.entities) ? facts.entities.slice(0, 4) : [];
-      const dates = Array.isArray(facts.dates) ? facts.dates.slice(0, 3) : [];
-      const numbers = Array.isArray(facts.numbers) ? facts.numbers.slice(0, 3) : [];
-      const snippet = this.escapeHtml(String(facts.source_snippet || '').slice(0, 220));
-      const hasFacts = entities.length || dates.length || numbers.length || snippet;
-      const factCount = entities.length + dates.length + numbers.length + (snippet ? 1 : 0);
+      const numberedCaption = this.escapeHtml(String(index + 1) + '.') + ' ' + safeCaption;
       return `
       <div class="panel">
         <div class="panel-image">
-          ${panel.artifacts?.image_blob_ref 
-            ? `<img src="${panel.artifacts.image_blob_ref}" alt="Panel ${index + 1}">`
+          <div class="panel-image-corner-actions">
+            <button type="button" class="panel-action-btn panel-action-btn-icon${isPanelEditing ? ' is-busy' : ''}" data-panel-action="regenerate-image" data-panel-index="${index}" title="Regenerate panel image" aria-label="Regenerate panel image"${isPanelEditing ? ' disabled' : ''}>
+              <span class="panel-action-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" focusable="false">
+                  <path d="M3 6.5A2.5 2.5 0 0 1 5.5 4h13A2.5 2.5 0 0 1 21 6.5v11a2.5 2.5 0 0 1-2.5 2.5h-13A2.5 2.5 0 0 1 3 17.5v-11Zm2-.5v12h14V6H5Zm2 10 3.6-4.6 2.7 3.2 1.9-2.4 2.8 3.8H7Z"></path>
+                </svg>
+              </span>
+            </button>
+          </div>
+          ${panelImageSrc
+            ? `<img src="${panelImageSrc}" alt="Panel ${index + 1}">`
             : `<svg width="64" height="64" fill="var(--text-muted)"><rect x="8" y="8" width="48" height="48" rx="4" fill="none" stroke="currentColor" stroke-width="2"/><path d="M24 32h16M32 24v16" stroke="currentColor" stroke-width="2"/></svg>`
           }
         </div>
         <div class="panel-caption">
-          <div class="panel-number">Panel ${index + 1}</div>
           ${showBadge ? '<div class="panel-badge panel-badge-rewritten">Rewritten</div>' : ''}
           ${refusalHandling?.blockedPlaceholder ? '<div class="panel-badge panel-badge-blocked">Blocked</div>' : ''}
-          <div>${safeCaption}</div>
-          ${hasFacts ? `
-            <details class="panel-facts-shell">
-              <summary>Grounding (${factCount})</summary>
-              <div class="panel-facts">
-                ${entities.length ? `
-                  <details class="panel-facts-sublist">
-                    <summary>Entities (${entities.length})</summary>
-                    <div class="panel-facts-chip-row">${this.renderFactChips(entities)}</div>
-                  </details>
-                ` : ''}
-                ${dates.length ? `<div><strong>Dates:</strong> ${this.escapeHtml(dates.join(', '))}</div>` : ''}
-                ${numbers.length ? `<div><strong>Numbers:</strong> ${this.escapeHtml(numbers.join(', '))}</div>` : ''}
-                ${snippet ? `<div class="panel-facts-snippet">${snippet}</div>` : ''}
-              </div>
-            </details>
-          ` : ''}
+          <div>${numberedCaption}</div>
           ${isPanelEditing ? `
             <div class="panel-edit-status" role="status" aria-live="polite">
               <span class="panel-inline-spinner" aria-hidden="true"></span>
               <span>${this.escapeHtml(editLabel)}</span>
             </div>
           ` : ''}
-          <div class="panel-quick-actions">
-            <button type="button" class="panel-action-btn${isPanelEditing ? ' is-busy' : ''}" data-panel-action="regenerate-image" data-panel-index="${index}" title="Regenerate panel image" aria-label="Regenerate panel image"${isPanelEditing ? ' disabled' : ''}>Img</button>
-            <button type="button" class="panel-action-btn${isPanelEditing ? ' is-busy' : ''}" data-panel-action="regenerate-caption" data-panel-index="${index}" title="Regenerate caption" aria-label="Regenerate caption"${isPanelEditing ? ' disabled' : ''}>Cap</button>
-            <button type="button" class="panel-action-btn${isPanelEditing ? ' is-busy' : ''}" data-panel-action="make-factual" data-panel-index="${index}" title="Make caption more factual" aria-label="Make caption more factual"${isPanelEditing ? ' disabled' : ''}>Fact</button>
-            <details class="panel-more-actions${isPanelEditing ? ' is-busy' : ''}">
-              <summary>More</summary>
-              <div class="panel-more-actions-menu">
-                <button type="button" class="btn small secondary" data-panel-action="make-simpler" data-panel-index="${index}"${isPanelEditing ? ' disabled' : ''}>Make simpler</button>
-                ${snippet ? `<button type="button" class="btn small secondary" data-panel-action="jump-source" data-panel-index="${index}" data-source-snippet="${snippet}"${isPanelEditing ? ' disabled' : ''}>Jump to source</button>` : ''}
-              </div>
-            </details>
-          </div>
           ${showPromptBtn ? `<button type="button" class="panel-debug-prompt-btn" data-panel-index="${index}">View prompt</button>` : ''}
         </div>
       </div>
@@ -946,8 +1340,8 @@ class ComicViewer {
 
     thumbs.innerHTML = safePanels.map((panel, index) => `
       <button class="carousel-thumb ${index === this.carouselIndex ? 'active' : ''}" data-index="${index}" type="button" aria-label="Go to panel ${index + 1}">
-        ${panel.artifacts?.image_blob_ref
-          ? `<img src="${panel.artifacts.image_blob_ref}" alt="Panel ${index + 1}">`
+        ${this.getPanelImageSource(panel)
+          ? `<img src="${this.getPanelImageSource(panel)}" alt="Panel ${index + 1}">`
           : `<span class="carousel-thumb-fallback">${index + 1}</span>`}
       </button>
     `).join('');
@@ -973,10 +1367,11 @@ class ComicViewer {
     const prevBtn = document.getElementById('carousel-prev-btn');
     const nextBtn = document.getElementById('carousel-next-btn');
     const thumbs = document.getElementById('carousel-thumbs');
+    const panelImageSrc = this.getPanelImageSource(panel);
 
     if (imageEl) {
-      imageEl.innerHTML = panel.artifacts?.image_blob_ref
-        ? `<img src="${panel.artifacts.image_blob_ref}" alt="Panel ${nextIndex + 1}">`
+      imageEl.innerHTML = panelImageSrc
+        ? `<img src="${panelImageSrc}" alt="Panel ${nextIndex + 1}">`
         : `<div class="carousel-image-empty">No image for panel ${nextIndex + 1}</div>`;
     }
     if (numEl) numEl.textContent = `Panel ${nextIndex + 1} of ${panels.length}`;
@@ -1140,7 +1535,7 @@ class ComicViewer {
       const panel = storyboardPanels[index] || null;
       const runtimeStatus = panel?.runtime_status || (job.status === 'generating_text' ? 'pending' : 'pending');
       let displayStatus = runtimeStatus;
-      if (panel?.artifacts?.image_blob_ref) displayStatus = 'completed';
+      if (this.getPanelImageSource(panel)) displayStatus = 'completed';
       if (panel?.artifacts?.error) displayStatus = 'error';
       return { panel, index, displayStatus };
     });
@@ -1161,6 +1556,7 @@ class ComicViewer {
           : displayStatus === 'error' ? 'error'
           : '';
       const isCurrent = displayStatus === 'sent' || displayStatus === 'receiving' || displayStatus === 'rendering';
+      const panelImageSrc = this.getPanelImageSource(panel);
 
       const safeCaption = this.escapeHtml(this.getPanelCaptionText(panel, index, {
         suppressMissingLog: true,
@@ -1169,8 +1565,8 @@ class ComicViewer {
       return `
         <div class="gen-panel ${isCurrent ? 'is-current' : ''}">
           <div class="gen-panel-thumb">
-            ${panel?.artifacts?.image_blob_ref
-              ? `<img src="${panel.artifacts.image_blob_ref}" alt="">`
+            ${panelImageSrc
+              ? `<img src="${panelImageSrc}" alt="">`
               : `<svg width="32" height="32" fill="var(--text-muted)"><rect x="4" y="4" width="24" height="24" rx="2" fill="none" stroke="currentColor" stroke-width="2"/></svg>`
             }
           </div>
@@ -1239,6 +1635,27 @@ class ComicViewer {
     chrome.action.openPopup();
   }
 
+  async openOptionsPage() {
+    try {
+      if (chrome?.runtime?.openOptionsPage) {
+        await chrome.runtime.openOptionsPage();
+        return;
+      }
+    } catch (_) {}
+    const url = chrome?.runtime?.getURL
+      ? chrome.runtime.getURL('options/options.html')
+      : 'options/options.html';
+    try {
+      if (chrome?.tabs?.create) {
+        await chrome.tabs.create({ url });
+        return;
+      }
+    } catch (_) {}
+    try {
+      window.open(url, '_blank', 'noopener,noreferrer');
+    } catch (_) {}
+  }
+
   async openInTab() {
     const url = chrome?.runtime?.getURL
       ? chrome.runtime.getURL('sidepanel/sidepanel.html')
@@ -1262,6 +1679,67 @@ class ComicViewer {
     return String(this.selectedShareTarget || 'facebook');
   }
 
+  async getConnectedShareTargets() {
+    const connected = new Set();
+    let connectionStates = {};
+    try {
+      const stored = await chrome.storage.local.get('connectionStates');
+      connectionStates = (stored && stored.connectionStates && typeof stored.connectionStates === 'object')
+        ? stored.connectionStates
+        : {};
+    } catch (_) {}
+
+    if (connectionStates.instagram) {
+      connected.add('instagram');
+      connected.add('story');
+    }
+    if (connectionStates['otherShare:linkedin']) {
+      connected.add('linkedin');
+      connected.add('linkedin-post');
+    }
+    if (connectionStates['otherShare:reddit']) connected.add('reddit');
+    if (connectionStates['otherShare:email']) {
+      connected.add('email');
+      connected.add('email-card');
+    }
+
+    try {
+      const [facebookStatus, xStatus] = await Promise.all([
+        chrome.runtime.sendMessage({ type: 'FACEBOOK_GET_STATUS' }).catch(() => null),
+        chrome.runtime.sendMessage({ type: 'X_GET_STATUS' }).catch(() => null)
+      ]);
+      if (facebookStatus && facebookStatus.success !== false && facebookStatus.status?.connected) {
+        connected.add('facebook');
+      }
+      if (xStatus && xStatus.success !== false && xStatus.status?.connected) {
+        connected.add('x');
+        connected.add('x-card');
+      }
+    } catch (_) {}
+
+    return connected;
+  }
+
+  async refreshShareTargetVisibility() {
+    const menu = document.getElementById('share-target-menu');
+    if (!menu) return;
+    const connectedTargets = await this.getConnectedShareTargets();
+    this.visibleShareTargets = connectedTargets;
+    const alwaysVisibleTargets = new Set(['facebook']);
+
+    const menuItems = Array.from(menu.querySelectorAll('[data-share-target]'));
+    let visibleCount = 0;
+    menuItems.forEach((item) => {
+      const target = String(item.dataset.shareTarget || '').trim();
+      const visible = !!target && (connectedTargets.has(target) || alwaysVisibleTargets.has(target));
+      item.classList.toggle('hidden', !visible);
+      if (visible) visibleCount += 1;
+    });
+
+    const emptyState = document.getElementById('share-target-empty');
+    if (emptyState) emptyState.classList.toggle('hidden', visibleCount > 0);
+  }
+
   toggleShareMenu() {
     const shareBtn = document.getElementById('share-btn');
     if (!shareBtn || shareBtn.disabled) return;
@@ -1272,8 +1750,10 @@ class ComicViewer {
       this.hideShareMenu();
       return;
     }
-    menu.classList.remove('hidden');
-    shareBtn.setAttribute('aria-expanded', 'true');
+    Promise.resolve(this.refreshShareTargetVisibility()).finally(() => {
+      menu.classList.remove('hidden');
+      shareBtn.setAttribute('aria-expanded', 'true');
+    });
   }
 
   hideShareMenu() {
@@ -1283,7 +1763,30 @@ class ComicViewer {
     if (shareBtn) shareBtn.setAttribute('aria-expanded', 'false');
   }
 
+  async openConnectionsSettings() {
+    const url = chrome?.runtime?.getURL
+      ? chrome.runtime.getURL('options/options.html?section=connections')
+      : 'options/options.html?section=connections';
+    try {
+      if (chrome?.tabs?.create) {
+        await chrome.tabs.create({ url });
+        return;
+      }
+    } catch (_) {}
+    try {
+      window.open(url, '_blank', 'noopener,noreferrer');
+    } catch (_) {}
+  }
+
   handleShareMenuClick(event) {
+    const actionEl = event?.target?.closest?.('[data-share-action]');
+    const action = String(actionEl?.dataset?.shareAction || '').trim();
+    if (action === 'connect-more') {
+      this.hideShareMenu();
+      void this.openConnectionsSettings();
+      return;
+    }
+
     const targetEl = event?.target?.closest?.('[data-share-target]');
     if (!targetEl) return;
     const target = String(targetEl.dataset.shareTarget || '').trim();
@@ -1354,6 +1857,24 @@ class ComicViewer {
     }
   }
 
+  async copyImageDataUrlToClipboard(dataUrl) {
+    const payload = String(dataUrl || '').trim();
+    if (!payload || !payload.startsWith('data:image/')) return false;
+    try {
+      const clip = navigator?.clipboard;
+      if (!clip || typeof clip.write !== 'function') return false;
+      if (typeof ClipboardItem !== 'function') return false;
+      const response = await fetch(payload);
+      const blob = await response.blob();
+      if (!blob || !String(blob.type || '').startsWith('image/')) return false;
+      const item = new ClipboardItem({ [blob.type]: blob });
+      await clip.write([item]);
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
   async openExternalShareUrl(url) {
     const safeUrl = String(url || '');
     if (!safeUrl) return;
@@ -1414,15 +1935,19 @@ class ComicViewer {
   }
 
   getExportLayoutProfile() {
-    const preset = this.layoutPreset || 'classic-strip';
+    const preset = this.layoutPreset || 'polaroid-collage';
     const activeMode = this.layoutPresets[preset]?.mode || this.viewMode || 'strip';
     const map = {
       'single-panel-full': { kind: 'single', name: 'single-panel-full' },
       'split-2-vertical': { kind: 'vertical-list', aspect: 16 / 9, name: preset },
       'split-2-horizontal': { kind: 'strip', columns: 2, aspect: 4 / 3, name: preset },
       'classic-strip': { kind: 'strip', columns: 3, aspect: 4 / 3, name: preset },
+      'strip-4-horizontal': { kind: 'strip', columns: 4, aspect: 4 / 3, name: preset },
       'stack-3-vertical': { kind: 'vertical-list', aspect: 4 / 3, name: preset },
       'grid-4': { kind: 'grid', cols: 2, aspect: 4 / 3, name: preset },
+      'square-comic-grid': { kind: 'grid', cols: 2, aspect: 1 / 1, name: preset },
+      'a4-comic-page': { kind: 'grid', cols: 2, aspect: 3 / 4, name: preset },
+      'a5-comic-page': { kind: 'grid', cols: 2, aspect: 4 / 5, name: preset },
       'grid-6': { kind: 'grid', cols: 3, aspect: 4 / 3, name: preset },
       'grid-9': { kind: 'grid', cols: 3, aspect: 1 / 1, compact: true, name: preset },
       'classic-comic-page': { kind: 'patterned-grid', pattern: 'comic-page', name: preset },
@@ -1437,6 +1962,9 @@ class ComicViewer {
       'caption-first': { kind: 'caption-first-list', aspect: 4 / 3, name: preset },
       'polaroid-collage': { kind: 'collage', name: preset },
       'masonry': { kind: 'masonry', name: preset },
+      'masonry-landscape-2': { kind: 'masonry', cols: 2, landscape: true, masonryAspects: [1.45, 1.65, 1.35], name: preset },
+      'masonry-landscape-3': { kind: 'masonry', cols: 3, landscape: true, masonryAspects: [1.4, 1.6, 1.3], name: preset },
+      'masonry-landscape-4': { kind: 'masonry', cols: 4, landscape: true, masonryAspects: [1.35, 1.55, 1.25], compact: true, name: preset },
       'carousel': { kind: 'spotlight', cinema: true, name: preset },
       'guided-path': { kind: 'grid', cols: 2, aspect: 4 / 3, guided: true, name: preset }
     };
@@ -1458,8 +1986,12 @@ class ComicViewer {
         'split-2-vertical': 1,
         'split-2-horizontal': 2,
         'classic-strip': 3,
+        'strip-4-horizontal': 4,
         'stack-3-vertical': 1,
         'grid-4': 2,
+        'square-comic-grid': 2,
+        'a4-comic-page': 2,
+        'a5-comic-page': 2,
         'grid-6': 3,
         'grid-9': 3,
         'classic-comic-page': 3,
@@ -1473,6 +2005,9 @@ class ComicViewer {
         'caption-first': 1,
         'polaroid-collage': 2,
         'masonry': 2,
+        'masonry-landscape-2': 2,
+        'masonry-landscape-3': 3,
+        'masonry-landscape-4': 4,
         'carousel': 3,
         'guided-path': 2
       };
@@ -1565,7 +2100,7 @@ class ComicViewer {
       polaroid = false
     } = opts;
     const caption = this.getPanelCaptionText(panel, opts.index || 0);
-    const label = `Panel ${opts.index + 1}`;
+    const numberedCaption = `${opts.index + 1}. ${caption}`;
     const pad = compact ? 8 : 12;
     const radius = polaroid ? 6 : 12;
 
@@ -1604,19 +2139,13 @@ class ComicViewer {
     void this.drawExportImageCover(ctx, thumb, imageX, imageY, imageW, imageH, polaroid ? 3 : 10);
 
     const lineHeight = compact ? 16 : 18;
-    ctx.fillStyle = '#64748b';
-    ctx.font = compact
-      ? '600 11px system-ui, -apple-system, Segoe UI, sans-serif'
-      : '600 12px system-ui, -apple-system, Segoe UI, sans-serif';
-    ctx.fillText(label, captionX, captionY + 12);
-
     ctx.fillStyle = '#0f172a';
     ctx.font = compact
       ? '600 13px system-ui, -apple-system, Segoe UI, sans-serif'
       : '600 14px system-ui, -apple-system, Segoe UI, sans-serif';
-    const lines = this.wrapCanvasText(ctx, caption, captionW);
+    const lines = this.wrapCanvasText(ctx, numberedCaption, captionW);
     lines.slice(0, compact ? 4 : 5).forEach((line, idx) => {
-      ctx.fillText(line, captionX, captionY + 30 + (idx * lineHeight));
+      ctx.fillText(line, captionX, captionY + 16 + (idx * lineHeight));
     });
 
     if (showArrow) {
@@ -1635,7 +2164,16 @@ class ComicViewer {
     if (!comic?.panels?.length) throw new Error('No comic panels to export');
 
     const panels = comic.panels;
-    const sourceTitle = comic?.source?.title || 'Untitled Comic';
+    const sourceTitle = String(
+      document.getElementById('comic-title')?.textContent ||
+      this.resolveComicDisplayTitle(comic) ||
+      'Untitled Comic'
+    ).trim() || 'Untitled Comic';
+    const sourceSummary = String(
+      document.getElementById('comic-description')?.textContent ||
+      comic?.description ||
+      ''
+    ).trim();
     const sourceUrl = comic?.source?.url || '';
     const siteName = this.getShortSourceName(sourceUrl);
 
@@ -1657,15 +2195,17 @@ class ComicViewer {
 
     // Precompute row heights and load thumbnails.
     const loadedThumbs = await Promise.all(panels.map(async (panel) => {
-      if (!panel?.artifacts?.image_blob_ref) return null;
+      const imageSrc = this.getPanelImageSource(panel);
+      if (!imageSrc) return null;
       try {
-        return await this.loadImageElement(panel.artifacts.image_blob_ref);
+        return await this.loadImageElement(imageSrc);
       } catch {
         return null;
       }
     }));
 
-    const headerHeight = 108;
+    const hasSummary = !!sourceSummary;
+    const headerHeight = hasSummary ? 148 : 108;
     const footerHeight = 36;
     const urlLineHeight = 18;
     const contentX = layout.margin;
@@ -1768,17 +2308,20 @@ class ComicViewer {
       }
       bodyHeight = maxRow ? (maxRow * rowHUnit + (maxRow - 1) * gap) : 0;
     } else if (profile.kind === 'collage' || profile.kind === 'masonry') {
-      const cols = profile.kind === 'masonry' ? 2 : 2;
+      const cols = Math.max(2, Number(profile.cols) || 2);
       const colW = Math.floor((contentW - gap * (cols - 1)) / cols);
       const colHeights = new Array(cols).fill(bodyTop);
       for (let i = 0; i < panels.length; i++) {
-        const col = colHeights[0] <= colHeights[1] ? 0 : 1;
+        let col = 0;
+        for (let c = 1; c < cols; c++) {
+          if (colHeights[c] < colHeights[col]) col = c;
+        }
         const variant = profile.kind === 'masonry' ? (i % 3) : (i % 4);
         const imageAspect = profile.kind === 'masonry'
-          ? ([1, 0.8, 1.25][variant] || 1)
+          ? ((Array.isArray(profile.masonryAspects) && profile.masonryAspects[variant]) || [1, 0.8, 1.25][variant] || 1)
           : ([1.2, 0.9, 1.1, 0.75][variant] || 1);
         const imageH = Math.max(120, Math.floor(colW / imageAspect));
-        const cardH = imageH + (profile.kind === 'masonry' ? 64 : 78);
+        const cardH = imageH + (profile.kind === 'masonry' ? (profile.compact ? 54 : 64) : 78);
         const x = contentX + col * (colW + gap);
         const y = colHeights[col];
         pushBox(x, y, colW, cardH, imageH);
@@ -1849,11 +2392,21 @@ class ComicViewer {
       ctx.fillText(line, cardX + layout.headerPad, cardY + 48 + (i * 28));
     });
 
+    if (hasSummary) {
+      ctx.fillStyle = '#334155';
+      ctx.font = '500 14px system-ui, -apple-system, Segoe UI, sans-serif';
+      const summaryLines = this.wrapCanvasText(ctx, sourceSummary, cardW - (layout.headerPad * 2));
+      (summaryLines.slice(0, 2)).forEach((line, i) => {
+        ctx.fillText(line, cardX + layout.headerPad, cardY + 84 + (i * 18));
+      });
+    }
+
     ctx.fillStyle = '#475569';
     ctx.font = '13px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace';
     const urlLines = this.wrapCanvasText(ctx, sourceUrl, cardW - (layout.headerPad * 2));
+    const urlStartY = hasSummary ? 124 : 82;
     (urlLines.slice(0, 2)).forEach((line, i) => {
-      ctx.fillText(line, cardX + layout.headerPad, cardY + 82 + (i * urlLineHeight));
+      ctx.fillText(line, cardX + layout.headerPad, cardY + urlStartY + (i * urlLineHeight));
     });
 
     // Panel layout body (preset-aware)
@@ -1929,26 +2482,62 @@ class ComicViewer {
         return;
       }
 
-      if (target === 'instagram') {
+      if (target === 'facebook') {
+        try {
+          const response = await chrome.runtime.sendMessage({
+            type: 'FACEBOOK_POST_PAGE',
+            payload: {
+              message: payload.brandedText || payload.shareText || payload.sourceTitle || 'Shared via Web2Comics',
+              link: payload.sourceUrl || ''
+            }
+          });
+          if (response && response.success !== false && response.postId) {
+            alert('Posted to connected Facebook Page.');
+            void this.trackMetric('share', { target: 'facebook-page-post' });
+            return;
+          }
+          throw new Error(response?.error || 'Facebook page post failed');
+        } catch (_) {
+          // Fall back to existing composer-assisted flow below.
+        }
+      }
+
+      if (
+        target === 'instagram' ||
+        target === 'facebook' ||
+        target === 'story' ||
+        target === 'x-card' ||
+        target === 'linkedin-post'
+      ) {
         const exported = await this.exportComicAsCompositeImage({ download: false });
-        const copied = await this.copyTextToClipboard(
+        const copiedCaption = await this.copyTextToClipboard(
           `${payload.brandedText || payload.shareText}\nSource: ${payload.sourceUrl || '(source unavailable)'}`
         );
-        const link = document.createElement('a');
-        link.href = exported.dataUrl;
-        link.download = exported.filename || 'web2comics-comic.png';
-        link.click();
-        await this.openExternalShareUrl('https://www.instagram.com/');
-        alert(
-          copied
-            ? 'Image downloaded and caption copied. Open Instagram and upload.'
-            : 'Image downloaded. Open Instagram and upload.'
-        );
-        void this.trackMetric('share', { target: 'instagram' });
+        const copiedImage = await this.copyImageDataUrlToClipboard(exported.dataUrl);
+        if (!copiedImage) {
+          const link = document.createElement('a');
+          link.href = exported.dataUrl;
+          link.download = exported.filename || 'web2comics-comic.png';
+          link.click();
+        }
+        if (target === 'story' || target === 'instagram') await this.openExternalShareUrl('https://www.instagram.com/');
+        if (target === 'facebook') await this.openExternalShareUrl('https://www.facebook.com/?sk=composer');
+        if (target === 'x-card') await this.openExternalShareUrl('https://x.com/compose/post');
+        if (target === 'linkedin-post') await this.openExternalShareUrl('https://www.linkedin.com/feed/');
+        if (copiedImage && copiedCaption) {
+          alert('Image and caption copied. Opened composer, now paste and post.');
+        } else if (copiedImage) {
+          alert('Image copied. Opened composer, now paste and post.');
+        } else if (copiedCaption) {
+          alert('Image downloaded and caption copied.');
+        } else {
+          alert('Image downloaded.');
+        }
+        void this.trackMetric('share', { target: target });
         return;
       }
 
-      if (target === 'story' || target === 'x-card' || target === 'linkedin-post' || target === 'email-card') {
+      if (target === 'email-card') {
         const exported = await this.exportComicAsCompositeImage({ download: false });
         const copied = await this.copyTextToClipboard(
           `${payload.brandedText || payload.shareText}\nSource: ${payload.sourceUrl || '(source unavailable)'}`
@@ -1957,22 +2546,15 @@ class ComicViewer {
         link.href = exported.dataUrl;
         link.download = exported.filename || 'web2comics-comic.png';
         link.click();
-        if (target === 'story') await this.openExternalShareUrl('https://www.instagram.com/');
-        if (target === 'x-card') await this.openExternalShareUrl('https://x.com/compose/post');
-        if (target === 'linkedin-post') await this.openExternalShareUrl('https://www.linkedin.com/feed/');
-        if (target === 'email-card') {
-          const emailUrl = `mailto:?subject=${encodedTitle}&body=${encodedEmailBody}`;
-          await this.openExternalShareUrl(emailUrl);
-        }
+        const emailUrl = `mailto:?subject=${encodedTitle}&body=${encodedEmailBody}`;
+        await this.openExternalShareUrl(emailUrl);
         alert(copied ? 'Image downloaded and caption copied.' : 'Image downloaded.');
         void this.trackMetric('share', { target: target });
         return;
       }
 
       let shareUrl = '';
-      if (target === 'facebook') {
-        shareUrl = `https://www.facebook.com/sharer/sharer.php?u=${encodedUrl}&quote=${encodedText}`;
-      } else if (target === 'x') {
+      if (target === 'x') {
         shareUrl = `https://x.com/intent/tweet?url=${encodedUrl}&text=${encodedText}`;
       } else if (target === 'linkedin') {
         shareUrl = `https://www.linkedin.com/sharing/share-offsite/?url=${encodedUrl}`;
@@ -2029,25 +2611,215 @@ class ComicViewer {
   }
 
   getShortSourceName(url) {
+    const normalizeHostname = (rawHost) => {
+      const withoutWww = String(rawHost || '').toLowerCase().replace(/^www\./, '').trim();
+      if (!withoutWww) return 'site';
+      if (withoutWww === 'localhost' || /^\d{1,3}(\.\d{1,3}){3}$/.test(withoutWww)) return withoutWww;
+      const parts = withoutWww.split('.').filter(Boolean);
+      if (parts.length <= 2) return parts[0] || withoutWww;
+      const secondLevelCountryTlds = new Set([
+        'co.uk', 'org.uk', 'gov.uk', 'ac.uk',
+        'co.il', 'org.il', 'gov.il', 'ac.il',
+        'com.au', 'net.au', 'org.au',
+        'co.jp', 'ne.jp', 'or.jp',
+        'com.br', 'com.cn', 'com.hk', 'com.sg'
+      ]);
+      const tail = parts.slice(-2).join('.');
+      if (secondLevelCountryTlds.has(tail) && parts.length >= 3) {
+        return parts[parts.length - 3] || withoutWww;
+      }
+      return parts[parts.length - 2] || withoutWww;
+    };
     try {
-      const hostname = new URL(url).hostname.toLowerCase();
-      const withoutWww = hostname.replace(/^www\./, '');
-      const parts = withoutWww.split('.');
-      return parts.length > 1 ? parts[0] : withoutWww;
+      const parsed = new URL(String(url || ''));
+      return normalizeHostname(parsed.hostname);
     } catch {
-      return 'site';
+      const raw = String(url || '').trim();
+      if (!raw) return 'site';
+      const host = raw
+        .replace(/^[a-z]+:\/\//i, '')
+        .split('/')[0]
+        .split('?')[0]
+        .split('#')[0]
+        .trim();
+      return normalizeHostname(host);
     }
   }
 
   getHistoryThumbnail(item) {
-    const explicit = String(item?.thumbnail || '').trim();
+    const itemId = String(item?.id || '').trim();
+    if (itemId && this.historyThumbnailMap.has(itemId)) {
+      const mapped = this.resolveImageSourceValue(this.historyThumbnailMap.get(itemId));
+      if (mapped) return mapped;
+    }
+    const explicit = this.resolveImageSourceValue(item?.thumbnail);
     if (explicit) return explicit;
     const panels = Array.isArray(item?.storyboard?.panels) ? item.storyboard.panels : [];
     for (let i = 0; i < panels.length; i++) {
-      const image = String(panels[i]?.artifacts?.image_blob_ref || '').trim();
+      const image = this.getPanelImageSource(panels[i]);
       if (image) return image;
     }
     return '';
+  }
+
+  hydrateHistoryThumbnail(item) {
+    const sourceItem = item && typeof item === 'object' ? item : null;
+    if (!sourceItem) return { item, changed: false };
+    const existing = this.resolveImageSourceValue(sourceItem.thumbnail);
+    if (existing) {
+      const existingId = String(sourceItem.id || '').trim();
+      if (existingId && !this.historyThumbnailMap.has(existingId)) {
+        this.historyThumbnailMap.set(existingId, existing);
+      }
+      return { item: sourceItem, changed: false };
+    }
+    const derived = this.getHistoryThumbnail(sourceItem);
+    if (!derived) return { item: sourceItem, changed: false };
+    return {
+      item: {
+        ...sourceItem,
+        thumbnail: derived
+      },
+      changed: true
+    };
+  }
+
+  async renderSmallThumbnailDataUrl(src, width = 192, height = 108) {
+    const imageSrc = this.resolveImageSourceValue(src);
+    if (!imageSrc) return '';
+    try {
+      const img = await this.loadImageElement(imageSrc);
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext && canvas.getContext('2d');
+      if (!ctx) return '';
+      ctx.fillStyle = '#f8fafc';
+      ctx.fillRect(0, 0, width, height);
+      const srcAspect = Math.max(0.01, Number(img.width || 1) / Number(img.height || 1));
+      const dstAspect = width / height;
+      let dw = width;
+      let dh = height;
+      if (srcAspect > dstAspect) {
+        dh = Math.max(1, Math.round(width / srcAspect));
+      } else {
+        dw = Math.max(1, Math.round(height * srcAspect));
+      }
+      const dx = Math.round((width - dw) / 2);
+      const dy = Math.round((height - dh) / 2);
+      ctx.drawImage(img, dx, dy, dw, dh);
+      return canvas.toDataURL('image/jpeg', 0.78);
+    } catch (_) {
+      return '';
+    }
+  }
+
+  async ensureHistoryThumbnailsPersisted(items) {
+    const sourceItems = Array.isArray(items) ? items : [];
+    if (!sourceItems.length) return;
+    const updates = {};
+    let changed = false;
+    for (let i = 0; i < sourceItems.length; i += 1) {
+      const item = sourceItems[i] || {};
+      const id = String(item.id || '').trim();
+      if (!id || this.historyThumbnailMap.has(id)) continue;
+      const base = this.resolveImageSourceValue(item.thumbnail) || this.getPanelImageSource((item.storyboard?.panels || [])[0] || {});
+      if (!base) continue;
+      const thumb = await this.renderSmallThumbnailDataUrl(base);
+      if (!thumb) continue;
+      this.historyThumbnailMap.set(id, thumb);
+      updates[id] = thumb;
+      changed = true;
+    }
+    if (!changed) return;
+    try {
+      const { historyThumbnails } = await chrome.storage.local.get('historyThumbnails');
+      const merged = {
+        ...((historyThumbnails && typeof historyThumbnails === 'object') ? historyThumbnails : {}),
+        ...updates
+      };
+      await chrome.storage.local.set({ historyThumbnails: merged });
+    } catch (_) {
+      void this.appendDebugLog('history.thumbnail_map.persist_error', {});
+    }
+  }
+
+  getHistoryCollageImages(item, maxCount = 4) {
+    const limit = Number(maxCount) > 0 ? Math.min(Number(maxCount), 6) : 4;
+    const images = [];
+    const pushUnique = (value) => {
+      const src = this.resolveImageSourceValue(value);
+      if (!src) return;
+      if (!images.includes(src)) images.push(src);
+    };
+
+    pushUnique(item?.thumbnail);
+    const panels = Array.isArray(item?.storyboard?.panels) ? item.storyboard.panels : [];
+    for (let i = 0; i < panels.length && images.length < limit; i++) {
+      pushUnique(panels[i]?.artifacts?.image_blob_ref);
+      pushUnique(panels[i]?.artifacts?.image_url);
+      pushUnique(panels[i]?.image_blob_ref);
+      pushUnique(panels[i]?.image_url);
+    }
+    if (!images.length) {
+      if (globalThis && globalThis.__WEB2COMICS_TEST_LOGS__) {
+        void this.appendDebugLog('history.thumbnail.fallback_used', {
+          comicId: item?.id || null,
+          hasExplicitThumbnail: !!this.resolveImageSourceValue(item?.thumbnail),
+          panelCount: panels.length
+        });
+      }
+      pushUnique(this.getHistoryFallbackPreviewImage(item));
+    }
+    return images.slice(0, limit);
+  }
+
+  getHistoryFallbackPreviewImage(item) {
+    const itemId = String(item?.id || '').trim();
+    const cacheKey = itemId || JSON.stringify({
+      title: String(item?.storyboard?.title || item?.source?.title || item?.sourceTitle || ''),
+      generatedAt: String(item?.generated_at || '')
+    });
+    if (this.historyPreviewFallbackCache.has(cacheKey)) {
+      return this.historyPreviewFallbackCache.get(cacheKey) || '';
+    }
+
+    let dataUrl = '';
+    try {
+      const ua = String(globalThis?.navigator?.userAgent || '').toLowerCase();
+      if (ua.includes('jsdom')) return '';
+      const canvas = document.createElement('canvas');
+      canvas.width = 320;
+      canvas.height = 180;
+      const ctx = canvas.getContext && canvas.getContext('2d');
+      if (!ctx) return '';
+
+      const grad = ctx.createLinearGradient(0, 0, 320, 180);
+      grad.addColorStop(0, '#dbeafe');
+      grad.addColorStop(1, '#f1f5f9');
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, 320, 180);
+
+      ctx.fillStyle = 'rgba(15,23,42,0.08)';
+      ctx.fillRect(10, 10, 300, 160);
+      // Two-panel placeholder motif without text overlays.
+      ctx.fillStyle = '#ffffff';
+      ctx.strokeStyle = 'rgba(30,41,59,0.2)';
+      ctx.lineWidth = 1;
+      ctx.fillRect(20, 80, 132, 78);
+      ctx.strokeRect(20, 80, 132, 78);
+      ctx.fillRect(168, 80, 132, 78);
+      ctx.strokeRect(168, 80, 132, 78);
+
+      dataUrl = canvas.toDataURL('image/png');
+    } catch (_) {
+      dataUrl = '';
+    }
+
+    if (dataUrl) {
+      this.historyPreviewFallbackCache.set(cacheKey, dataUrl);
+    }
+    return dataUrl;
   }
 
   getHistorySourceInfo(item) {
@@ -2060,13 +2832,7 @@ class ComicViewer {
       storyboardSource.url ||
       ''
     ).trim();
-    const title = String(
-      source.title ||
-      item?.sourceTitle ||
-      item?.title ||
-      storyboardSource.title ||
-      'Untitled'
-    ).trim() || 'Untitled';
+    const title = this.deriveHistoryCardTitle(item);
     return { url: url || '#', title };
   }
 
@@ -2077,10 +2843,19 @@ class ComicViewer {
     const shortName = this.getShortSourceName(sourceUrl);
     const sourceTitle = sourceInfo.title || 'Untitled';
     const showDate = options.showDate !== false;
-    const showOriginalLink = options.showOriginalLink !== false;
+    const showSourceLink = options.showOriginalLink !== false;
     let dateText = '';
     try {
-      dateText = item?.generated_at ? new Date(item.generated_at).toLocaleDateString() : '';
+      dateText = item?.generated_at
+        ? new Date(item.generated_at).toLocaleString(undefined, {
+            weekday: 'short',
+            year: 'numeric',
+            month: 'short',
+            day: 'numeric',
+            hour: 'numeric',
+            minute: '2-digit'
+          })
+        : '';
     } catch {
       dateText = '';
     }
@@ -2088,24 +2863,128 @@ class ComicViewer {
     const safeShortName = this.escapeHtml(shortName);
     const safeSourceTitle = this.escapeHtml(sourceTitle);
     const safeDateText = this.escapeHtml(dateText);
-    const thumbSrc = this.getHistoryThumbnail(item);
-    const safeThumbSrc = this.escapeHtml(thumbSrc);
+    const thumbSrcRaw = (this.getHistoryCollageImages(item, 1)[0] || '').trim();
+    const thumbSrc = this.escapeHtml(thumbSrcRaw);
+    const isFavorite = !!item?.favorite;
     return `
       <div class="history-item" data-id="${safeId}" role="button" tabindex="0" aria-label="Open comic ${safeSourceTitle}">
-        <div class="history-thumb">
-          ${safeThumbSrc ? `<img src="${safeThumbSrc}" alt="">` : ''}
+        <div class="history-thumb ${thumbSrc ? '' : 'is-empty'}">
+          ${thumbSrc ? `<img class="history-thumb-image" src="${thumbSrc}" alt="">` : ''}
         </div>
         <div class="history-card-body">
           <div class="history-title" title="${safeSourceTitle}">${safeSourceTitle}</div>
           <div class="history-meta-row">
             <span class="history-source-chip">${safeShortName}</span>
-            ${showOriginalLink ? `<a class="history-source-link" href="${safeSourceHref}" target="_blank" rel="noopener noreferrer">Original</a>` : ''}
+            ${showSourceLink ? `<a class="history-source-link" href="${safeSourceHref}" target="_blank" rel="noopener noreferrer">Source</a>` : ''}
           </div>
           ${showDate && dateText ? `<div class="history-date">${safeDateText}</div>` : ''}
+          <div class="history-card-actions">
+            <button type="button" class="history-action-btn history-item-favorite-btn${isFavorite ? ' is-active' : ''}" data-action="favorite-history-item" aria-label="${isFavorite ? 'Unstar comic' : 'Star comic'}" title="${isFavorite ? 'Unstar comic' : 'Star comic'}">★</button>
+            <button type="button" class="history-action-btn history-item-delete-btn" data-action="delete-history-item" aria-label="Delete comic from My Collection" title="Delete comic">
+              <svg class="history-action-icon" width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+                <path d="M5.5 5.5a.75.75 0 0 1 .75.75v5a.75.75 0 0 1-1.5 0v-5a.75.75 0 0 1 .75-.75Zm2.5 0a.75.75 0 0 1 .75.75v5a.75.75 0 0 1-1.5 0v-5A.75.75 0 0 1 8 5.5Zm3.25.75a.75.75 0 0 0-1.5 0v5a.75.75 0 0 0 1.5 0v-5Z"/>
+                <path d="M14 3.75a.75.75 0 0 1-.75.75h-.69l-.62 8.06A1.75 1.75 0 0 1 10.2 14H5.8a1.75 1.75 0 0 1-1.74-1.44L3.44 4.5h-.69a.75.75 0 0 1 0-1.5h3.03a2 2 0 0 1 3.44 0h3.03A.75.75 0 0 1 14 3.75Zm-6-1.25a.5.5 0 0 0-.5.5h1a.5.5 0 0 0-.5-.5Zm-3.06 2 .6 7.84a.25.25 0 0 0 .25.16h4.42a.25.25 0 0 0 .25-.16l.6-7.84H4.94Z"/>
+              </svg>
+            </button>
+          </div>
         </div>
-        <button type="button" class="history-item-delete-btn" data-action="delete-history-item" aria-label="Delete comic from history">Delete</button>
       </div>
     `;
+  }
+
+  async toggleHistoryFavorite(itemId) {
+    const id = String(itemId || '').trim();
+    if (!id) return;
+    const nextHistory = this.historyItems.map((item) => {
+      if (!item || String(item.id || '') !== id) return item;
+      return { ...item, favorite: !item.favorite };
+    });
+    await chrome.storage.local.set({ history: nextHistory });
+    this.historyItems = nextHistory;
+    await this.loadHistory();
+  }
+
+  async shareHistoryItem(itemId) {
+    const id = String(itemId || '').trim();
+    if (!id) return;
+    const item = this.historyItems.find((h) => h && String(h.id || '') === id);
+    if (!item || !item.storyboard) return;
+    try {
+      await chrome.storage.local.set({ selectedHistoryComicId: item.id });
+    } catch (_) {
+      void this.appendDebugLog('history.selected.persist.error', { id: item.id });
+    }
+    this.currentComicId = String(item.id || '');
+    const hydrated = await this.hydrateStoryboardImagesFromArchive(item.storyboard, this.currentComicId);
+    this.displayComic(this.prepareHistoryStoryboardForDisplay({ ...item, storyboard: hydrated }));
+    this.setPrimaryView('comic');
+    this.toggleShareMenu();
+  }
+
+  async hydrateStoryboardImagesFromArchive(storyboard, comicId) {
+    const base = storyboard && typeof storyboard === 'object' ? storyboard : null;
+    const panels = Array.isArray(base?.panels) ? base.panels : null;
+    if (!base || !panels || !panels.length) return storyboard;
+
+    const keys = [];
+    const panelMeta = [];
+    const seen = new Set();
+    for (let i = 0; i < panels.length; i += 1) {
+      const panel = panels[i] && typeof panels[i] === 'object' ? panels[i] : {};
+      if (this.getPanelImageSource(panel)) continue;
+      const panelId = String(panel.panel_id || ('panel_' + (i + 1))).trim() || ('panel_' + (i + 1));
+      const explicitKey = String(panel?.artifacts?.image_archive_key || '').trim();
+      const idKey = comicId ? (comicId + '::' + panelId) : '';
+      const indexKey = comicId ? (comicId + '::panel_' + (i + 1)) : '';
+      // Prefer deterministic keys first; explicit keys from older saves can be stale/colliding.
+      const candidateKeys = [indexKey, idKey, explicitKey].filter(Boolean);
+      if (!candidateKeys.length) continue;
+      candidateKeys.forEach((key) => {
+        if (seen.has(key)) return;
+        seen.add(key);
+        keys.push(key);
+      });
+      panelMeta.push({ index: i, keys: candidateKeys });
+    }
+    if (!keys.length) return storyboard;
+
+    try {
+      const response = await chrome.runtime.sendMessage({
+        type: 'GET_ARCHIVED_PANEL_IMAGES',
+        payload: { keys }
+      });
+      const images = response && response.images && typeof response.images === 'object' ? response.images : {};
+      let restored = 0;
+      const usedKeys = new Set();
+      const nextPanels = panels.map((panel, index) => {
+        const meta = panelMeta.find((item) => item.index === index);
+        if (!meta) return panel;
+        const keysWithImage = (meta.keys || []).filter((k) => !!images[k]);
+        const matched = keysWithImage.find((k) => !usedKeys.has(k)) || keysWithImage[0];
+        const imageSrc = String((matched && images[matched]) || '').trim();
+        if (!imageSrc) return panel;
+        restored += 1;
+        if (matched) usedKeys.add(matched);
+        const sourcePanel = panel && typeof panel === 'object' ? panel : {};
+        const artifacts = sourcePanel.artifacts && typeof sourcePanel.artifacts === 'object'
+          ? { ...sourcePanel.artifacts }
+          : {};
+        artifacts.image_blob_ref = imageSrc;
+        artifacts.image_archive_key = String(matched || '').trim();
+        return { ...sourcePanel, artifacts };
+      });
+      if (!restored) return storyboard;
+      void this.appendDebugLog('history.archive.rehydrated', {
+        comicId: comicId || null,
+        restoredPanels: restored
+      });
+      return {
+        ...base,
+        panels: nextPanels
+      };
+    } catch (_) {
+      return storyboard;
+    }
   }
 
   bindHistoryItemClicks(container, history) {
@@ -2119,7 +2998,8 @@ class ComicViewer {
             void this.appendDebugLog('history.selected.persist.error', { id: item.id });
           }
           this.currentComicId = String(item.id || '');
-          this.displayComic(item.storyboard);
+          const hydrated = await this.hydrateStoryboardImagesFromArchive(item.storyboard, this.currentComicId);
+          this.displayComic(this.prepareHistoryStoryboardForDisplay({ ...item, storyboard: hydrated }));
         }
       };
       el.addEventListener('click', openItem);
@@ -2137,10 +3017,20 @@ class ComicViewer {
         const itemEl = e.currentTarget.closest('.history-item');
         const itemId = itemEl?.dataset?.id || '';
         if (!itemId) return;
-        if (!confirm('Delete this comic from history?')) return;
+        if (!confirm('Delete this comic from My Collection?')) return;
         const deletedItem = this.historyItems.find((h) => h && h.id === itemId) || null;
         const nextHistory = this.historyItems.filter((h) => h && h.id !== itemId);
         const payload = { history: nextHistory };
+        try {
+          const id = String(itemId || '').trim();
+          if (id) {
+            this.historyThumbnailMap.delete(id);
+            const { historyThumbnails } = await chrome.storage.local.get('historyThumbnails');
+            const nextThumbs = { ...((historyThumbnails && typeof historyThumbnails === 'object') ? historyThumbnails : {}) };
+            delete nextThumbs[id];
+            payload.historyThumbnails = nextThumbs;
+          }
+        } catch (_) {}
         try {
           const { selectedHistoryComicId } = await chrome.storage.local.get('selectedHistoryComicId');
           if (selectedHistoryComicId === itemId) payload.selectedHistoryComicId = null;
@@ -2160,6 +3050,16 @@ class ComicViewer {
       });
     });
 
+    container.querySelectorAll('.history-item-favorite-btn').forEach((btn) => {
+      btn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const itemEl = e.currentTarget.closest('.history-item');
+        const itemId = itemEl?.dataset?.id || '';
+        if (!itemId) return;
+        await this.toggleHistoryFavorite(itemId);
+      });
+    });
+
     container.querySelectorAll('.history-source-link').forEach((link) => {
       link.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -2168,18 +3068,54 @@ class ComicViewer {
   }
 
   async loadHistory() {
-    const { history } = await chrome.storage.local.get('history');
-    this.historyItems = Array.isArray(history) ? history : [];
+    const state = await chrome.storage.local.get(['history', 'historyThumbnails']);
+    const thumbState = (state.historyThumbnails && typeof state.historyThumbnails === 'object') ? state.historyThumbnails : {};
+    this.historyThumbnailMap = new Map(Object.entries(thumbState));
+    let rawHistory = Array.isArray(state.history) ? state.history : null;
+    if (!rawHistory) {
+      const fallback = await chrome.storage.local.get('history');
+      rawHistory = Array.isArray(fallback.history) ? fallback.history : [];
+    }
+    let mutated = false;
+    let updatedCount = 0;
+    const hydratedHistory = rawHistory.map((entry) => {
+      const result = this.hydrateHistoryThumbnail(entry);
+      if (result.changed) {
+        mutated = true;
+        updatedCount += 1;
+      }
+      return result.item;
+    });
+    this.historyItems = hydratedHistory;
+    void this.ensureHistoryThumbnailsPersisted(hydratedHistory);
+    if (mutated) {
+      try {
+        await chrome.storage.local.set({ history: hydratedHistory });
+        if (globalThis && globalThis.__WEB2COMICS_TEST_LOGS__) {
+          void this.appendDebugLog('history.thumbnail.hydrated', {
+            updatedItems: updatedCount
+          });
+        }
+      } catch (_) {
+        if (globalThis && globalThis.__WEB2COMICS_TEST_LOGS__) {
+          void this.appendDebugLog('history.thumbnail.hydrate.persist_error', {});
+        }
+      }
+    }
     this.historyBrowserLimit = 12;
     const container = document.getElementById('history-list');
     const browserGrid = document.getElementById('history-browser-grid');
     const browserEmpty = document.getElementById('history-browser-empty');
     const browserActions = document.getElementById('history-browser-actions');
+    this.updateHistoryBrowserControls();
     
     if (!this.historyItems.length) {
-      container.innerHTML = '<p style="font-size:12px;color:var(--text-muted)">No history</p>';
+      container.innerHTML = '<p style="font-size:12px;color:var(--text-muted)">No items in My Collection yet</p>';
       if (browserGrid) browserGrid.innerHTML = '';
-      if (browserEmpty) browserEmpty.classList.remove('hidden');
+      if (browserEmpty) {
+        browserEmpty.classList.remove('hidden');
+        browserEmpty.innerHTML = '<h3>No comics in My Collection yet</h3><p>Generate your first comic to populate the browser.</p>';
+      }
       if (browserActions) browserActions.classList.add('hidden');
       this.updateViewerStats();
       return;
@@ -2203,22 +3139,127 @@ class ComicViewer {
     const moreBtn = document.getElementById('history-browser-more-btn');
     if (!browserGrid) return;
 
-    const visibleItems = this.historyItems.slice(0, this.historyBrowserLimit);
+    const sortedItems = this.getProcessedHistoryItems();
+    const visibleItems = sortedItems.slice(0, this.historyBrowserLimit);
     browserGrid.innerHTML = visibleItems.map((item) => this.renderHistoryCard(item, { showDate: true })).join('');
     this.bindHistoryItemClicks(browserGrid, this.historyItems);
 
-    const hasMore = this.historyItems.length > visibleItems.length;
+    const hasMore = sortedItems.length > visibleItems.length;
     browserActions?.classList.toggle('hidden', !hasMore);
     if (moreBtn) {
       moreBtn.textContent = hasMore
-        ? `Show More (${this.historyItems.length - visibleItems.length} remaining)`
+        ? `Show More (${sortedItems.length - visibleItems.length} remaining)`
         : 'Show More';
+    }
+    const browserEmpty = document.getElementById('history-browser-empty');
+    if (browserEmpty) {
+      const isEmpty = sortedItems.length === 0;
+      browserEmpty.classList.toggle('hidden', !isEmpty);
+      if (isEmpty && this.historyFavoritesOnly) {
+        browserEmpty.innerHTML = '<h3>No favorites yet</h3><p>Star comics to quickly find them here.</p>';
+      } else if (isEmpty) {
+        browserEmpty.innerHTML = '<h3>No comics in My Collection yet</h3><p>Generate your first comic to populate the browser.</p>';
+      }
     }
   }
 
   showMoreHistory() {
     this.historyBrowserLimit += 12;
     this.renderHistoryBrowser();
+  }
+
+  async persistHistoryBrowserPrefs() {
+    try {
+      const { sidepanelPrefs } = await chrome.storage.local.get('sidepanelPrefs');
+      await chrome.storage.local.set({
+        sidepanelPrefs: {
+          ...(sidepanelPrefs || {}),
+          historyFavoritesOnly: !!this.historyFavoritesOnly,
+          historySortMode: this.historySortMode || 'manual'
+        }
+      });
+    } catch (_) {
+      void this.appendDebugLog('history.browser.prefs.persist.error', {});
+    }
+  }
+
+  getProcessedHistoryItems() {
+    const base = Array.isArray(this.historyItems) ? this.historyItems.slice() : [];
+    const filtered = this.historyFavoritesOnly
+      ? base.filter((item) => !!item?.favorite)
+      : base;
+    const mode = String(this.historySortMode || 'manual');
+    if (mode === 'manual') return filtered;
+    const sorted = filtered.slice().sort((a, b) => {
+      if (mode === 'title-asc' || mode === 'title-desc') {
+        const titleA = String(this.getHistorySourceInfo(a).title || '').toLowerCase();
+        const titleB = String(this.getHistorySourceInfo(b).title || '').toLowerCase();
+        const cmp = titleA.localeCompare(titleB, undefined, { sensitivity: 'base' });
+        return mode === 'title-asc' ? cmp : -cmp;
+      }
+      const timeA = new Date(a?.generated_at || 0).getTime() || 0;
+      const timeB = new Date(b?.generated_at || 0).getTime() || 0;
+      return mode === 'date-asc' ? (timeA - timeB) : (timeB - timeA);
+    });
+    return sorted;
+  }
+
+  updateHistoryBrowserControls() {
+    const favoritesBtn = document.getElementById('history-filter-favorites-btn');
+    const titleBtn = document.getElementById('history-sort-title-btn');
+    const dateBtn = document.getElementById('history-sort-date-btn');
+    const sortMode = String(this.historySortMode || 'manual');
+
+    if (favoritesBtn) {
+      const enabled = !!this.historyFavoritesOnly;
+      favoritesBtn.classList.toggle('is-active', enabled);
+      favoritesBtn.classList.toggle('is-favorites-active', enabled);
+      favoritesBtn.setAttribute('aria-pressed', enabled ? 'true' : 'false');
+      favoritesBtn.title = enabled ? 'Showing favorites only' : 'Show favorites only';
+      const icon = favoritesBtn.querySelector('.history-control-icon');
+      if (icon) icon.textContent = enabled ? '★' : '☆';
+    }
+
+    if (titleBtn) {
+      const active = sortMode === 'title-asc' || sortMode === 'title-desc';
+      titleBtn.classList.toggle('is-active', active);
+      titleBtn.setAttribute('aria-pressed', active ? 'true' : 'false');
+      const icon = titleBtn.querySelector('.history-control-icon');
+      if (icon) icon.textContent = sortMode === 'title-desc' ? 'Z↕A' : 'A↕Z';
+      titleBtn.title = sortMode === 'title-desc' ? 'Sort by title (Z-A)' : 'Sort by title (A-Z)';
+    }
+
+    if (dateBtn) {
+      const active = sortMode === 'date-asc' || sortMode === 'date-desc';
+      dateBtn.classList.toggle('is-active', active);
+      dateBtn.setAttribute('aria-pressed', active ? 'true' : 'false');
+      const icon = dateBtn.querySelector('.history-control-icon');
+      if (icon) icon.textContent = sortMode === 'date-asc' ? '🕑' : '🕒';
+      dateBtn.title = sortMode === 'date-asc' ? 'Sort by date (oldest first)' : 'Sort by date (newest first)';
+    }
+  }
+
+  toggleHistoryFavoritesOnly() {
+    this.historyFavoritesOnly = !this.historyFavoritesOnly;
+    this.historyBrowserLimit = 12;
+    this.updateHistoryBrowserControls();
+    this.renderHistoryBrowser();
+    void this.persistHistoryBrowserPrefs();
+  }
+
+  toggleHistorySortMode(kind) {
+    const normalized = String(kind || '').trim();
+    if (normalized === 'title') {
+      this.historySortMode = this.historySortMode === 'title-asc' ? 'title-desc' : 'title-asc';
+    } else if (normalized === 'date') {
+      this.historySortMode = this.historySortMode === 'date-desc' ? 'date-asc' : 'date-desc';
+    } else {
+      return;
+    }
+    this.historyBrowserLimit = 12;
+    this.updateHistoryBrowserControls();
+    this.renderHistoryBrowser();
+    void this.persistHistoryBrowserPrefs();
   }
 }
 

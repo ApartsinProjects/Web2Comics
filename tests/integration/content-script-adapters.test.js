@@ -386,4 +386,69 @@ describe('Content Script Site Adapters', () => {
     expect(secondPass.text.length).toBeGreaterThan(120);
     expect(secondPass.text).toContain('Story Beta');
   });
+
+  it('prefers active user text selection with selection_auto mode before full extraction', async () => {
+    document.body.innerHTML = buildCnnLikeMultiStoryHtml();
+    const selected = 'User selected story text '.repeat(16);
+    window.getSelection = vi.fn(() => ({ toString: () => selected }));
+    await import('../../content/content-script.js');
+    await flush();
+
+    const api = globalThis.__WEB2COMICS_CONTENT_TEST_API__;
+    const result = await api.extractReadableContent('full', {});
+
+    expect(result.success).toBe(true);
+    expect(result.mode).toBe('selection_auto');
+    expect(result.text).toContain('User selected story text');
+    expect(result.text.length).toBeGreaterThan(220);
+  });
+
+  it('falls back to auto-selected candidate when requested candidate id is unknown', async () => {
+    document.body.innerHTML = buildCnnLikeMultiStoryHtml();
+    window.getSelection = vi.fn(() => ({ toString: () => '' }));
+    await import('../../content/content-script.js');
+    await flush();
+
+    const api = globalThis.__WEB2COMICS_CONTENT_TEST_API__;
+    const result = await api.extractReadableContent('full', { selectedCandidateId: 'candidate_does_not_exist' });
+
+    expect(result.success).toBe(true);
+    expect(result.mode).toBe('full');
+    expect(typeof result.autoSelectedCandidateId).toBe('string');
+    expect(result.autoSelectedCandidateId.length).toBeGreaterThan(0);
+    expect(result.selectedCandidateId).toBe(result.autoSelectedCandidateId);
+  });
+
+  it('returns fullSourceText and candidatePayloads for multi-story pages', async () => {
+    document.body.innerHTML = buildCnnLikeMultiStoryHtml();
+    window.getSelection = vi.fn(() => ({ toString: () => '' }));
+    await import('../../content/content-script.js');
+    await flush();
+
+    const api = globalThis.__WEB2COMICS_CONTENT_TEST_API__;
+    const result = await api.extractReadableContent('full', {});
+
+    expect(result.success).toBe(true);
+    expect(typeof result.fullSourceText).toBe('string');
+    expect(result.fullSourceText).toContain('Story Alpha');
+    expect(result.fullSourceText).toContain('Story Beta');
+    expect(Array.isArray(result.candidatePayloads)).toBe(true);
+    expect(result.candidatePayloads.length).toBeGreaterThan(1);
+    expect(result.candidatePayloads.some((p) => p.id === result.selectedCandidateId)).toBe(true);
+    expect(result.candidatePayloads.every((p) => typeof p.text === 'string' && p.text.length > 20)).toBe(true);
+  });
+
+  it('returns a clear error in explicit selection mode when no text is selected', async () => {
+    document.body.innerHTML = buildGenericNewsArticleHtml();
+    window.getSelection = vi.fn(() => ({ toString: () => '   ' }));
+    await import('../../content/content-script.js');
+    await flush();
+
+    const api = globalThis.__WEB2COMICS_CONTENT_TEST_API__;
+    const result = await api.extractReadableContent('selection', {});
+
+    expect(result.success).toBe(false);
+    expect(result.mode).toBe('selection');
+    expect(String(result.error || '')).toContain('No text selected');
+  });
 });

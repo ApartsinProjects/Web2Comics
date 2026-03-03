@@ -1,0 +1,14 @@
+{
+  "storyTitle": "USA",
+  "storyDescription": "USA. Платформа охватывает широкий спектр тем, включая льготы по инвалидности, помощь при стихийных бедствиях, образовательные программы, медицинские услуги, жилищную поддержку, иммиграц.",
+  "panelCount": 3,
+  "sourceUrl": "https://www.usa.gov",
+  "sourceTitle": "USA.gov",
+  "providerText": "gemini-free",
+  "providerImage": "gemini-free",
+  "objective": "key-facts",
+  "language": "ru",
+  "style": "woodcut-print",
+  "bytes": 2221935,
+  "output": "samples/real-provider-site-comics-2026-03-03T11-07-32-585Z/07-usa-gov.png"
+}

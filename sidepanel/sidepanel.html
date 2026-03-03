@@ -12,12 +12,21 @@
       <div class="header-title-group">
         <div class="header-title-row">
           <h1>Web2Comics</h1>
-          <a class="help-link-icon" href="../docs/user-manual.html#sidepanel-overview" target="_blank" rel="noopener noreferrer" title="Open user manual (comic viewer)">?</a>
-          <button id="download-logs-sidepanel-btn" class="help-link-icon header-icon-button" type="button" title="Download debug logs">⭳</button>
+          <a class="help-link-icon" href="../docs/user-manual.html#sidepanel-overview" target="_blank" rel="noopener noreferrer" title="Open User Manual (Comic Viewer)">?</a>
+          <button id="download-logs-sidepanel-btn" class="help-link-icon header-icon-button" type="button" title="Download Debug Logs" aria-label="Download Debug Logs">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+              <circle cx="8" cy="8" r="6" stroke="currentColor" stroke-width="1.5"></circle>
+              <path d="M8 7v4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"></path>
+              <circle cx="8" cy="4.75" r="0.9" fill="currentColor"></circle>
+            </svg>
+          </button>
         </div>
-        <div class="header-mode-toggle" role="tablist" aria-label="Primary views">
+        <div class="header-mode-toggle single-view hidden" aria-label="Primary view">
+          <span class="single-view-label">Comic View</span>
+        </div>
+        <div class="header-mode-toggle legacy-view-toggle" role="tablist" aria-label="Primary views">
           <button id="mode-comic-btn" class="header-mode-btn active" data-view="comic" role="tab" aria-selected="true">Comic View</button>
-          <button id="mode-history-btn" class="header-mode-btn" data-view="history" role="tab" aria-selected="false">History</button>
+          <button id="mode-history-btn" class="header-mode-btn" data-view="history" role="tab" aria-selected="false">My Collection</button>
         </div>
         <div id="viewer-stats" class="viewer-stats" aria-label="Viewer counters">
           <span class="viewer-stat"><strong id="viewer-stat-comics">0</strong> comics</span>
@@ -30,19 +39,23 @@
         </div>
       </div>
       <div class="header-actions">
-        <button id="new-comic-btn" class="icon-control-btn" type="button" title="Create comic" aria-label="Create comic">
-          <svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
-            <path d="M8 1.5a.75.75 0 01.75.75v5h5a.75.75 0 010 1.5h-5v5a.75.75 0 01-1.5 0v-5h-5a.75.75 0 010-1.5h5v-5A.75.75 0 018 1.5z"/>
+        <button id="settings-btn-sidepanel" class="icon-control-btn" type="button" title="Settings" aria-label="Open Settings">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path d="M12 8.75a3.25 3.25 0 1 0 0 6.5a3.25 3.25 0 0 0 0-6.5Z" stroke="currentColor" stroke-width="1.75"/>
+            <path d="M19.31 15.49a1 1 0 0 0 .2 1.1l.04.04a1.75 1.75 0 0 1-2.48 2.48l-.04-.04a1 1 0 0 0-1.1-.2a1 1 0 0 0-.61.92V20a1.75 1.75 0 1 1-3.5 0v-.06a1 1 0 0 0-.62-.92a1 1 0 0 0-1.1.2l-.04.04a1.75 1.75 0 1 1-2.48-2.48l.04-.04a1 1 0 0 0 .2-1.1a1 1 0 0 0-.92-.61H4a1.75 1.75 0 1 1 0-3.5h.06a1 1 0 0 0 .92-.62a1 1 0 0 0-.2-1.1l-.04-.04a1.75 1.75 0 0 1 2.48-2.48l.04.04a1 1 0 0 0 1.1.2a1 1 0 0 0 .61-.92V4a1.75 1.75 0 1 1 3.5 0v.06a1 1 0 0 0 .62.92a1 1 0 0 0 1.1-.2l.04-.04a1.75 1.75 0 1 1 2.48 2.48l-.04.04a1 1 0 0 0-.2 1.1a1 1 0 0 0 .92.61H20a1.75 1.75 0 1 1 0 3.5h-.06a1 1 0 0 0-.63.92Z" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"/>
           </svg>
         </button>
-        <button id="download-btn" class="icon-control-btn is-primary" type="button" title="Download comic" aria-label="Download comic" disabled>
+        <button id="new-comic-btn" class="icon-control-btn new-comic-btn" type="button" title="Create Comic" aria-label="Create Comic">
+          New!
+        </button>
+        <button id="download-btn" class="icon-control-btn is-primary" type="button" title="Download Comic" aria-label="Download Comic" disabled>
           <svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
             <path d="M8 1.5a.75.75 0 01.75.75v6.19l1.72-1.72a.75.75 0 111.06 1.06l-3 3a.75.75 0 01-1.06 0l-3-3a.75.75 0 111.06-1.06l1.72 1.72V2.25A.75.75 0 018 1.5z"/>
             <path d="M2.75 10.5a.75.75 0 01.75.75v1c0 .14.11.25.25.25h8.5a.25.25 0 00.25-.25v-1a.75.75 0 011.5 0v1A1.75 1.75 0 0112.25 14h-8.5A1.75 1.75 0 012 12.25v-1a.75.75 0 01.75-.75z"/>
           </svg>
         </button>
         <div class="share-controls">
-          <button id="share-btn" class="icon-control-btn" type="button" title="Share comic" aria-label="Share comic" disabled aria-expanded="false" aria-haspopup="menu">
+          <button id="share-btn" class="icon-control-btn" type="button" title="Share Comic" aria-label="Share Comic" disabled aria-expanded="false" aria-haspopup="menu">
             <svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
               <path d="M12.5 10.25a2.25 2.25 0 00-1.69.77L5.66 8.76a2.36 2.36 0 000-1.52l5.15-2.26a2.25 2.25 0 10-.6-1.36L5.06 5.88a2.25 2.25 0 100 4.24l5.15 2.26a2.25 2.25 0 102.29-2.13z"/>
             </svg>
@@ -62,6 +75,8 @@
             <button type="button" class="share-target-item" data-share-target="email-card" role="menuitem"><span class="share-target-icon share-target-email" aria-hidden="true">@</span><span>Email (with image)</span></button>
             <button type="button" class="share-target-item" data-share-target="copy-link" role="menuitem"><span class="share-target-icon share-target-copy" aria-hidden="true">L</span><span>Copy source link</span></button>
             <button type="button" class="share-target-item" data-share-target="copy-caption" role="menuitem"><span class="share-target-icon share-target-copy" aria-hidden="true">C</span><span>Copy caption text</span></button>
+            <button type="button" class="share-target-item share-target-connect-more" data-share-action="connect-more" role="menuitem"><span class="share-target-icon share-target-copy" aria-hidden="true">+</span><span>Connect more</span></button>
+            <div id="share-target-empty" class="share-target-empty hidden" role="note">No connected share targets. Connect one in Settings.</div>
           </div>
         </div>
       </div>
@@ -83,11 +98,15 @@
           <div class="comic-meta">
             <div class="section-title-row">
               <h2 id="comic-title">Comic Title</h2>
-              <a class="help-link-icon inline" href="../docs/user-manual.html#sidepanel-comic-view" target="_blank" rel="noopener noreferrer" title="Comic view help">?</a>
+              <a class="help-link-icon inline" href="../docs/user-manual.html#sidepanel-comic-view" target="_blank" rel="noopener noreferrer" title="Comic View Help">?</a>
             </div>
-            <div class="comic-meta-actions">
-              <a id="comic-source" href="#" target="_blank" class="source-link">View Original</a>
-              <button id="open-tab-btn" class="icon-control-btn tiny" type="button" title="Open comic in new tab" aria-label="Open comic in new tab" disabled>
+          <p id="comic-description" class="comic-description hidden"></p>
+          <div class="comic-meta-actions">
+              <span class="source-link-wrap">
+                <img id="comic-source-favicon" class="source-favicon hidden" alt="" aria-hidden="true">
+                <a id="comic-source" href="#" target="_blank" class="source-link">View Source</a>
+              </span>
+              <button id="open-tab-btn" class="icon-control-btn tiny" type="button" title="Open Comic in New Tab" aria-label="Open Comic in New Tab" disabled>
                 <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
                   <path d="M10 2a.75.75 0 000 1.5h2.44L7.47 8.47a.75.75 0 101.06 1.06l4.97-4.97V7a.75.75 0 001.5 0V2.75A.75.75 0 0014.25 2H10z"/>
                   <path d="M3.75 3A1.75 1.75 0 002 4.75v7.5C2 13.22 2.78 14 3.75 14h7.5A1.75 1.75 0 0013 12.25V9a.75.75 0 00-1.5 0v3.25a.25.25 0 01-.25.25h-7.5a.25.25 0 01-.25-.25v-7.5a.25.25 0 01.25-.25H7a.75.75 0 000-1.5H3.75z"/>
@@ -103,8 +122,12 @@
               <option value="split-2-vertical">2-panel split (Vertical)</option>
               <option value="split-2-horizontal">2-panel split (Horizontal)</option>
               <option value="classic-strip">3-panel strip (Horizontal)</option>
+              <option value="strip-4-horizontal">4-panel strip (Horizontal)</option>
               <option value="stack-3-vertical">3-panel stack (Vertical)</option>
               <option value="grid-4">4-panel grid (2×2)</option>
+              <option value="square-comic-grid">Square comic grid (1:1)</option>
+              <option value="a4-comic-page">A4 comic page (Portrait)</option>
+              <option value="a5-comic-page">A5 comic page (Portrait)</option>
               <option value="grid-6">6-panel grid (3×2)</option>
               <option value="grid-9">9-panel grid (3×3)</option>
               <option value="classic-comic-page">Classic comic page (Mixed panels)</option>
@@ -119,6 +142,9 @@
               <option value="caption-first">Caption-first (Text blocks alternating with panels)</option>
               <option value="polaroid-collage">Polaroid collage (Overlapping frames)</option>
               <option value="masonry">Masonry (Staggered bricks)</option>
+              <option value="masonry-landscape-2">Masonry landscape (2 columns)</option>
+              <option value="masonry-landscape-3">Masonry landscape (3 columns)</option>
+              <option value="masonry-landscape-4">Masonry landscape (4 columns)</option>
               <option value="carousel">Carousel (Swipe panels)</option>
               <option value="guided-path">Guided path (Numbered / arrowed flow)</option>
             </select>
@@ -153,7 +179,7 @@
             <div class="spinner"></div>
             <div class="section-title-row">
               <h3 id="gen-status-title">Generating Comic...</h3>
-              <a class="help-link-icon inline" href="../docs/user-manual.html#sidepanel-generation-view" target="_blank" rel="noopener noreferrer" title="Generation view help">?</a>
+              <a class="help-link-icon inline" href="../docs/user-manual.html#sidepanel-generation-view" target="_blank" rel="noopener noreferrer" title="Generation View Help">?</a>
             </div>
             <p id="gen-status-text">Preparing your comic strip</p>
             <p id="gen-status-detail" class="gen-status-detail">Elapsed 0s | Waiting for updates... | ETA: calculating...</p>
@@ -170,13 +196,27 @@
         </div>
       </section>
 
-      <section id="history-browser-view" class="primary-view-shell hidden" aria-label="History">
+      <section id="history-browser-view" class="primary-view-shell hidden legacy-history-view" aria-label="My Collection">
         <div class="history-browser-header">
           <div class="section-title-row">
-            <h2>History</h2>
-            <a class="help-link-icon inline" href="../docs/user-manual.html#sidepanel-history-browser" target="_blank" rel="noopener noreferrer" title="History browser help">?</a>
+            <h2>My Collection</h2>
+            <a class="help-link-icon inline" href="../docs/user-manual.html#sidepanel-history-browser" target="_blank" rel="noopener noreferrer" title="My Collection Help">?</a>
           </div>
           <p>Browse previous comics and open any item in Comic View.</p>
+          <div class="history-browser-controls" role="group" aria-label="My Collection filters and ordering">
+            <button id="history-filter-favorites-btn" class="history-control-btn" type="button" aria-pressed="false" title="Show favorites only">
+              <span class="history-control-icon" aria-hidden="true">☆</span>
+              <span class="history-control-label">Favorites</span>
+            </button>
+            <button id="history-sort-title-btn" class="history-control-btn" type="button" aria-pressed="false" title="Sort by title (A-Z)">
+              <span class="history-control-icon" aria-hidden="true">A↕Z</span>
+              <span class="history-control-label">A-Z</span>
+            </button>
+            <button id="history-sort-date-btn" class="history-control-btn" type="button" aria-pressed="false" title="Sort by date (newest first)">
+              <span class="history-control-icon" aria-hidden="true">🕒</span>
+              <span class="history-control-label">Date</span>
+            </button>
+          </div>
         </div>
         <div id="history-browser-grid" class="history-browser-grid">
           <!-- History browser cards -->
@@ -185,16 +225,16 @@
           <button id="history-browser-more-btn" class="btn secondary small" type="button">Show More</button>
         </div>
         <div id="history-browser-empty" class="empty-state compact hidden">
-          <h3>No history yet</h3>
+          <h3>No comics in My Collection yet</h3>
           <p>Generate your first comic to populate the browser.</p>
         </div>
       </section>
 
-      <aside id="sidebar" class="sidebar">
+      <aside id="sidebar" class="sidebar hidden">
         <div class="sidebar-section">
           <div class="section-title-row">
-            <h3>History</h3>
-            <a class="help-link-icon inline" href="../docs/user-manual.html#sidepanel-history-browser" target="_blank" rel="noopener noreferrer" title="History help">?</a>
+            <h3>My Collection</h3>
+            <a class="help-link-icon inline" href="../docs/user-manual.html#sidepanel-history-browser" target="_blank" rel="noopener noreferrer" title="My Collection Help">?</a>
           </div>
           <div id="history-list" class="history-list">
             <!-- History items -->

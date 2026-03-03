@@ -1,0 +1,17 @@
+{
+  "ok": true,
+  "site": "MDN JavaScript",
+  "category": "Developer Docs",
+  "url": "https://developer.mozilla.org/en-US/docs/Web/JavaScript",
+  "language": "en",
+  "variant": "B",
+  "variantLabel": "Explain & Learn",
+  "objective": "learn-step-by-step",
+  "style": "manga",
+  "provider": "gemini-free",
+  "panelCount": 8,
+  "title": "Hook: Capture attention and introduce JavaScript",
+  "description": "Hook: Capture attention and introduce JavaScript. Context: Establish JS's primary role (web) and its expansion (non-browser environments).",
+  "output": "samples/real-fast-gemini-10sites-2variants-2026-03-03T11-26-21-756Z/04-mdn-javascript-b.png",
+  "bytes": 3714940
+}

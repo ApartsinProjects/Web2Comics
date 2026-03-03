@@ -1,0 +1,17 @@
+{
+  "ok": true,
+  "site": "CNN",
+  "category": "Global News",
+  "url": "https://www.cnn.com",
+  "language": "en",
+  "variant": "B",
+  "variantLabel": "Explain & Learn",
+  "objective": "learn-step-by-step",
+  "style": "manga",
+  "provider": "gemini-free",
+  "panelCount": 8,
+  "title": "The Domino Effect: Regional War, Economic Shock, and Travel Chaos",
+  "description": "Escalating conflict between the US, Israel, and Iran is causing immediate economic shifts and significant travel disruptions, including airspace closures. This instability contrasts sharply with other daily news stories competing for attent",
+  "output": "samples/real-fast-gemini-10sites-2variants-2026-03-03T11-26-21-756Z/01-cnn-b.png",
+  "bytes": 4297767
+}

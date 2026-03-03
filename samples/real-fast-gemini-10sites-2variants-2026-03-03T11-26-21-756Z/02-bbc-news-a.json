@@ -1,0 +1,17 @@
+{
+  "ok": true,
+  "site": "BBC News",
+  "category": "Public News",
+  "url": "https://www.bbc.com/news",
+  "language": "en",
+  "variant": "A",
+  "variantLabel": "Fact Sprint",
+  "objective": "news-recap",
+  "style": "newspaper-strip",
+  "provider": "gemini-free",
+  "panelCount": 8,
+  "title": "Escalation in the Middle East: Strikes, Threats, and Global Reactions",
+  "description": "Israel strikes Tehran amid rising regional tensions, while Iran threatens the Strait of Hormuz. World leaders respond with contrasting political and military stances.",
+  "output": "samples/real-fast-gemini-10sites-2variants-2026-03-03T11-26-21-756Z/02-bbc-news-a.png",
+  "bytes": 3456203
+}

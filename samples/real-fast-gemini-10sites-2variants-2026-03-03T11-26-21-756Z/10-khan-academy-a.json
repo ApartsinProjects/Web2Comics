@@ -1,0 +1,17 @@
+{
+  "ok": true,
+  "site": "Khan Academy",
+  "category": "Education",
+  "url": "https://www.khanacademy.org",
+  "language": "he",
+  "variant": "A",
+  "variantLabel": "Fact Sprint",
+  "objective": "news-recap",
+  "style": "newspaper-strip",
+  "provider": "gemini-free",
+  "panelCount": 8,
+  "title": "מסע הלמידה המקוון: כיצד חאן אקדמי משנה חינוך גלובלי באמצעות קורסים מותאמים",
+  "description": "חאן אקדמי מציעה מיליוני סרטונים ותרגולים מותאמים אישית במגוון רחב של נושאים, ממתמטיקה ועד מדעי המחשב. הפלטפורמה תומכת בלומדים ובמורים לזיהוי פערים ושיפור הישגים.",
+  "output": "samples/real-fast-gemini-10sites-2variants-2026-03-03T11-26-21-756Z/10-khan-academy-a.png",
+  "bytes": 2524624
+}

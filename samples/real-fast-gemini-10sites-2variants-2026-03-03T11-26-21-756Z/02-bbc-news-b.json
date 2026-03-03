@@ -1,0 +1,17 @@
+{
+  "ok": true,
+  "site": "BBC News",
+  "category": "Public News",
+  "url": "https://www.bbc.com/news",
+  "language": "en",
+  "variant": "B",
+  "variantLabel": "Explain & Learn",
+  "objective": "learn-step-by-step",
+  "style": "manga",
+  "provider": "gemini-free",
+  "panelCount": 8,
+  "title": "Global Flashpoints: Analyzing Escalating Conflicts and Unclear Political Endgames",
+  "description": "This storyboard examines major breaking world events, focusing on regional conflicts like the Iran-Israel tensions and their global economic impact. It highlights the difficulty in predicting outcomes amidst mixed political messaging from w",
+  "output": "samples/real-fast-gemini-10sites-2variants-2026-03-03T11-26-21-756Z/02-bbc-news-b.png",
+  "bytes": 4558172
+}

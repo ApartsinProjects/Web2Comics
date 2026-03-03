@@ -1,0 +1,17 @@
+{
+  "ok": true,
+  "site": "web.dev",
+  "category": "Web Engineering",
+  "url": "https://web.dev/articles/browser-level-image-lazy-loading",
+  "language": "es",
+  "variant": "A",
+  "variantLabel": "Fact Sprint",
+  "objective": "news-recap",
+  "style": "newspaper-strip",
+  "provider": "gemini-free",
+  "panelCount": 8,
+  "title": "Implementación de Carga Diferida Nativa de Imágenes a Nivel de Navegador",
+  "description": "La carga diferida nativa permite posponer la descarga de imágenes fuera de la vista sin código personalizado. Se utiliza el atributo 'loading' con valores 'lazy' o 'eager' para controlar este comportamiento.",
+  "output": "samples/real-fast-gemini-10sites-2variants-2026-03-03T11-26-21-756Z/09-web-dev-a.png",
+  "bytes": 3271992
+}

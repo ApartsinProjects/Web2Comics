@@ -1,0 +1,16 @@
+{
+  "ok": true,
+  "site": "Wikipedia AI",
+  "category": "Reference",
+  "url": "https://en.wikipedia.org/wiki/Artificial_intelligence",
+  "language": "en",
+  "objective": "learn-step-by-step",
+  "style": "ligne-claire",
+  "selectedLayout": "square-comic-grid",
+  "provider": "gemini-free",
+  "panelCount": 8,
+  "title": "The Evolution and Core Goals of Artificial Intelligence Research",
+  "description": "This storyboard explores the fundamental definition of AI as systems mimicking human intelligence and outlines the core research goals like learning and reasoning. It covers the techniques used and the historical cycles of the discipline.",
+  "output": "samples/real-gemini-10sites-square-2026-03-03T12-07-23-132Z/03-wikipedia-ai.png",
+  "bytes": 3562588
+}

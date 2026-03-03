@@ -1,0 +1,16 @@
+{
+  "ok": true,
+  "site": "NASA News",
+  "category": "Science",
+  "url": "https://www.nasa.gov/news/all-news/",
+  "language": "en",
+  "objective": "summarize",
+  "style": "watercolor",
+  "selectedLayout": "grid-4",
+  "provider": "gemini-free",
+  "panelCount": 8,
+  "title": "Artemis Cadence Boost, ISS Spacewalk Prep, and Lunar Oxygen Research Updates",
+  "description": "NASA increases the Artemis mission cadence for returning to the Moon while the ISS crew prepares for a spacewalk and cargo departure. New science begins at the Carruthers Geocorona Observatory.",
+  "output": "samples/real-gemini-10sites-square-2026-03-03T12-07-23-132Z/06-nasa-news.png",
+  "bytes": 3522868
+}

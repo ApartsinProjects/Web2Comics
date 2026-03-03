@@ -1,0 +1,16 @@
+{
+  "ok": true,
+  "site": "USA.gov",
+  "category": "Government",
+  "url": "https://www.usa.gov",
+  "language": "en",
+  "objective": "key-facts",
+  "style": "woodcut-print",
+  "selectedLayout": "square-comic-grid",
+  "provider": "gemini-free",
+  "panelCount": 8,
+  "title": "USA.gov Simplifies Access to Federal Government Benefits and Services",
+  "description": "This storyboard illustrates how USA.gov helps citizens locate and understand federal government benefits, programs, and essential information. Key features include finding tax filing instructions, accessing grants, and obtaining passports.",
+  "output": "samples/real-gemini-10sites-square-2026-03-03T12-07-23-132Z/07-usa-gov.png",
+  "bytes": 5320319
+}

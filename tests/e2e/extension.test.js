@@ -38,6 +38,14 @@ async function getExtensionId(context) {
   return new URL(worker.url()).host;
 }
 
+async function openDetailsIfClosed(page, selector) {
+  await page.locator(selector).evaluate((el) => {
+    if (el instanceof HTMLDetailsElement && !el.open) {
+      el.open = true;
+    }
+  });
+}
+
 test.describe('Web2Comics Extension E2E', () => {
   test.describe('Popup Flow', () => {
     test('should load popup with launcher state', async () => {
@@ -70,24 +78,23 @@ test.describe('Web2Comics Extension E2E', () => {
         const page = await context.newPage();
         await page.goto(`chrome-extension://${extensionId}/popup/popup.html`);
 
-        // Ensure advanced customization is visible in this test even under first-run progressive reveal.
-        await page.evaluate(async () => {
-          await chrome.storage.local.set({ firstSuccessfulGenerationAt: new Date().toISOString() });
-        });
-        await page.reload({ waitUntil: 'domcontentloaded' });
-
         if (await page.locator('#onboarding-start-btn').isVisible().catch(() => false)) {
           await page.locator('#onboarding-start-btn').click();
         }
         await page.locator('#create-comic-btn').click();
 
+        await expect(page.locator('#main-section')).toBeVisible();
         await expect(page.locator('#generate-btn')).toBeVisible();
         await expect(page.locator('#wizard-readiness')).toBeVisible();
-        await page.locator('#options-extra-section summary').click();
-        await expect(page.locator('#panel-count')).toBeVisible();
-        await page.locator('#advanced-settings-toggle').click();
-        await expect(page.locator('#style-preset')).toBeVisible();
-        await expect(page.locator('#provider-preset')).toBeVisible();
+        await openDetailsIfClosed(page, '#options-extra-section');
+        await openDetailsIfClosed(page, '#customize-story-card');
+        await openDetailsIfClosed(page, '#customize-images-card');
+
+        await expect(page.locator('#panel-count')).toHaveCount(1);
+        await expect(page.locator('#objective')).toHaveCount(1);
+        await expect(page.locator('#output-language')).toHaveCount(1);
+        await expect(page.locator('#provider-preset')).toHaveCount(1);
+        await expect(page.locator('#style-preset')).toHaveCount(1);
       } finally {
         await context.close();
         fs.rmSync(userDataDir, { recursive: true, force: true });
@@ -119,13 +126,12 @@ test.describe('Web2Comics Extension E2E', () => {
         await page.goto(`chrome-extension://${extensionId}/options/options.html`);
 
         const navButtons = page.locator('.nav-btn');
-        await expect(navButtons).toHaveCount(6);
+        await expect(navButtons).toHaveCount(5);
         await expect(navButtons.nth(0)).toHaveText('General');
         await expect(navButtons.nth(1)).toHaveText('Providers');
         await expect(navButtons.nth(2)).toHaveText('Prompts');
         await expect(navButtons.nth(3)).toHaveText('Storage');
-        await expect(navButtons.nth(4)).toHaveText('Connections');
-        await expect(navButtons.nth(5)).toHaveText('About');
+        await expect(navButtons.nth(4)).toHaveText('About');
       } finally {
         await context.close();
         fs.rmSync(userDataDir, { recursive: true, force: true });
@@ -184,20 +190,34 @@ test.describe('Web2Comics Extension E2E', () => {
         await page.goto(`chrome-extension://${extensionId}/sidepanel/sidepanel.html`);
         await page.waitForLoadState('domcontentloaded');
 
-        await expect(page.locator('#mode-comic-btn')).toBeVisible();
-        await expect(page.locator('#mode-history-btn')).toBeVisible();
+        await expect(page.locator('#mode-comic-btn')).toHaveCount(1);
+        await expect(page.locator('#mode-history-btn')).toHaveCount(1);
+        await expect(page.locator('#layout-preset-select')).toHaveCount(1);
+        const presetOptionCount = await page.locator('#layout-preset-select option').count();
+        expect(presetOptionCount).toBeGreaterThan(0);
 
-        const toggleBtns = page.locator('#comic-view-shell .view-mode-toggle .toggle-btn');
-        await expect(toggleBtns).toHaveCount(3);
-        await expect(toggleBtns.nth(0)).toHaveText('Strip View');
-        await expect(toggleBtns.nth(1)).toHaveText('Carousel');
-        await expect(toggleBtns.nth(2)).toHaveText('Panel View');
+        await expect(page.locator('#sidebar')).toHaveCount(1);
+        await expect(page.locator('#sidebar .sidebar-section h3')).toContainText('My Collection');
+        await expect(page.locator('#sidebar')).not.toContainText('Settings');
+        await expect(page.locator('#sidebar')).not.toContainText('Actions');
+      } finally {
+        await context.close();
+        fs.rmSync(userDataDir, { recursive: true, force: true });
+      }
+    });
 
-        const sidebar = page.locator('.sidebar');
-        await expect(sidebar).toHaveCount(1);
-        await expect(sidebar.locator('h3')).toContainText('History');
-        await expect(sidebar.locator('text=Settings')).toHaveCount(0);
-        await expect(sidebar.locator('text=Actions')).toHaveCount(0);
+    test('should show single comic view shell with viewer counters', async () => {
+      const { context, userDataDir } = await launchExtensionContext();
+      try {
+        const extensionId = await getExtensionId(context);
+        const page = await context.newPage();
+        await page.goto(`chrome-extension://${extensionId}/sidepanel/sidepanel.html`);
+
+        await expect(page.locator('#comic-view-shell')).toBeVisible();
+        await expect(page.locator('.single-view-label')).toHaveText('Comic View');
+        await expect(page.locator('#viewer-stat-comics')).toHaveText('0');
+        await expect(page.locator('#viewer-stat-panels')).toHaveText('0');
+        await expect(page.locator('#viewer-stat-pages')).toHaveText('0');
       } finally {
         await context.close();
         fs.rmSync(userDataDir, { recursive: true, force: true });

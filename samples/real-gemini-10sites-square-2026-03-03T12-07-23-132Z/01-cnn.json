@@ -1,0 +1,16 @@
+{
+  "ok": true,
+  "site": "CNN",
+  "category": "Global News",
+  "url": "https://www.cnn.com",
+  "language": "en",
+  "objective": "news-recap",
+  "style": "newspaper-strip",
+  "selectedLayout": "square-comic-grid",
+  "provider": "gemini-free",
+  "panelCount": 8,
+  "title": "Escalating Middle East Conflict: Iranian Retaliation and US Response",
+  "description": "Following Israeli strikes on Beirut and Tehran, Iran launched a major retaliation, killing six US service members in Kuwait. The US is now reducing its diplomatic presence amid widening regional conflict.",
+  "output": "samples/real-gemini-10sites-square-2026-03-03T12-07-23-132Z/01-cnn.png",
+  "bytes": 3816096
+}

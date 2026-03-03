@@ -14,14 +14,18 @@
         <span>Web2Comics</span>
       </div>
       <div class="header-icon-actions">
-        <a class="icon-btn help-link-icon" href="../docs/user-manual.html#popup-overview" target="_blank" rel="noopener noreferrer" title="Open user manual (popup)">?</a>
-        <button id="download-logs-btn" class="icon-btn" type="button" title="Download debug logs">
-          ⭳
+        <a class="icon-btn help-link-icon" href="../docs/user-manual.html#popup-overview" target="_blank" rel="noopener noreferrer" title="Open User Manual (Popup)">?</a>
+        <button id="download-logs-btn" class="icon-btn" type="button" title="Download Debug Logs" aria-label="Download Debug Logs">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+            <circle cx="8" cy="8" r="6" stroke="currentColor" stroke-width="1.5"></circle>
+            <path d="M8 7v4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"></path>
+            <circle cx="8" cy="4.75" r="0.9" fill="currentColor"></circle>
+          </svg>
         </button>
-        <button id="settings-btn" class="icon-btn" title="Settings">
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-            <path d="M8 4a1.5 1.5 0 100 3 1.5 1.5 0 000-3zM5.5 8a2.5 2.5 0 115 0 2.5 2.5 0 01-5 0z"/>
-            <path fill-rule="evenodd" d="M6.64 1.31a1 1 0 01.86-.31h1a1 1 0 01.86.31l.64.55a.5.5 0 00.42.16l.77-.15a1 1 0 01.88.36l.6.7a.5.5 0 01.18.4l-.04.77a1 1 0 01-.36.88l-.55.64a1 1 0 010 1.24l.55.64a1 1 0 01.36.88l.04.77a.5.5 0 01-.18.4l-.6.7a1 1 0 01-.88.36l-.77-.15a.5.5 0 00-.42.16l-.64.55a1 1 0 01-.86.31h-1a1 1 0 01-.86-.31l-.64-.55a.5.5 0 00-.42-.16l-.77.15a1 1 0 01-.88-.36l-.6-.7a.5.5 0 01-.18-.4l.04-.77a1 1 0 01.36-.88l.55-.64a1 1 0 010-1.24l-.55-.64a1 1 0 01-.36-.88l-.04-.77a.5.5 0 01.18-.4l.6-.7a1 1 0 01.88-.36l.77.15a.5.5 0 00.42-.16l.64-.55zM8 10a2 2 0 100-4 2 2 0 000 4z"/>
+        <button id="settings-btn" class="icon-btn" type="button" title="Settings" aria-label="Open Settings">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path d="M12 8.75a3.25 3.25 0 1 0 0 6.5a3.25 3.25 0 0 0 0-6.5Z" stroke="currentColor" stroke-width="1.75"/>
+            <path d="M19.31 15.49a1 1 0 0 0 .2 1.1l.04.04a1.75 1.75 0 0 1-2.48 2.48l-.04-.04a1 1 0 0 0-1.1-.2a1 1 0 0 0-.61.92V20a1.75 1.75 0 1 1-3.5 0v-.06a1 1 0 0 0-.62-.92a1 1 0 0 0-1.1.2l-.04.04a1.75 1.75 0 1 1-2.48-2.48l.04-.04a1 1 0 0 0 .2-1.1a1 1 0 0 0-.92-.61H4a1.75 1.75 0 1 1 0-3.5h.06a1 1 0 0 0 .92-.62a1 1 0 0 0-.2-1.1l-.04-.04a1.75 1.75 0 0 1 2.48-2.48l.04.04a1 1 0 0 0 1.1.2a1 1 0 0 0 .61-.92V4a1.75 1.75 0 1 1 3.5 0v.06a1 1 0 0 0 .62.92a1 1 0 0 0 1.1-.2l.04-.04a1.75 1.75 0 1 1 2.48 2.48l-.04.04a1 1 0 0 0-.2 1.1a1 1 0 0 0 .92.61H20a1.75 1.75 0 1 1 0 3.5h-.06a1 1 0 0 0-.63.92Z" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"/>
           </svg>
         </button>
       </div>
@@ -30,16 +34,20 @@
     <main class="popup-main">
       <section id="home-section" class="section hidden">
         <div class="home-launcher">
-          <div class="panel-title-row"><h2>What do you want to do?</h2><a class="help-link-icon inline" href="../docs/user-manual.html#popup-overview" target="_blank" rel="noopener noreferrer" title="Popup help">?</a></div>
-          <p>Pick a quick action for this page.</p>
-          <button id="create-comic-btn" class="launcher-btn primary">
-            <span class="launcher-title">Create Comic</span>
-            <span class="launcher-subtitle">Turn this page into a short comic</span>
-          </button>
-          <button id="view-history-btn" class="launcher-btn secondary">
-            <span class="launcher-title">History</span>
-            <span class="launcher-subtitle">Open comics you generated earlier</span>
-          </button>
+          <div class="home-launcher-options">
+            <button id="create-comic-btn" class="launcher-btn primary launcher-card" aria-label="Comicify this page">
+              <span class="launcher-icon launcher-image-icon" aria-hidden="true">
+                <img src="assets/comicify-hero.png" alt="" loading="lazy">
+              </span>
+              <span class="launcher-title">Comicify!</span>
+            </button>
+            <button id="view-history-btn" class="launcher-btn secondary launcher-card" aria-label="Open My Collection">
+              <span class="launcher-icon launcher-image-icon" aria-hidden="true">
+                <img src="assets/my-collection-collage.png" alt="" loading="lazy">
+              </span>
+              <span class="launcher-title">My Collection</span>
+            </button>
+          </div>
         </div>
       </section>
 
@@ -47,16 +55,10 @@
         <div class="composer-header">
           <button id="back-home-btn" class="link-btn" type="button">← Back</button>
           <span class="composer-title">Create Comic</span>
-          <a class="help-link-icon inline" href="../docs/user-manual.html#popup-create" target="_blank" rel="noopener noreferrer" title="Generator help">?</a>
+          <a class="help-link-icon inline" href="../docs/user-manual.html#popup-create" target="_blank" rel="noopener noreferrer" title="Generator Help">?</a>
         </div>
 
         <div class="wizard-card">
-        <div class="wizard-card-header">
-          <div>
-              <h3>Create Comic</h3>
-              <p>Click Generate. Open extras only when you need customization.</p>
-          </div>
-        </div>
 
           <div class="action-buttons wizard-actions">
             <button id="generate-btn" class="btn primary full-width">
@@ -90,18 +92,32 @@
             <span id="chip-provider" class="status-chip pending">Provider: checking</span>
             <span id="chip-ready" class="status-chip pending">Generate: blocked</span>
           </div>
+          <div id="story-detection-progress" class="story-detection-progress hidden" role="status" aria-live="polite">
+            <span class="story-detection-emoji" aria-hidden="true">🔎</span>
+            <div class="story-detection-copy">
+              <span id="story-detection-progress-text">Detecting top stories...</span>
+              <span id="story-detection-progress-subtext" class="story-detection-subtext">Scanning sections and ranking the clearest story...</span>
+              <span class="story-detection-progress-bar" aria-hidden="true"><span class="story-detection-progress-fill"></span></span>
+            </div>
+            <span class="story-detection-spinner" aria-hidden="true"></span>
+          </div>
           <div id="quality-confidence" class="quality-confidence hidden" role="status" aria-live="polite">
             <div class="quality-confidence-row">
-              <span class="label quality-light-label">Grounding</span>
-              <span id="quality-confidence-badge" class="quality-light medium" aria-label="Grounding confidence medium" title="Grounding confidence medium"></span>
-              <button id="story-picker-btn" class="btn tiny secondary hidden" type="button">Stories</button>
-              <button id="auto-pick-best-btn" class="btn tiny secondary" type="button">Auto-pick</button>
+              <div class="quality-confidence-main">
+                <span id="quality-confidence-badge" class="quality-light medium" aria-label="Story detection confidence medium" title="Story detection confidence medium"></span>
+                <span class="quality-label">Story detection</span>
+                <span id="quality-confidence-level" class="quality-level medium">Medium</span>
+              </div>
+              <div class="quality-confidence-actions">
+                <button id="story-picker-btn" class="btn tiny secondary hidden" type="button">Stories</button>
+                <button id="auto-pick-best-btn" class="btn tiny secondary" type="button">Auto-pick</button>
+              </div>
             </div>
             <div id="quality-confidence-text" class="quality-confidence-text"></div>
             <div id="story-flow-hint" class="story-flow-hint hidden"></div>
           </div>
 
-          <details id="content-extra-section" class="extra-section">
+          <details id="content-extra-section" class="extra-section source-extra-removed hidden" aria-hidden="true">
             <summary>Source Text</summary>
 
             <div id="site-profile-hint" class="site-profile-hint hidden"></div>
@@ -120,15 +136,10 @@
               </div>
             </div>
 
-            <div id="content-candidate-wrap" class="content-candidate hidden">
-              <label class="label" for="content-candidate-select">Detected Stories</label>
-              <select id="content-candidate-select" class="select"></select>
-            </div>
-            <div id="selected-block-summary" class="selected-block-summary hidden"></div>
-
             <div class="extracted-preview">
               <div class="preview-header">
-                <span class="label">Extracted Source Text</span>
+                <span class="label">Selected Story Source Text</span>
+                <span class="context-meta">Raw extraction from the currently selected story</span>
                 <button id="refresh-preview-btn" class="btn small secondary">Re-scan</button>
               </div>
               <div id="preview-text" class="preview-text">
@@ -141,11 +152,14 @@
 
             <div class="model-context-preview">
               <div class="preview-header">
-                <span class="label">AI Input Preview</span>
-                <span class="context-meta">First 1,000 characters sent for storyboard generation</span>
+                <span class="label">AI Storyboard Input Preview</span>
+                <span class="context-meta">Processed input derived from selected story (trimmed before sending)</span>
               </div>
               <div id="model-context-preview-text" class="preview-text">
                 <span class="loading">No model context yet</span>
+              </div>
+              <div class="char-count">
+                <span id="model-context-char-count">0</span> characters shown to AI
               </div>
             </div>
           </details>
@@ -153,112 +167,141 @@
           <details id="options-extra-section" class="extra-section">
             <summary>Customize</summary>
 
-            <div class="settings-grid basic-settings-grid">
-              <div class="setting-item">
-                <label class="label">Comic Length</label>
-                <select id="panel-count" class="select">
-                  <option value="3" selected>3 panels</option>
-                  <option value="4">4 panels</option>
-                  <option value="5">5 panels</option>
-                  <option value="6">6 panels</option>
-                  <option value="8">8 panels</option>
-                  <option value="10">10 panels</option>
-                  <option value="12">12 panels</option>
-                </select>
-              </div>
-
-              <div class="setting-item">
-                <label class="label">Story Goal</label>
-                <select id="objective" class="select">
-                  <option value="summarize" selected>Quick Summary</option>
-                  <option value="fun">Have Fun</option>
-                  <option value="learn-step-by-step">Learn Step by Step</option>
-                  <option value="news-recap">News Recap</option>
-                  <option value="timeline">Timeline Breakdown</option>
-                  <option value="key-facts">Key Facts Only</option>
-                  <option value="compare-views">Compare Viewpoints</option>
-                  <option value="explain-like-im-five">Explain Like I'm Five</option>
-                  <option value="study-guide">Study Guide</option>
-                  <option value="meeting-recap">Meeting Recap</option>
-                  <option value="how-to-guide">How-To Guide</option>
-                  <option value="debate-map">Debate Map</option>
-                </select>
-              </div>
-
-              <div class="setting-item">
-                <label class="label">Language</label>
-                <select id="output-language" class="select">
-                  <option value="en" selected>English</option>
-                  <option value="auto">Auto (Match source language)</option>
-                  <option value="es">Spanish</option>
-                  <option value="fr">French</option>
-                  <option value="de">German</option>
-                  <option value="it">Italian</option>
-                  <option value="pt">Portuguese</option>
-                  <option value="ja">Japanese</option>
-                  <option value="ko">Korean</option>
-                  <option value="zh">Chinese</option>
-                </select>
-              </div>
-
-              <div class="setting-item full-width">
-                <label class="label with-inline-icon"><span class="inline-icon inline-icon-ai" aria-hidden="true">AI</span>AI Provider</label>
-                <select id="provider-preset" class="select">
-                  <option value="gemini-free">G Google Gemini (Free tier)</option>
-                  <option value="openai">O OpenAI (GPT-4 + DALL-E)</option>
-                  <option value="openrouter">R OpenRouter</option>
-                  <option value="huggingface">H Hugging Face Inference API</option>
-                  <option value="cloudflare-free">C Cloudflare Workers AI (Free)</option>
-                </select>
-                <span id="provider-info" class="provider-info">Free tier available</span>
-              </div>
-            </div>
-
-            <div class="advanced-settings-shell">
-              <button id="advanced-settings-toggle" class="advanced-settings-toggle" type="button" aria-expanded="false" aria-controls="advanced-settings-panel">
-                <span class="advanced-toggle-label">Advanced Options</span>
-                <span id="advanced-settings-chevron" class="advanced-toggle-chevron">▾</span>
-              </button>
-
-              <div id="advanced-settings-panel" class="advanced-settings-panel hidden">
-                <div class="settings-grid">
+            <div class="customize-cards">
+              <details id="customize-story-card" class="customize-card" open>
+                <summary class="customize-card-summary">
+                  <span class="customize-card-icon" aria-hidden="true">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+                      <path d="M4 5.5A2.5 2.5 0 0 1 6.5 3h11A2.5 2.5 0 0 1 20 5.5v13a2.5 2.5 0 0 1-2.5 2.5h-11A2.5 2.5 0 0 1 4 18.5v-13Z" stroke="currentColor" stroke-width="1.8"/>
+                      <path d="M8 8h8M8 12h8M8 16h5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                    </svg>
+                  </span>
+                  <span>Story</span>
+                </summary>
+                <div class="settings-grid basic-settings-grid">
                   <div class="setting-item">
-                    <label class="label">Narrative Detail</label>
-                    <select id="detail-level" class="select">
-                      <option value="low">Low</option>
-                      <option value="medium" selected>Medium</option>
-                      <option value="high">High</option>
+                    <label class="label">Comic Length</label>
+                    <select id="panel-count" class="select">
+                      <option value="3" selected>3 panels</option>
+                      <option value="4">4 panels</option>
+                      <option value="5">5 panels</option>
+                      <option value="6">6 panels</option>
+                      <option value="8">8 panels</option>
+                      <option value="10">10 panels</option>
+                      <option value="12">12 panels</option>
                     </select>
                   </div>
 
-                  <div class="setting-item full-width">
-                    <label class="label">Visual Style</label>
-                    <select id="style-preset" class="select">
-                      <option value="default">Default (Classic Comic)</option>
-                      <option value="noir">Noir (Dark & Dramatic)</option>
-                      <option value="manga">Manga (Anime)</option>
-                      <option value="superhero">Superhero Action</option>
-                      <option value="watercolor">Watercolor Storybook</option>
-                      <option value="pixel">Pixel Art Retro</option>
-                      <option value="ligne-claire">Ligne Claire (Tintin-like)</option>
-                      <option value="newspaper-strip">Newspaper Strip</option>
-                      <option value="cyberpunk-neon">Cyberpunk Neon</option>
-                      <option value="clay-stopmotion">Clay Stop-Motion</option>
-                      <option value="woodcut-print">Woodcut Print</option>
-                      <option value="custom">Custom (One-off)</option>
-                      <option value="__create_new_style__">+ Create New Style...</option>
+                  <div class="setting-item">
+                    <label class="label">Story Goal Template</label>
+                    <select id="objective" class="select">
+                      <option value="summarize">Quick Summary</option>
+                      <option value="fun">Have Fun</option>
+                      <option value="learn-step-by-step">Learn Step by Step</option>
+                      <option value="news-recap">News Recap</option>
+                      <option value="timeline">Timeline Breakdown</option>
+                      <option value="key-facts">Key Facts Only</option>
+                      <option value="compare-views">Compare Viewpoints</option>
+                      <option value="explain-like-im-five" selected>Explain Like I'm Five</option>
+                      <option value="study-guide">Study Guide</option>
+                      <option value="meeting-recap">Meeting Recap</option>
+                      <option value="how-to-guide">How-To Guide</option>
+                      <option value="debate-map">Debate Map</option>
                     </select>
+                    <span class="setting-hint">Template behavior can be edited in Settings -> Prompts.</span>
                   </div>
 
-                  <div id="custom-style-container" class="setting-item full-width hidden">
-                    <label class="label">Custom Style Name</label>
-                    <input id="custom-style-name-input" class="select custom-style-name" type="text" placeholder="e.g. Retro Pulp Adventure">
-                    <label class="label">Custom Style Description</label>
-                    <textarea id="custom-style-input" class="textarea" placeholder="Describe your desired style, e.g., 'vintage 1950s comic book, halftone printing, bold captions, warm paper texture'"></textarea>
-                    <span class="setting-hint">Optional: Describe the visual style, mood, or theme you want</span>
+                  <div class="setting-item">
+                    <label class="label">Language</label>
+                    <select id="output-language" class="select">
+                      <option value="en" selected>English</option>
+                      <option value="auto">Auto (Match source language)</option>
+                      <option value="es">Spanish</option>
+                      <option value="fr">French</option>
+                      <option value="de">German</option>
+                      <option value="it">Italian</option>
+                      <option value="pt">Portuguese</option>
+                      <option value="ru">Russian</option>
+                      <option value="ja">Japanese</option>
+                      <option value="ko">Korean</option>
+                      <option value="zh">Chinese</option>
+                    </select>
                   </div>
                 </div>
-              </div>
+              </details>
+
+              <details id="customize-images-card" class="customize-card">
+                <summary class="customize-card-summary">
+                  <span class="customize-card-icon" aria-hidden="true">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+                      <rect x="3.5" y="4.5" width="17" height="15" rx="2.5" stroke="currentColor" stroke-width="1.8"/>
+                      <circle cx="9" cy="9" r="1.5" fill="currentColor"/>
+                      <path d="M6.5 16l3.5-3.5 2.5 2.5 2.5-2.5 2.5 3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                  </span>
+                  <span>Images</span>
+                </summary>
+                <div class="settings-grid basic-settings-grid">
+                  <div class="setting-item full-width">
+                    <label class="label with-inline-icon"><span class="inline-icon inline-icon-ai" aria-hidden="true">AI</span>AI Provider</label>
+                    <select id="provider-preset" class="select">
+                      <option value="gemini-free">G Google Gemini (Free tier)</option>
+                      <option value="openai">O OpenAI (GPT-4 + DALL-E)</option>
+                      <option value="openrouter">R OpenRouter</option>
+                      <option value="huggingface">H Hugging Face Inference API</option>
+                      <option value="cloudflare-free">C Cloudflare Workers AI (Free)</option>
+                    </select>
+                    <span id="provider-info" class="provider-info">Free tier available</span>
+                  </div>
+                </div>
+
+                <div class="advanced-settings-shell">
+                  <button id="advanced-settings-toggle" class="advanced-settings-toggle" type="button" aria-expanded="false" aria-controls="advanced-settings-panel">
+                    <span class="advanced-toggle-label">Advanced Options</span>
+                    <span id="advanced-settings-chevron" class="advanced-toggle-chevron">▾</span>
+                  </button>
+
+                  <div id="advanced-settings-panel" class="advanced-settings-panel hidden">
+                    <div class="settings-grid">
+                      <div class="setting-item">
+                        <label class="label">Narrative Detail</label>
+                        <select id="detail-level" class="select">
+                          <option value="low">Low</option>
+                          <option value="medium" selected>Medium</option>
+                          <option value="high">High</option>
+                        </select>
+                      </div>
+
+                      <div class="setting-item full-width">
+                        <label class="label">Visual Style</label>
+                        <select id="style-preset" class="select">
+                          <option value="default">Default (Classic Comic)</option>
+                          <option value="noir">Noir (Dark & Dramatic)</option>
+                          <option value="manga">Manga (Anime)</option>
+                          <option value="superhero">Superhero Action</option>
+                          <option value="watercolor">Watercolor Storybook</option>
+                          <option value="pixel">Pixel Art Retro</option>
+                          <option value="ligne-claire">Ligne Claire (Tintin-like)</option>
+                          <option value="newspaper-strip">Newspaper Strip</option>
+                          <option value="cyberpunk-neon">Cyberpunk Neon</option>
+                          <option value="clay-stopmotion">Clay Stop-Motion</option>
+                          <option value="woodcut-print">Woodcut Print</option>
+                          <option value="custom">Custom (One-off)</option>
+                          <option value="__create_new_style__">+ Create New Style...</option>
+                        </select>
+                      </div>
+
+                      <div id="custom-style-container" class="setting-item full-width hidden">
+                        <label class="label">Custom Style Name</label>
+                        <input id="custom-style-name-input" class="select custom-style-name" type="text" placeholder="e.g. Retro Pulp Adventure">
+                        <label class="label">Custom Style Description</label>
+                        <textarea id="custom-style-input" class="textarea" placeholder="Describe your desired style, e.g., 'vintage 1950s comic book, halftone printing, bold captions, warm paper texture'"></textarea>
+                        <span class="setting-hint">Optional: Describe the visual style, mood, or theme you want</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </details>
             </div>
           </details>
         </div>
@@ -268,7 +311,7 @@
             <path d="M8 1.5a6.5 6.5 0 100 13 6.5 6.5 0 000-13zM0 8a8 8 0 1116 0A8 8 0 010 8z"/>
             <path d="M8 4a.75.75 0 01.75.75v3.5a.75.75 0 01-1.5 0v-3.5A.75.75 0 018 4zm0 8a1 1 0 100-2 1 1 0 000 2z"/>
           </svg>
-          <span>Provider setup required. <a href="#" id="configure-key-link">Open settings</a></span>
+          <span>Provider setup required. <a href="#" id="configure-key-link">Open Settings</a></span>
         </div>
 
         <div id="wizard-readiness" class="wizard-readiness" aria-live="polite">
@@ -282,11 +325,8 @@
           <button id="configure-providers-btn" class="btn primary full-width" type="button">
             Configure Model Providers
           </button>
-          <button id="retry-providers-btn" class="btn secondary full-width" type="button">
-            Retry Setup Check
-          </button>
           <div id="configure-providers-hint" class="cta-hint">
-            After adding provider keys in Settings, click retry to continue.
+            Open Settings to connect a provider, then return here and generate.
           </div>
         </div>
 
@@ -294,7 +334,7 @@
 
       <section id="progress-section" class="section hidden">
         <div class="progress-container">
-          <div class="panel-title-row"><h3>Generating Comic</h3><a class="help-link-icon inline" href="../docs/user-manual.html#popup-progress" target="_blank" rel="noopener noreferrer" title="Progress view help">?</a></div>
+          <div class="panel-title-row"><h3>Generating Comic</h3><a class="help-link-icon inline" href="../docs/user-manual.html#popup-progress" target="_blank" rel="noopener noreferrer" title="Progress View Help">?</a></div>
           <div id="progress-status" class="progress-status">Preparing...</div>
           <div id="progress-status-detail" class="progress-status-detail">Elapsed 0s | Waiting for updates...</div>
           <div id="progress-caption-quality" class="progress-status-detail hidden"></div>
@@ -314,17 +354,17 @@
     </main>
 
     <footer class="popup-footer">
-      <button id="history-btn" class="link-btn">History</button>
+      <button id="history-btn" class="link-btn">My Collection</button>
       <a id="footer-help-link" class="link-btn" href="../docs/user-manual.html#popup-overview" target="_blank" rel="noopener noreferrer" title="Open User Manual">Help</a>
       <a id="footer-about-link" class="link-btn subtle-link" href="../options/options.html#about-section" target="_blank" rel="noopener noreferrer" title="About, Privacy and Home Repo">About</a>
-      <span class="version">v1.0</span>
+      <span id="popup-version-label" class="version">v0.0.0</span>
     </footer>
   </div>
 
   <div id="history-modal" class="modal hidden">
-    <div class="modal-content">
+    <div class="modal-content history-modal-content">
       <div class="modal-header">
-        <div class="panel-title-row"><h3>History</h3><a class="help-link-icon inline" href="../docs/user-manual.html#popup-history" target="_blank" rel="noopener noreferrer" title="History help">?</a></div>
+        <div class="panel-title-row"><h3>My Collection</h3><a class="help-link-icon inline" href="../docs/user-manual.html#popup-history" target="_blank" rel="noopener noreferrer" title="My Collection Help">?</a></div>
         <button class="close-btn" id="close-history-btn">&times;</button>
       </div>
       <div id="history-list" class="history-list">
@@ -364,7 +404,7 @@
         <button class="close-btn" id="close-story-picker-btn">&times;</button>
       </div>
       <div class="style-modal-body">
-        <p class="setting-hint">Detected story sections. Summaries use Chrome built-in summarizer when available.</p>
+        <p class="setting-hint">Detected story sections. Use <strong>+</strong> to preview the full extracted story before selecting.</p>
         <div id="story-picker-list" class="story-picker-list">
           <p class="empty-state">No detected stories yet.</p>
         </div>
@@ -372,6 +412,23 @@
       <div class="modal-footer">
         <button id="close-story-picker-footer-btn" class="btn secondary small" type="button">Close</button>
       </div>
+    </div>
+  </div>
+
+  <div id="comicify-progress-modal" class="modal hidden comicify-progress-modal" aria-live="polite" aria-modal="true" role="dialog" aria-label="Comicify progress">
+    <div class="modal-content comicify-progress-content">
+      <div class="comicify-progress-hero">
+        <div id="comicify-progress-emoji" class="comicify-progress-emoji" aria-hidden="true">🎨</div>
+        <h3 id="comicify-progress-title">Comicify in progress</h3>
+        <p id="comicify-progress-subtitle" class="comicify-progress-subtitle">Warming up your storyboards...</p>
+      </div>
+      <div class="comicify-progress-meter">
+        <div class="comicify-progress-meter-track">
+          <div id="comicify-progress-bar" class="comicify-progress-meter-fill"></div>
+        </div>
+        <div id="comicify-progress-percent" class="comicify-progress-percent">0%</div>
+      </div>
+      <p id="comicify-progress-detail" class="comicify-progress-detail">Elapsed 0s | Waiting for updates...</p>
     </div>
   </div>
 

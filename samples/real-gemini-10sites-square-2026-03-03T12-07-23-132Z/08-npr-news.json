@@ -1,0 +1,16 @@
+{
+  "ok": true,
+  "site": "NPR News",
+  "category": "Public Radio",
+  "url": "https://www.npr.org/sections/news/",
+  "language": "en",
+  "objective": "compare-views",
+  "style": "superhero",
+  "selectedLayout": "grid-4",
+  "provider": "gemini-free",
+  "panelCount": 8,
+  "title": "The Clash Between Established Norms and Radical Policy Overhaul Demands",
+  "description": "A visual debate unfolds between an establishment figure advocating for precedent and a dynamic challenger demanding immediate systemic overhaul. Their conflict centers on stability versus the danger of inaction.",
+  "output": "samples/real-gemini-10sites-square-2026-03-03T12-07-23-132Z/08-npr-news.png",
+  "bytes": 3285823
+}

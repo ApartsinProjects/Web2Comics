@@ -1,0 +1,17 @@
+{
+  "ok": true,
+  "site": "NPR News",
+  "category": "Public Radio",
+  "url": "https://www.npr.org/sections/news/",
+  "language": "en",
+  "variant": "B",
+  "variantLabel": "Explain & Learn",
+  "objective": "learn-step-by-step",
+  "style": "manga",
+  "provider": "gemini-free",
+  "panelCount": 8,
+  "title": "Visualizing the Curation Process of NPR's Top National and World News Headlines",
+  "description": "This storyboard illustrates how NPR selects and verifies the most significant recent national and international events for its main news headlines section. It details the filtering mechanism that elevates raw information into essential intr",
+  "output": "samples/real-fast-gemini-10sites-2variants-2026-03-03T11-26-21-756Z/08-npr-news-b.png",
+  "bytes": 3794664
+}

@@ -1,0 +1,14 @@
+{
+  "storyTitle": "En 1956, un groupe de chercheurs a posé les bases de l'IA, rêvant de machines capables d",
+  "storyDescription": "En 1956, un groupe de chercheurs a posé les bases de l'IA, rêvant de machines capables de penser. Au fil des décennies, l'IA a connu des périodes d'enthousiasme et de désillusion, des 'hivers de l'IA'.",
+  "panelCount": 3,
+  "sourceUrl": "https://en.wikipedia.org/wiki/Artificial_intelligence",
+  "sourceTitle": "Wikipedia AI",
+  "providerText": "openrouter",
+  "providerImage": "openai",
+  "objective": "learn-step-by-step",
+  "language": "fr",
+  "style": "ligne-claire",
+  "bytes": 2107670,
+  "output": "samples/real-provider-site-comics-2026-03-03T11-07-32-585Z/03-wikipedia-ai.png"
+}

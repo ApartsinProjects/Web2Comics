@@ -1,0 +1,17 @@
+{
+  "ok": true,
+  "site": "Khan Academy",
+  "category": "Education",
+  "url": "https://www.khanacademy.org",
+  "language": "he",
+  "variant": "B",
+  "variantLabel": "Explain & Learn",
+  "objective": "learn-step-by-step",
+  "style": "manga",
+  "provider": "gemini-free",
+  "panelCount": 8,
+  "title": "מסע הלמידה המותאם אישית עם חאן אקדמי: וידאו, תרגול ובינה מלאכותית",
+  "description": "חאן אקדמי מציעה משאב גלובלי לשיפור ציונים באמצעות וידאו, תרגול מותאם אישית וסיוע AI. הפלטפורמה תמיד נשארת חינמית לחלוטין לכל הלומדים והמורים.",
+  "output": "samples/real-fast-gemini-10sites-2variants-2026-03-03T11-26-21-756Z/10-khan-academy-b.png",
+  "bytes": 4209155
+}

@@ -13,6 +13,6 @@ echo Ready to Install
 echo ======================================
 echo.
 echo Run setup.bat to verify files
-echo See INSTALL.md for detailed instructions
+echo See docs/INSTALL.md for detailed instructions
 echo.
 pause

@@ -79,7 +79,7 @@ echo 1. Configure API key in extension Options
 echo 2. Pin extension to toolbar
 echo 3. Visit any article and click Generate
 echo.
-echo For detailed instructions, see INSTALL.md
+echo For detailed instructions, see docs/INSTALL.md
 echo.
 
 pause

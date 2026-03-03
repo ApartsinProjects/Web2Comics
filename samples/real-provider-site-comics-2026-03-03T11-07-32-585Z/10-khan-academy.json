@@ -1,0 +1,14 @@
+{
+  "storyTitle": "Welcome to Khan Academy, where millions of people worldwide learn and grow together",
+  "storyDescription": "Welcome to Khan Academy, where millions of people worldwide learn and grow together. With Khan Academy, you can learn anything, from math and science to English and social studies, at your own pace.",
+  "panelCount": 3,
+  "sourceUrl": "https://www.khanacademy.org",
+  "sourceTitle": "Khan Academy",
+  "providerText": "cloudflare-free",
+  "providerImage": "cloudflare-free",
+  "objective": "explain-like-im-five",
+  "language": "auto",
+  "style": "clay-stopmotion",
+  "bytes": 1558925,
+  "output": "samples/real-provider-site-comics-2026-03-03T11-07-32-585Z/10-khan-academy.png"
+}

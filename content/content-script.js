@@ -1059,7 +1059,8 @@
         summary: summary,
         summaryMethod: summaryMethod,
         chars: c.metrics && c.metrics.chars ? c.metrics.chars : 0,
-        score: Number.isFinite(c.score) ? Number(c.score.toFixed(2)) : 0
+        score: Number.isFinite(c.score) ? Number(c.score.toFixed(2)) : 0,
+        text: stripped
       });
     }
     return options;
@@ -1134,6 +1135,12 @@
       const candidates = pickContentCandidates();
       const candidateOptions = await buildCandidateOptions(candidates);
       const selectableCandidates = candidates.slice(0, candidateOptions.length);
+      const fullSourceText = cleanText(
+        selectableCandidates
+          .map((candidate) => stripBoilerplateLines(candidate && candidate.text ? candidate.text : ''))
+          .filter(Boolean)
+          .join('\n\n')
+      );
       testLog('extract.candidates.built', {
         candidateCount: candidates.length,
         optionCount: candidateOptions.length
@@ -1210,7 +1217,22 @@
         quality: quality,
         selectedCandidateId: resolvedCandidateId,
         autoSelectedCandidateId: autoSelectedCandidateId,
-        candidates: candidateOptions
+        fullSourceText: fullSourceText,
+        candidates: candidateOptions.map((option) => ({
+          id: option.id,
+          summary: option.summary,
+          summaryMethod: option.summaryMethod,
+          chars: option.chars,
+          score: option.score
+        })),
+        candidatePayloads: candidateOptions.map((option) => ({
+          id: option.id,
+          summary: option.summary,
+          chars: option.chars,
+          score: option.score,
+          text: String(option.text || '').slice(0, 12000)
+        })),
+        sourceHtml: buildPageHtmlSnapshot()
       };
     } catch (error) {
       testLog('extract.error', { message: error && error.message ? error.message : String(error) });
@@ -1264,6 +1286,25 @@
       .filter(line => line.length > 0)
       .join('\n')
       .trim();
+  }
+
+  function buildPageHtmlSnapshot(maxLength = 180000) {
+    try {
+      const root = document.documentElement;
+      if (!root) return '';
+      const clone = root.cloneNode(true);
+      if (clone && clone.querySelectorAll) {
+        clone.querySelectorAll('script, style, noscript, iframe, svg, canvas').forEach((node) => {
+          try { node.remove(); } catch (_) {}
+        });
+      }
+      let html = '<!doctype html>\n' + String(clone && clone.outerHTML ? clone.outerHTML : '');
+      html = html.replace(/\s{2,}/g, ' ').trim();
+      if (html.length > maxLength) return html.slice(0, maxLength);
+      return html;
+    } catch (_) {
+      return '';
+    }
   }
 
   // Truncate text if too long

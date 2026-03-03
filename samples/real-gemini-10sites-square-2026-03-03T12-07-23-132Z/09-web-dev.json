@@ -1,0 +1,16 @@
+{
+  "ok": true,
+  "site": "web.dev",
+  "category": "Web Engineering",
+  "url": "https://web.dev/articles/browser-level-image-lazy-loading",
+  "language": "es",
+  "objective": "debate-map",
+  "style": "cyberpunk-neon",
+  "selectedLayout": "square-comic-grid",
+  "provider": "gemini-free",
+  "panelCount": 8,
+  "title": "Implementación nativa de carga diferida de imágenes en navegadores modernos",
+  "description": "El atributo 'loading' permite diferir la carga de imágenes fuera de la vista sin depender de librerías externas. Se debe usar 'eager' para imágenes vitales en la ventana inicial.",
+  "output": "samples/real-gemini-10sites-square-2026-03-03T12-07-23-132Z/09-web-dev.png",
+  "bytes": 4073229
+}

@@ -1,0 +1,14 @@
+{
+  "storyTitle": "GitHubとGitを使用して、共同作業を行うことができます。",
+  "storyDescription": "GitHubとGitを使用して、共同作業を行うことができます。. GitHubは、コードを保存、共有、共同作業を行うためのクラウドベースのプラットフォームです。.",
+  "panelCount": 3,
+  "sourceUrl": "https://docs.github.com/en/get-started/start-your-journey/about-github-and-git",
+  "sourceTitle": "GitHub Docs",
+  "providerText": "cloudflare-free",
+  "providerImage": "cloudflare-free",
+  "objective": "how-to-guide",
+  "language": "ja",
+  "style": "manga",
+  "bytes": 1598178,
+  "output": "samples/real-provider-site-comics-2026-03-03T11-07-32-585Z/05-github-docs.png"
+}

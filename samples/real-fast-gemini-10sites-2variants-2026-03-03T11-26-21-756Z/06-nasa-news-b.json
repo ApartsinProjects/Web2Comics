@@ -1,0 +1,17 @@
+{
+  "ok": true,
+  "site": "NASA News",
+  "category": "Science",
+  "url": "https://www.nasa.gov/news/all-news/",
+  "language": "en",
+  "variant": "B",
+  "variantLabel": "Explain & Learn",
+  "objective": "learn-step-by-step",
+  "style": "manga",
+  "provider": "gemini-free",
+  "panelCount": 8,
+  "title": "Tracking Earth Science and Deep Space Missions in Recent NASA Updates",
+  "description": "This storyboard covers recent NASA activities, from monitoring Earth's environment to deep space missions like the Carruthers Geocorona Observatory. It also highlights operational news and skywatching tips for the public.",
+  "output": "samples/real-fast-gemini-10sites-2variants-2026-03-03T11-26-21-756Z/06-nasa-news-b.png",
+  "bytes": 3908647
+}

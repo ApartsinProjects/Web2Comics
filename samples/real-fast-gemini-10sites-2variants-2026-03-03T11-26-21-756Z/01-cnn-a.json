@@ -1,0 +1,17 @@
+{
+  "ok": true,
+  "site": "CNN",
+  "category": "Global News",
+  "url": "https://www.cnn.com",
+  "language": "en",
+  "variant": "A",
+  "variantLabel": "Fact Sprint",
+  "objective": "news-recap",
+  "style": "newspaper-strip",
+  "provider": "gemini-free",
+  "panelCount": 8,
+  "title": "Escalating US-Iran Conflict Threatens Global Stability Before World Cup",
+  "description": "The US and Iran are engaged in active conflict, marked by deadly strikes on US personnel and retaliatory attacks on Beirut and Tehran. Global travel is severely disrupted as tensions rise just months before the World Cup.",
+  "output": "samples/real-fast-gemini-10sites-2variants-2026-03-03T11-26-21-756Z/01-cnn-a.png",
+  "bytes": 3873270
+}
