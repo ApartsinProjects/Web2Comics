@@ -43,9 +43,9 @@ Note: `Code -> Download ZIP` downloads the full source repository. Use the relea
 - Choose providers/models for text and image generation
 - Use preset or custom visual styles
 - Track live progress (elapsed time + ETA)
-- Review history of generated comics
+- Review generated comics in `My Collection`
 - Export a single PNG comic sheet with captions and source URL
-- Share to Facebook, X, LinkedIn, WhatsApp, Telegram, Reddit, or Email (plus copy-link/caption flows)
+- Share to connected targets (Facebook, X, Instagram, LinkedIn, Reddit, Email)
 
 ## Supported Providers
 
@@ -208,4 +208,4 @@ HUGGINGFACE_INFERENCE_API_TOKEN=...
 ## Documentation
 
 - User manual: `docs/user-manual.html`
-- Additional specs: `docs/initial_specs.md`, `INSTALL.md`
+- Additional specs: `docs/initial_specs.md`, `docs/INSTALL.md`

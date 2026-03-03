@@ -1,24 +1,34 @@
-# docs Folder
+# Docs Index
 
-## Purpose
-Project documentation and user-facing manual pages.
+Project documentation and user-facing reference pages for Web2Comics.
 
-## Contents
-- `user-manual.html` : End-user manual (popup, side panel, options, provider setup).
-- `privacy.html` : Privacy note.
-- `terms.html` : Terms of service.
-- `support.html` : Support/contact guidance.
-- `Gemini_key.md` : Quick Gemini API key setup guide.
-- `Use_Cases_Beyond_Entertainment.md` : Practical/professional use cases.
-- `Monetization_Strategies.md` : Monetization options.
-- `Product_Backlog.md` : Categorized product backlog.
-- `permissions-audit.md` : Current Chrome permission rationale and review notes.
-- `ChangeRequests/` : Request/proposal backlog and change-tracking notes.
+## Start Here
+- `ROOT_README.md` : release-oriented README snapshot used by packaging checks.
+- `INSTALL.md` : installation + first-run guide.
+- `user-manual.html` : end-user manual (popup, side panel, options, workflows).
+- `RELEASE_NOTES.md` : versioned release history.
 
-Note: files such as `Product_Backlog.md`, `Monetization_Strategies.md`, `Use_Cases_Beyond_Entertainment.md`, and `ChangeRequests/*` are planning/strategy artifacts and do not imply all items are implemented in the current extension build.
+## Product and Strategy Docs
+- `Product_Backlog.md` : categorized backlog.
+- `Use_Cases_Beyond_Entertainment.md` : practical/professional use cases.
+- `Monetization_Strategies.md` : monetization options.
+- `brainstorm.md` : PM brainstorming outcomes.
+- `ChangeRequests/` : proposal/change-request notes.
 
-## Artifacts
-- No obvious generated artifacts in this directory (or artifacts are stored elsewhere).
+## Setup and Integration Docs
+- `Gemini_key.md` : Gemini key setup.
+- `google-drive-oauth-setup.md` : Google Drive OAuth setup notes.
+- `permissions-audit.md` : Chrome extension permission rationale.
 
-## Maintenance
-- Update this README when files are added, removed, renamed, or when the folder purpose changes significantly.
+## Legal and Support Pages
+- `privacy.html` : privacy note.
+- `terms.html` : terms.
+- `support.html` : support/help page.
+
+## Internal References
+- `initial_specs.md` : early architecture/spec baseline (historical reference).
+- `instructions.md` : current development guidance.
+
+## Notes
+- Some docs are strategic/planning artifacts and do not imply implementation status.
+- Keep docs synchronized with current UI labels and flows (`Comicify!`, `My Collection`, `Create Comic -> Generate` default path).

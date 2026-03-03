@@ -6,6 +6,7 @@
 - Updated README badges and release links for the new release artifact.
 - Refreshed installation documentation and root docs references to `v1.0.3`.
 - Published new packaged extension ZIP for Chrome unpacked installation flow.
+- Clarified terminology and docs consistency (`My Collection`, share targets, docs index, canonical `docs/instructions.md`).
 
 ### Packaging
 - Release artifact: `Web2Comics-v1.0.3-extension.zip`

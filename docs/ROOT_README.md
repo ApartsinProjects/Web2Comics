@@ -1,5 +1,10 @@
 # Web2Comics: AI-Powered Chrome Extension That Turns Any Web Page Into a Comic-Strip Summary
 
+![Status](https://img.shields.io/badge/status-experimental-orange)
+![Platform](https://img.shields.io/badge/platform-chrome%20extension-blue)
+![Release](https://img.shields.io/badge/release-v1.0.3-success)
+![AI Providers](https://img.shields.io/badge/providers-Gemini%20%7C%20OpenAI%20%7C%20OpenRouter%20%7C%20HF%20%7C%20Cloudflare-6f42c1)
+
 <p align="center">
   <img src="docs/visual-abstract-gemini.png" alt="Web2Comics visual abstract" width="760">
 </p>
@@ -38,9 +43,9 @@ Note: `Code -> Download ZIP` downloads the full source repository. Use the relea
 - Choose providers/models for text and image generation
 - Use preset or custom visual styles
 - Track live progress (elapsed time + ETA)
-- Review history of generated comics
+- Review generated comics in `My Collection`
 - Export a single PNG comic sheet with captions and source URL
-- Share to Facebook, X, LinkedIn, WhatsApp, Telegram, Reddit, or Email (plus copy-link/caption flows)
+- Share to connected targets (Facebook, X, Instagram, LinkedIn, Reddit, Email)
 
 ## Supported Providers
 
@@ -74,7 +79,9 @@ Web2Comics also supports automatic fallback to other configured providers when a
 
 ## Example
 
-![Web2Comics example](samples/screen.png)
+<p align="center">
+  <img src="samples/screen.png" alt="Web2Comics example output" width="720">
+</p>
 
 ## First-Time Setup (Recommended Free-Tier Start)
 
