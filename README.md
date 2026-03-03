@@ -77,24 +77,11 @@ Web2Comics also supports automatic fallback to other configured providers when a
 - Test different model combinations
 - Use model test buttons in `Options -> Providers`
 
-## Sample Comics (Real Provider Runs)
+## Example
 
-These examples were generated from the same `cnn.com` page using different providers and exported from Web2Comics as single PNG comic sheets.
-Some sample outputs may come from earlier probe/test runs and may not exactly match the current default provider capability matrix in the extension UI.
-
-### OpenAI
-
-![OpenAI CNN comic sample](samplecomics/2026-02-25_13-38-32/openai-cnn-comic-sheet.png)
-
-### Gemini
-
-![Gemini CNN comic sample](samplecomics/2026-02-25_13-38-32/gemini-cnn-comic-sheet.png)
-
-### Cloudflare Workers AI
-
-Cloudflare Workers AI supports both text and image generation in the current extension build (account/token and model availability dependent).
-
-![Cloudflare CNN comic sample](samplecomics/2026-02-25_13-38-32/cloudflare-cnn-comic-sheet.png)
+<p align="center">
+  <img src="samples/screen.png" alt="Web2Comics example output" width="720">
+</p>
 
 ## First-Time Setup (Recommended Free-Tier Start)
 
