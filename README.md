@@ -1,5 +1,10 @@
 # Web2Comics: AI-Powered Chrome Extension That Turns Any Web Page Into a Comic-Strip Summary
 
+![Status](https://img.shields.io/badge/status-experimental-orange)
+![Platform](https://img.shields.io/badge/platform-chrome%20extension-blue)
+![Release](https://img.shields.io/badge/release-v1.0.2-success)
+![AI Providers](https://img.shields.io/badge/providers-Gemini%20%7C%20OpenAI%20%7C%20OpenRouter%20%7C%20HF%20%7C%20Cloudflare-6f42c1)
+
 <p align="center">
   <img src="docs/visual-abstract-gemini.png" alt="Web2Comics visual abstract" width="760">
 </p>
