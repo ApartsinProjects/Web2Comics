@@ -2,7 +2,7 @@
 // TypeScript-only declarations and is not executable as a browser module.
 const DEFAULT_SETTINGS = {
   panelCount: 3,
-  objective: 'summarize',
+  objective: 'explain-like-im-five',
   detailLevel: 'low',
   styleId: 'default',
   customStyleTheme: '',
@@ -45,7 +45,7 @@ const PROVIDER_LABELS = {
   'openrouter': 'OpenRouter',
   'huggingface': 'Hugging Face'
 };
-const SUPPORTED_OUTPUT_LANGUAGES = new Set(['en', 'auto', 'es', 'fr', 'de', 'it', 'pt', 'ja', 'ko', 'zh']);
+const SUPPORTED_OUTPUT_LANGUAGES = new Set(['en', 'auto', 'es', 'fr', 'de', 'it', 'pt', 'ru', 'ja', 'ko', 'zh']);
 
 function mapRecommendedSettingsPayload(payload) {
   if (!payload || typeof payload !== 'object') return {};
@@ -104,7 +104,11 @@ class PopupController {
     this.extractionQuality = null;
     this.selectedCandidateSummary = '';
     this.selectedCandidateScore = 0;
+    this.selectedStoryTitle = '';
     this.storySelectionLockedByUser = false;
+    this.storyPreviewCache = {};
+    this.extractRequestSeq = 0;
+    this.storyDetectionInFlight = 0;
     this.currentPageUrl = '';
     this.currentSiteProfile = 'generic';
     this.hasCompletedFirstGeneration = false;
@@ -146,17 +150,29 @@ class PopupController {
   }
 
   async init() {
+    this.renderExtensionVersion();
     await this.loadRecommendedDefaults();
     await this.loadSettings();
     await this.loadCustomStyles();
     await this.loadFirstSuccessState();
     await this.checkOnboarding();
+    this.bindEvents();
     const consumedContextSelection = await this.consumePendingComposerPrefill();
     if (!consumedContextSelection) {
-      await this.extractContent();
+      void this.extractContent().catch((error) => {
+        console.error('Initial extraction failed:', error);
+      });
     }
-    this.bindEvents();
     this.updateUI();
+  }
+
+  renderExtensionVersion() {
+    try {
+      const version = String(chrome?.runtime?.getManifest?.().version || '').trim();
+      if (!version) return;
+      const label = document.getElementById('popup-version-label');
+      if (label) label.textContent = `v${version}`;
+    } catch (_) {}
   }
 
   async consumePendingComposerPrefill() {
@@ -180,6 +196,7 @@ class PopupController {
       this.selectedExtractionCandidateId = '';
       this.selectedCandidateSummary = '';
       this.selectedCandidateScore = 0;
+      this.selectedStoryTitle = '';
       this.extractionQuality = {
         confidence: 'high',
         score: 0.96,
@@ -293,7 +310,7 @@ class PopupController {
     if (!hint) return;
     const profile = this.currentSiteProfile || 'generic';
     const messages = {
-      wikipedia: 'Wikipedia mode is active: lead + key sections are prioritized for better grounding.',
+      wikipedia: 'Wikipedia mode is active: lead + key sections are prioritized for better story detection.',
       news: 'News mode is active: narrative article body is prioritized over side rails and navigation.',
       social: 'Social mode is active: likely post bodies are prioritized and UI chrome is filtered.',
       generic: 'General mode is active: auto-scoring ranks high-signal text blocks before generation.'
@@ -340,7 +357,7 @@ class PopupController {
     }
 
     if (mode === 'selection') {
-      hintEl.textContent = 'Using your highlighted text. Switch back to Auto-pick top story to use detected stories.';
+      hintEl.textContent = 'Using highlighted text from page selection.';
       hintEl.classList.remove('hidden');
       return;
     }
@@ -359,8 +376,49 @@ class PopupController {
     const summarizerNote = summaryMethod === 'chrome-summarizer'
       ? ' (Chrome Summarizer)'
       : '';
-    hintEl.textContent = `${selectedLabel}${summarizerNote}: ${summary} Use Stories to switch, or highlight text to generate from your own selection.`;
+    hintEl.textContent = `${selectedLabel}${summarizerNote}: ${summary}`;
     hintEl.classList.remove('hidden');
+  }
+
+  setStoryDetectionProgress(active, message) {
+    const shell = document.getElementById('story-detection-progress');
+    const textEl = document.getElementById('story-detection-progress-text');
+    const subtextEl = document.getElementById('story-detection-progress-subtext');
+    const emojiEl = shell ? shell.querySelector('.story-detection-emoji') : null;
+    if (!shell || !textEl) return;
+    if (active) {
+      textEl.textContent = String(message || 'Detecting top stories on page...');
+      if (subtextEl) {
+        const msg = String(message || '').toLowerCase();
+        if (msg.includes('refining') || msg.includes('retry')) {
+          subtextEl.textContent = 'Tightening relevance and isolating the cleanest narrative...';
+          if (emojiEl) emojiEl.textContent = '🧭';
+        } else {
+          subtextEl.textContent = 'Scanning sections and ranking the clearest story...';
+          if (emojiEl) emojiEl.textContent = '🔎';
+        }
+      }
+      shell.classList.remove('hidden');
+    } else {
+      shell.classList.add('hidden');
+    }
+  }
+
+  beginStoryDetectionProgress(isRetry) {
+    this.storyDetectionInFlight += 1;
+    const message = isRetry
+      ? 'Refining story detection...'
+      : 'Detecting top stories on page...';
+    this.setStoryDetectionProgress(true, message);
+    this.updateWizardReadiness();
+  }
+
+  endStoryDetectionProgress() {
+    this.storyDetectionInFlight = Math.max(0, Number(this.storyDetectionInFlight || 0) - 1);
+    if (this.storyDetectionInFlight === 0) {
+      this.setStoryDetectionProgress(false);
+    }
+    this.updateWizardReadiness();
   }
 
   evaluateGroundingConfidence() {
@@ -374,24 +432,23 @@ class PopupController {
     const pass = !!quality.pass;
 
     if (pass && words >= 180 && score >= 120 && uniqueRatio >= 0.22 && shortLines <= 0.55 && boilerplate <= 6) {
-      return { level: 'high', text: 'High grounding confidence. Content looks focused and fact-dense.' };
+      return { level: 'high', text: 'Story detection confidence is high. The selected story looks clear and specific.' };
     }
     if (pass && words >= 90 && score >= 60 && shortLines <= 0.8 && boilerplate <= 12) {
-      return { level: 'medium', text: 'Medium grounding confidence. Generate now, or narrow to a more focused section.' };
+      return { level: 'medium', text: 'Story detection confidence is medium. Generate now, or pick a tighter story.' };
     }
-    return { level: 'low', text: 'Low grounding confidence. Auto-pick a tighter section before generating.' };
+    return { level: 'low', text: 'Story detection confidence is low. Auto-pick a tighter section before generating.' };
   }
 
   updateQualityConfidenceUI() {
     const shell = document.getElementById('quality-confidence');
     const badge = document.getElementById('quality-confidence-badge');
+    const levelEl = document.getElementById('quality-confidence-level');
     const text = document.getElementById('quality-confidence-text');
-    const selectedSummary = document.getElementById('selected-block-summary');
     const storyPickerBtn = document.getElementById('story-picker-btn');
-    if (!shell || !badge || !text) return;
+    if (!shell || !badge || !text || !levelEl) return;
     if (!this.extractedText) {
       shell.classList.add('hidden');
-      if (selectedSummary) selectedSummary.classList.add('hidden');
       if (storyPickerBtn) storyPickerBtn.classList.add('hidden');
       this.updateStoryFlowHint();
       return;
@@ -400,12 +457,18 @@ class PopupController {
     badge.classList.remove('high', 'medium', 'low');
     badge.classList.add(confidence.level);
     badge.textContent = '';
-    badge.setAttribute('aria-label', 'Grounding confidence ' + confidence.level);
-    badge.setAttribute('title', 'Grounding confidence ' + confidence.level);
+    badge.setAttribute('aria-label', 'Story detection confidence ' + confidence.level);
+    badge.setAttribute('title', 'Story detection confidence ' + confidence.level);
+    levelEl.classList.remove('high', 'medium', 'low');
+    levelEl.classList.add(confidence.level);
+    levelEl.textContent = confidence.level === 'high'
+      ? 'High'
+      : confidence.level === 'medium'
+        ? 'Medium'
+        : 'Low';
     text.textContent = confidence.text;
     shell.classList.remove('hidden');
 
-    if (selectedSummary) selectedSummary.classList.add('hidden');
     if (storyPickerBtn) {
       const canPickStory = this.getSelectedContentSource() === 'full' && Array.isArray(this.extractionCandidates) && this.extractionCandidates.length > 0;
       storyPickerBtn.classList.toggle('hidden', !canPickStory);
@@ -475,6 +538,7 @@ class PopupController {
     this.setSelectedContentSource('selection');
     this.selectedExtractionCandidateId = '';
     this.extractionCandidates = [];
+    this.selectedStoryTitle = '';
     this.updateCandidateSelector();
     this.updatePreview('Full-page extraction failed. Trying selected text mode...');
     void this.appendDebugLog('content.extract.fallback_to_selection', {
@@ -485,8 +549,24 @@ class PopupController {
   }
 
   async extractContent(options = {}) {
+    const requestSeq = ++this.extractRequestSeq;
     const contentSource = this.getSelectedContentSource();
     const isRetry = !!options.isRetry;
+    const trackStoryDetection = contentSource === 'full';
+    if (trackStoryDetection) {
+      this.beginStoryDetectionProgress(isRetry);
+      // Clear stale story UI immediately so prior-page candidate panes do not flash
+      // while the new page is being analyzed.
+      if (!isRetry && !options.selectedCandidateId) {
+        this.extractionCandidates = [];
+        this.selectedExtractionCandidateId = '';
+        this.selectedCandidateSummary = '';
+        this.selectedCandidateScore = 0;
+        this.selectedStoryTitle = '';
+        this.updateCandidateSelector();
+        this.updateQualityConfidenceUI();
+      }
+    }
     if (!isRetry) {
       this.extractRetryCount = 0;
       this.clearExtractRetry();
@@ -513,15 +593,23 @@ class PopupController {
           selectedCandidateId: options.selectedCandidateId || this.selectedExtractionCandidateId || ''
         }
       });
+      if (requestSeq !== this.extractRequestSeq) return;
       
       if (response && response.success) {
         this.extractedText = response.text;
         this.extractionQuality = response.quality || null;
-        if (contentSource === 'full') {
-          this.selectionFallbackActive = false;
+      if (contentSource === 'full') {
+        this.selectionFallbackActive = false;
+      }
+      this.extractionCandidates = Array.isArray(response.candidates) ? response.candidates : [];
+      this.storyPreviewCache = {};
+      let preferredCandidateId = response.selectedCandidateId || response.autoSelectedCandidateId || '';
+      if (contentSource === 'full') {
+        const llmStoriesApplied = await this.processStoriesWithLlm(response, tab, options);
+        if (llmStoriesApplied) {
+          preferredCandidateId = this.selectedExtractionCandidateId || preferredCandidateId;
         }
-        this.extractionCandidates = Array.isArray(response.candidates) ? response.candidates : [];
-        const preferredCandidateId = response.selectedCandidateId || response.autoSelectedCandidateId || '';
+      }
         if (contentSource === 'full') {
           this.selectedExtractionCandidateId =
             preferredCandidateId ||
@@ -535,6 +623,7 @@ class PopupController {
         const selectedOption = this.getSelectedCandidateOption();
         this.selectedCandidateSummary = selectedOption?.summary || '';
         this.selectedCandidateScore = Number(selectedOption?.score || 0);
+        this.selectedStoryTitle = String(selectedOption?.title || '').trim();
         this.updateCandidateSelector();
         this.clearExtractRetry();
         this.extractRetryCount = 0;
@@ -554,6 +643,7 @@ class PopupController {
         if (contentSource !== 'full') {
           this.extractionCandidates = [];
           this.selectedExtractionCandidateId = '';
+          this.selectedStoryTitle = '';
           this.updateCandidateSelector();
         }
         this.updatePreview(response?.error || 'Failed to extract content');
@@ -589,15 +679,9 @@ class PopupController {
         }
       }
     } catch (error) {
+      if (requestSeq !== this.extractRequestSeq) return;
       console.error('Extraction error:', error);
       var message = error && error.message ? error.message : String(error);
-      this.extractedText = '';
-      this.extractionQuality = null;
-      if (contentSource !== 'full') {
-        this.extractionCandidates = [];
-        this.selectedExtractionCandidateId = '';
-        this.updateCandidateSelector();
-      }
       void this.appendDebugLog('content.extract.error', { message: message, retry: isRetry });
 
       if (/Receiving end does not exist|Could not establish connection|The message port closed/i.test(message)) {
@@ -614,8 +698,95 @@ class PopupController {
         return;
       }
 
+      const hasExistingFullContent = contentSource === 'full' && String(this.extractedText || '').trim().length >= 50;
+      if (!hasExistingFullContent) {
+        this.extractedText = '';
+        this.extractionQuality = null;
+      }
+      if (contentSource !== 'full') {
+        this.extractionCandidates = [];
+        this.selectedExtractionCandidateId = '';
+        this.selectedStoryTitle = '';
+        this.updateCandidateSelector();
+      }
       this.updatePreview('Unable to extract content. Try selecting text on the page.');
       this.updateQualityConfidenceUI();
+    } finally {
+      if (trackStoryDetection) {
+        this.endStoryDetectionProgress();
+      }
+    }
+  }
+
+  async processStoriesWithLlm(extractResponse, tab, options = {}) {
+    try {
+      const candidatePayloads = Array.isArray(extractResponse?.candidatePayloads) ? extractResponse.candidatePayloads : [];
+      const sourceText = String(extractResponse?.fullSourceText || extractResponse?.text || '').trim();
+      const sourceHtml = String(extractResponse?.sourceHtml || '').trim();
+      if (!sourceText && !sourceHtml) return false;
+
+      const response = await chrome.runtime.sendMessage({
+        type: 'PROCESS_CONTENT_STORIES',
+        payload: {
+          sourceText: sourceText,
+          sourceHtml: sourceHtml,
+          candidatePayloads: candidatePayloads,
+          sourceUrl: String(tab?.url || this.currentPageUrl || ''),
+          sourceTitle: String(tab?.title || ''),
+          preferredProvider: this.settings.activeTextProvider || 'gemini-free',
+          settings: this.settings
+        }
+      });
+      if (!response || response.success === false) return false;
+      const stories = Array.isArray(response.stories) ? response.stories : [];
+      if (!stories.length) return false;
+
+      this.extractionCandidates = stories.map((story, idx) => ({
+        id: String(story?.id || ('story_' + (idx + 1))),
+        title: String(story?.title || ('Story ' + (idx + 1))),
+        summary: String(story?.summary || ''),
+        score: Number(story?.score || 0),
+        chars: Number(story?.chars || String(story?.text || '').length || 0),
+        sourceCandidateId: String(story?.sourceCandidateId || story?.candidate_id || ''),
+        text: String(story?.text || ''),
+        summaryMethod: 'llm'
+      }));
+
+      const requestedCandidateId = String(options.selectedCandidateId || '').trim();
+      let resolvedRequestedStoryId = '';
+      if (requestedCandidateId) {
+        const byStoryId = this.extractionCandidates.find((candidate) => String(candidate?.id || '') === requestedCandidateId);
+        const bySourceCandidateId = byStoryId ? null : this.extractionCandidates.find((candidate) => (
+          String(candidate?.sourceCandidateId || '') === requestedCandidateId
+        ));
+        resolvedRequestedStoryId = String((byStoryId || bySourceCandidateId || {}).id || '');
+      }
+      const hasRequestedCandidate = Boolean(resolvedRequestedStoryId);
+      const selectedStoryId = String(
+        (hasRequestedCandidate ? resolvedRequestedStoryId : '') ||
+        response.selectedStoryId ||
+        (this.extractionCandidates[0] && this.extractionCandidates[0].id) ||
+        ''
+      );
+      this.selectedExtractionCandidateId = selectedStoryId;
+      const selectedStory = this.getSelectedCandidateOption() || this.extractionCandidates[0] || null;
+      if (selectedStory) {
+        this.extractedText = String(selectedStory.text || this.extractedText || '');
+        this.selectedCandidateSummary = String(selectedStory.summary || '');
+        this.selectedCandidateScore = Number(selectedStory.score || 0);
+        this.selectedStoryTitle = String(selectedStory.title || '').trim();
+      }
+      void this.appendDebugLog('content.story_selection.llm.success', {
+        providerUsed: response.providerUsed || '',
+        storyCount: this.extractionCandidates.length,
+        selectedStoryId: this.selectedExtractionCandidateId
+      });
+      return true;
+    } catch (error) {
+      void this.appendDebugLog('content.story_selection.llm.error', {
+        message: error?.message || String(error)
+      });
+      return false;
     }
   }
 
@@ -644,6 +815,7 @@ class PopupController {
     const previewEl = document.getElementById('preview-text');
     const charCountEl = document.getElementById('char-count');
     const modelPreviewEl = document.getElementById('model-context-preview-text');
+    const modelCharCountEl = document.getElementById('model-context-char-count');
     
     if (!text || text.length === 0) {
       previewEl.innerHTML = '<span class="loading">No content found</span>';
@@ -651,16 +823,19 @@ class PopupController {
       if (modelPreviewEl) {
         modelPreviewEl.innerHTML = '<span class="loading">No model context yet</span>';
       }
+      if (modelCharCountEl) modelCharCountEl.textContent = '0';
       this.updateQualityConfidenceUI();
       this.updateWizardReadiness();
       return;
     }
     
     const truncated = text.length > 500 ? text.substring(0, 500) + '...' : text;
-    const modelSnippet = text.length > 1000 ? text.substring(0, 1000) + '...' : text;
+    const modelSnippetRaw = text.length > 1000 ? text.substring(0, 1000) : text;
+    const modelSnippet = text.length > 1000 ? (modelSnippetRaw + '...') : modelSnippetRaw;
     previewEl.textContent = truncated;
     charCountEl.textContent = text.length.toLocaleString();
     if (modelPreviewEl) modelPreviewEl.textContent = modelSnippet;
+    if (modelCharCountEl) modelCharCountEl.textContent = modelSnippetRaw.length.toLocaleString();
     this.updateQualityConfidenceUI();
     this.updateWizardReadiness();
   }
@@ -668,11 +843,13 @@ class PopupController {
   updateCandidateSelector() {
     const wrap = document.getElementById('content-candidate-wrap');
     const select = document.getElementById('content-candidate-select');
-    const mode = this.getSelectedContentSource();
-    if (!wrap || !select) return;
+    if (!wrap || !select) {
+      this.updateQualityConfidenceUI();
+      return;
+    }
 
     const candidates = Array.isArray(this.extractionCandidates) ? this.extractionCandidates : [];
-    const shouldShow = mode === 'full' && candidates.length > 1;
+    const shouldShow = false;
     wrap.classList.toggle('hidden', !shouldShow);
     if (!shouldShow) {
       this.updateQualityConfidenceUI();
@@ -692,12 +869,16 @@ class PopupController {
     const selectedOption = this.getSelectedCandidateOption();
     this.selectedCandidateSummary = selectedOption?.summary || '';
     this.selectedCandidateScore = Number(selectedOption?.score || 0);
+    this.selectedStoryTitle = String(selectedOption?.title || this.selectedStoryTitle || '').trim();
     this.updateQualityConfidenceUI();
   }
 
   getCandidateDisplaySummary(candidate) {
+    const storyTitle = String(candidate?.title || '').trim();
     const raw = String(candidate?.summary || '').trim();
+    if (raw && storyTitle) return (storyTitle + ': ' + raw).slice(0, 220);
     if (raw) return raw.slice(0, 220);
+    if (storyTitle) return storyTitle.slice(0, 220);
     return 'No summary available';
   }
 
@@ -712,15 +893,83 @@ class PopupController {
     list.innerHTML = candidates.map((candidate, idx) => {
       const id = String(candidate?.id || ('candidate_' + idx));
       const isActive = id === this.selectedExtractionCandidateId;
-      const title = `Story ${idx + 1} • ${Number(candidate?.chars || 0).toLocaleString()} chars • score ${Number(candidate?.score || 0).toFixed(0)}`;
+      const storyTitle = String(candidate?.title || '').trim();
+      const title = `${storyTitle || ('Story ' + (idx + 1))} • ${Number(candidate?.chars || 0).toLocaleString()} chars • score ${Number(candidate?.score || 0).toFixed(0)}`;
       const summary = this.getCandidateDisplaySummary(candidate);
       return [
+        `<div class="story-picker-entry" data-candidate-id="${this.escapeHtml(id)}">`,
+        '<div class="story-picker-entry-head">',
         `<button type="button" class="story-picker-item${isActive ? ' active' : ''}" data-candidate-id="${this.escapeHtml(id)}">`,
         `<span class="story-picker-item-title">${this.escapeHtml(title)}</span>`,
         `<span class="story-picker-item-summary">${this.escapeHtml(summary)}</span>`,
-        '</button>'
+        '</button>',
+        `<button type="button" class="story-picker-expand-btn" data-candidate-id="${this.escapeHtml(id)}" aria-expanded="false" title="Preview full story">+</button>`,
+        '</div>',
+        `<div class="story-picker-preview hidden" data-candidate-id="${this.escapeHtml(id)}">`,
+        '<div class="story-picker-preview-text"><span class="loading">Click + to preview full extracted story...</span></div>',
+        '</div>',
+        '</div>'
       ].join('');
     }).join('');
+  }
+
+  async loadStoryPreview(candidateId) {
+    const key = String(candidateId || '').trim();
+    if (!key) return 'No story preview available.';
+    if (typeof this.storyPreviewCache[key] === 'string') return this.storyPreviewCache[key];
+    const localCandidate = this.getCandidateIndexFromId(key) >= 0 ? this.getSelectedCandidateOption() : null;
+    const matchedCandidate = Array.isArray(this.extractionCandidates)
+      ? this.extractionCandidates.find((candidate) => String(candidate?.id || '') === key)
+      : null;
+    const inlineText = String((matchedCandidate && matchedCandidate.text) || (localCandidate && localCandidate.text) || '').trim();
+    if (inlineText) {
+      const localPreview = inlineText.length > 1800 ? (inlineText.slice(0, 1800) + '\n...[truncated]') : inlineText;
+      this.storyPreviewCache[key] = localPreview;
+      return localPreview;
+    }
+    try {
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      const response = await chrome.tabs.sendMessage(tab.id, {
+        type: 'EXTRACT_CONTENT',
+        payload: {
+          mode: 'full',
+          selectedCandidateId: key
+        }
+      });
+      const text = String(response?.text || '').trim();
+      const preview = text
+        ? (text.length > 1800 ? (text.slice(0, 1800) + '\n...[truncated]') : text)
+        : 'No preview content available for this story.';
+      this.storyPreviewCache[key] = preview;
+      return preview;
+    } catch (error) {
+      return 'Could not load story preview.';
+    }
+  }
+
+  async toggleStoryPreview(candidateId) {
+    const key = String(candidateId || '').trim();
+    if (!key) return;
+    const previewEl = Array.from(document.querySelectorAll('.story-picker-preview'))
+      .find((el) => String(el?.dataset?.candidateId || '') === key);
+    const expandBtn = Array.from(document.querySelectorAll('.story-picker-expand-btn'))
+      .find((el) => String(el?.dataset?.candidateId || '') === key);
+    if (!previewEl || !expandBtn) return;
+    const isHidden = previewEl.classList.contains('hidden');
+    if (!isHidden) {
+      previewEl.classList.add('hidden');
+      expandBtn.textContent = '+';
+      expandBtn.setAttribute('aria-expanded', 'false');
+      return;
+    }
+    previewEl.classList.remove('hidden');
+    expandBtn.textContent = '−';
+    expandBtn.setAttribute('aria-expanded', 'true');
+    const textEl = previewEl.querySelector('.story-picker-preview-text');
+    if (!textEl) return;
+    textEl.innerHTML = '<span class="loading">Loading preview...</span>';
+    const previewText = await this.loadStoryPreview(key);
+    textEl.textContent = previewText;
   }
 
   openStoryPicker() {
@@ -746,6 +995,10 @@ class PopupController {
     const selectedOption = this.getSelectedCandidateOption();
     this.selectedCandidateSummary = selectedOption?.summary || '';
     this.selectedCandidateScore = Number(selectedOption?.score || 0);
+    this.selectedStoryTitle = String(selectedOption?.title || '').trim();
+    // Prevent accidental generation from stale text while switching stories.
+    this.extractedText = '';
+    this.updatePreview('Loading selected story...');
     this.updateStoryFlowHint();
     this.updateQualityConfidenceUI();
     this.hideStoryPicker();
@@ -756,7 +1009,7 @@ class PopupController {
     // Onboarding
     document.getElementById('onboarding-start-btn')?.addEventListener('click', () => this.completeOnboarding());
     document.getElementById('create-comic-btn')?.addEventListener('click', () => this.showCreateComposer());
-    document.getElementById('view-history-btn')?.addEventListener('click', () => this.showHistory());
+    document.getElementById('view-history-btn')?.addEventListener('click', () => this.openCollectionViewFromLauncher());
     document.getElementById('back-home-btn')?.addEventListener('click', () => this.showHome());
     document.getElementById('content-extra-section')?.addEventListener('toggle', (e) => {
       if (this.suppressExtraIntentTracking) return;
@@ -773,6 +1026,7 @@ class PopupController {
         this.storySelectionLockedByUser = this.getSelectedContentSource() === 'selection';
         if (this.getSelectedContentSource() !== 'full') {
           this.selectedExtractionCandidateId = '';
+          this.selectedStoryTitle = '';
           this.extractionCandidates = [];
           this.updateCandidateSelector();
         }
@@ -780,13 +1034,6 @@ class PopupController {
         this.extractContent();
       });
     });
-    document.getElementById('content-candidate-select')?.addEventListener('change', (e) => {
-      const candidateId = e && e.target ? e.target.value : '';
-      this.storySelectionLockedByUser = true;
-      this.selectedExtractionCandidateId = candidateId || '';
-      this.extractContent({ selectedCandidateId: this.selectedExtractionCandidateId });
-    });
-    
     // Refresh preview
     document.getElementById('refresh-preview-btn')?.addEventListener('click', () => this.extractContent());
     document.getElementById('auto-pick-best-btn')?.addEventListener('click', () => this.autoPickBestStorySection());
@@ -794,6 +1041,13 @@ class PopupController {
     document.getElementById('close-story-picker-btn')?.addEventListener('click', () => this.hideStoryPicker());
     document.getElementById('close-story-picker-footer-btn')?.addEventListener('click', () => this.hideStoryPicker());
     document.getElementById('story-picker-list')?.addEventListener('click', (event) => {
+      const expandBtn = event?.target?.closest?.('.story-picker-expand-btn');
+      if (expandBtn) {
+        const previewCandidateId = expandBtn?.dataset?.candidateId || '';
+        if (!previewCandidateId) return;
+        void this.toggleStoryPreview(previewCandidateId);
+        return;
+      }
       const btn = event?.target?.closest?.('.story-picker-item');
       const candidateId = btn?.dataset?.candidateId || '';
       if (!candidateId) return;
@@ -808,7 +1062,7 @@ class PopupController {
     });
 
     document.getElementById('objective').addEventListener('change', (e) => {
-      this.settings.objective = e.target.value || 'summarize';
+      this.settings.objective = e.target.value || 'explain-like-im-five';
       this.saveSettings();
       this.updateWizardReadiness();
     });
@@ -902,7 +1156,7 @@ class PopupController {
     document.getElementById('download-logs-btn')?.addEventListener('click', () => this.downloadDebugLogs());
     
     // History
-    document.getElementById('history-btn')?.addEventListener('click', () => this.showHistory());
+    document.getElementById('history-btn')?.addEventListener('click', () => this.handleHistoryFooterClick());
     document.getElementById('close-history-btn')?.addEventListener('click', () => this.hideHistory());
     document.getElementById('clear-history-btn')?.addEventListener('click', () => this.clearHistory());
     
@@ -916,7 +1170,7 @@ class PopupController {
   updateUI() {
     // Update form values from settings
     document.getElementById('panel-count').value = this.settings.panelCount;
-    document.getElementById('objective').value = this.settings.objective || 'summarize';
+    document.getElementById('objective').value = this.settings.objective || 'explain-like-im-five';
     this.settings.outputLanguage = this.normalizeOutputLanguage(this.settings.outputLanguage);
     document.getElementById('output-language').value = this.settings.outputLanguage;
     this.normalizePanelCountSetting();
@@ -987,6 +1241,10 @@ class PopupController {
     const toggle = document.getElementById('advanced-settings-toggle');
     if (!panel || !toggle) return;
     this.advancedSettingsExpanded = Boolean(expanded);
+    if (this.advancedSettingsExpanded) {
+      const imagesCard = document.getElementById('customize-images-card');
+      if (imagesCard && imagesCard.tagName === 'DETAILS') imagesCard.open = true;
+    }
     panel.classList.toggle('hidden', !this.advancedSettingsExpanded);
     toggle.setAttribute('aria-expanded', this.advancedSettingsExpanded ? 'true' : 'false');
   }
@@ -1047,19 +1305,20 @@ class PopupController {
         handler: () => this.setExtraSectionOpen('options-extra-section', true)
       };
     }
-    if (!readinessState.contentReady) {
-      return {
-        id: 'open-content',
-        label: 'Open Source Text',
-        handler: () => this.setExtraSectionOpen('content-extra-section', true)
-      };
-    }
+    // Keep the readiness area calm while source analysis runs; story picking is available
+    // via the dedicated Stories button once candidates are ready.
+    if (!readinessState.contentReady) return null;
     return null;
   }
 
   updateReadinessActionControl(readinessState) {
     const nextBtn = document.getElementById('readiness-next-btn');
     if (!nextBtn) return;
+    if (!this.hasAnyConfiguredProviders) {
+      nextBtn.classList.add('hidden');
+      nextBtn.dataset.actionId = '';
+      return;
+    }
     const action = this.getReadinessNextAction(readinessState);
     if (!action) {
       nextBtn.classList.add('hidden');
@@ -1074,8 +1333,8 @@ class PopupController {
   handleReadinessNextAction() {
     const actionId = String(document.getElementById('readiness-next-btn')?.dataset?.actionId || '');
     if (!actionId) return;
-    if (actionId === 'open-content') {
-      this.setExtraSectionOpen('content-extra-section', true);
+    if (actionId === 'open-story-picker') {
+      this.openStoryPicker();
       return;
     }
     if (actionId === 'open-settings') {
@@ -1431,13 +1690,16 @@ class PopupController {
     const readinessText = document.getElementById('wizard-readiness-text');
     if (!readinessBox || !readinessText) return;
 
-    const contentReady = Boolean(this.extractedText && this.extractedText.length >= 50);
+    const sourceBusy = Number(this.storyDetectionInFlight || 0) > 0;
+    const contentReady = !sourceBusy && Boolean(this.extractedText && this.extractedText.length >= 50);
     const styleReady = true;
     const providerReady = this.hasAnyConfiguredProviders && (this.providerIsReady !== false);
     const settingsReady = providerReady && styleReady;
     const canGenerate = contentReady && settingsReady;
     const issues = [];
-    if (!contentReady) {
+    if (sourceBusy) {
+      issues.push('Story selection is being updated, please wait');
+    } else if (!contentReady) {
       issues.push(
         this.getSelectedContentSource() === 'selection'
           ? 'Highlight text on the page to continue'
@@ -1447,7 +1709,7 @@ class PopupController {
     if (!this.hasAnyConfiguredProviders) issues.push('Connect a model provider in Settings');
     else if (!providerReady) issues.push('Finish provider setup in Settings');
     if (!styleReady) issues.push('Complete style details');
-    this.lastWizardReadiness = { contentReady, settingsReady, canGenerate, issues };
+    this.lastWizardReadiness = { contentReady, settingsReady, canGenerate, issues, sourceBusy };
     const canonicalText = this.getReadinessGuidance({
       canGenerate,
       contentReady,
@@ -1495,26 +1757,21 @@ class PopupController {
     const mainVisible = !document.getElementById('main-section')?.classList.contains('hidden');
     if (mainVisible && !this.isGenerating) {
       const shouldOpenOptions = !settingsReady && !this.userCollapsedOptions && !this.autoExpandedOptionsOnce;
-      const shouldOpenContent = !contentReady &&
-        (this.selectionFallbackActive || this.getSelectedContentSource() === 'selection') &&
-        !this.userCollapsedContent &&
-        !this.autoExpandedContentOnce;
-      if (shouldOpenContent) {
-        this.setExtraSectionOpen('content-extra-section', true);
-        this.autoExpandedContentOnce = true;
-      } else if (shouldOpenOptions) {
+      if (shouldOpenOptions) {
         this.setExtraSectionOpen('options-extra-section', true);
         this.autoExpandedOptionsOnce = true;
       }
     }
 
     if (canGenerate) {
+      readinessBox.classList.add('hidden');
       readinessBox.classList.add('ready');
       readinessText.textContent = canonicalText;
       this.lastReadinessState = { contentReady, settingsReady, canGenerate };
       return;
     }
 
+    readinessBox.classList.remove('hidden');
     readinessBox.classList.add('warn');
     readinessText.textContent = canonicalText;
     this.lastReadinessState = { contentReady, settingsReady, canGenerate };
@@ -1522,13 +1779,14 @@ class PopupController {
 
   getReadinessGuidance(state) {
     if (state?.canGenerate) return 'Ready to generate.';
+    if (state?.sourceBusy) return 'Story analysis in progress. Please wait a moment.';
     if (!state?.hasAnyConfiguredProviders) return 'Connect a model provider in Settings to continue.';
     if (!state?.providerReady) return 'Complete provider setup in Settings.';
     if (!state?.contentReady) {
       if (this.getSelectedContentSource() === 'selection') {
         return 'Select text on the page, then click Re-scan.';
       }
-      return 'Pick a detected story or switch to highlighted text.';
+      return 'Analyzing page content. Please wait.';
     }
     return 'Review settings, then generate.';
   }
@@ -1587,6 +1845,8 @@ class PopupController {
     document.getElementById('progress-section')?.classList.add('hidden');
     document.getElementById('main-section')?.classList.add('hidden');
     document.getElementById('home-section')?.classList.remove('hidden');
+    this.storyDetectionInFlight = 0;
+    this.setStoryDetectionProgress(false);
   }
 
   showCreateComposer() {
@@ -1602,6 +1862,20 @@ class PopupController {
     this.refreshSelectionFallbackUI();
     this.updateWizardReadiness();
     document.getElementById('generate-btn')?.focus();
+  }
+
+  async openCollectionViewFromLauncher() {
+    const opened = await this.openSidePanel({ userInitiated: true, initialView: 'history' });
+    if (opened) this.closePopupWindow();
+  }
+
+  async handleHistoryFooterClick() {
+    const composerVisible = !document.getElementById('main-section')?.classList.contains('hidden');
+    if (composerVisible) {
+      await this.openCollectionViewFromLauncher();
+      return;
+    }
+    await this.showHistory();
   }
 
   async startGeneration() {
@@ -1635,7 +1909,7 @@ class PopupController {
     this.isGenerating = true;
     this.showProgress();
     void this.trackMetric('generation_start', {
-      objective: this.settings.objective || 'summarize',
+      objective: this.settings.objective || 'explain-like-im-five',
       provider_text: this.settings.activeTextProvider,
       provider_image: this.settings.activeImageProvider,
       domain: (() => {
@@ -1661,10 +1935,10 @@ class PopupController {
         payload: {
           text: this.extractedText,
           url: tab.url,
-          title: tab.title,
+          title: this.selectedStoryTitle || tab.title,
           settings: {
             panel_count: this.settings.panelCount,
-            objective: this.settings.objective || 'summarize',
+            objective: this.settings.objective || 'explain-like-im-five',
             output_language: this.settings.outputLanguage || 'en',
             detail_level: this.settings.detailLevel,
             style_id: resolvedStyle.styleId,
@@ -1797,6 +2071,7 @@ class PopupController {
     if (document.getElementById('panel-progress')) {
       document.getElementById('panel-progress').innerHTML = '';
     }
+    this.showComicifyProgressModal();
     if (document.getElementById('generate-btn')) {
       document.getElementById('generate-btn').disabled = true;
     }
@@ -1805,6 +2080,7 @@ class PopupController {
   hideProgress() {
     document.getElementById('main-section')?.classList.remove('hidden');
     document.getElementById('progress-section')?.classList.add('hidden');
+    this.hideComicifyProgressModal();
     if (document.getElementById('generate-btn')) {
       document.getElementById('generate-btn').disabled = false;
       document.getElementById('generate-btn').title = '';
@@ -1814,6 +2090,86 @@ class PopupController {
     this.progressFirstPanelAtMs = 0;
     this.cancelRequestedByUser = false;
     this.updateWizardReadiness();
+  }
+
+  showComicifyProgressModal() {
+    const modal = document.getElementById('comicify-progress-modal');
+    if (!modal) return;
+    modal.classList.remove('hidden');
+    const subtitle = document.getElementById('comicify-progress-subtitle');
+    const detail = document.getElementById('comicify-progress-detail');
+    const percent = document.getElementById('comicify-progress-percent');
+    const bar = document.getElementById('comicify-progress-bar');
+    const emoji = document.getElementById('comicify-progress-emoji');
+    if (subtitle) subtitle.textContent = 'Warming up your storyboards...';
+    if (detail) detail.textContent = 'Elapsed 0s | Waiting for updates...';
+    if (percent) percent.textContent = '0%';
+    if (bar) bar.style.width = '0%';
+    if (emoji) emoji.textContent = '🎨';
+  }
+
+  hideComicifyProgressModal() {
+    document.getElementById('comicify-progress-modal')?.classList.add('hidden');
+  }
+
+  getProgressStatusLabel(status) {
+    const statusMap = {
+      pending: 'Preparing...',
+      generating_text: 'Generating storyboard...',
+      generating_images: 'Rendering comic panels...',
+      completed: 'Complete!',
+      failed: 'Failed',
+      canceled: 'Canceled'
+    };
+    return statusMap[status] || 'Processing...';
+  }
+
+  updateComicifyProgressModal(job, panelCount) {
+    const title = document.getElementById('comicify-progress-title');
+    const subtitle = document.getElementById('comicify-progress-subtitle');
+    const detail = document.getElementById('comicify-progress-detail');
+    const percentEl = document.getElementById('comicify-progress-percent');
+    const bar = document.getElementById('comicify-progress-bar');
+    const emoji = document.getElementById('comicify-progress-emoji');
+    if (!title && !subtitle && !detail && !percentEl && !bar && !emoji) return;
+
+    const status = String(job?.status || '').toLowerCase();
+    const totalPanels = Math.max(0, Number(panelCount || 0));
+    const completedPanels = Math.max(0, Number(job?.completedPanels || 0));
+    let percent = 0;
+    if (status === 'completed') {
+      percent = 100;
+    } else if (totalPanels > 0) {
+      percent = Math.max(0, Math.min(99, Math.round((completedPanels / totalPanels) * 100)));
+    } else if (status === 'generating_text') {
+      percent = 12;
+    } else if (status === 'pending') {
+      percent = 4;
+    }
+
+    const playfulSubtitleMap = {
+      pending: 'Sharpening pencils and checking colors...',
+      generating_text: 'Finding the best story beats...',
+      generating_images: 'Drawing panel magic...',
+      completed: 'Your comic is ready!',
+      failed: 'That run stumbled. Try again.',
+      canceled: 'Comicify stopped.'
+    };
+    const emojiMap = {
+      pending: '🧭',
+      generating_text: '🧠',
+      generating_images: '🖌️',
+      completed: '✅',
+      failed: '⚠️',
+      canceled: '⏹️'
+    };
+
+    if (title) title.textContent = this.getProgressStatusLabel(status);
+    if (subtitle) subtitle.textContent = playfulSubtitleMap[status] || 'Working on your comic...';
+    if (detail) detail.textContent = this.buildProgressTimingDetail(job, panelCount);
+    if (percentEl) percentEl.textContent = percent + '%';
+    if (bar) bar.style.width = percent + '%';
+    if (emoji) emoji.textContent = emojiMap[status] || '🎨';
   }
 
   formatDurationShort(ms) {
@@ -2006,17 +2362,8 @@ class PopupController {
     const panelProgress = document.getElementById('panel-progress');
     const debugLogEl = document.getElementById('progress-debug-log');
     
-    const statusMap = {
-      pending: 'Preparing...',
-      generating_text: 'Generating storyboard...',
-      generating_images: 'Rendering comic panels...',
-      completed: 'Complete!',
-      failed: 'Failed',
-      canceled: 'Canceled'
-    };
-    
     if (statusEl) {
-      statusEl.textContent = statusMap[job.status] || 'Processing...';
+      statusEl.textContent = this.getProgressStatusLabel(job.status);
     }
     if (debugLogEl) {
       debugLogEl.classList.toggle('hidden', !this.settings.debugFlag);
@@ -2040,6 +2387,7 @@ class PopupController {
     
     const panels = Array.isArray(job?.storyboard?.panels) ? job.storyboard.panels : null;
     const panelCount = panels ? panels.length : (job?.settings?.panel_count || 0);
+    this.updateComicifyProgressModal(job, panelCount);
     if (statusDetailEl) {
       statusDetailEl.textContent = this.buildProgressTimingDetail(job, panelCount);
     }
@@ -2145,12 +2493,20 @@ class PopupController {
 
   async openSidePanel(options = {}) {
     const userInitiated = !!(options && options.userInitiated);
+    const requestedView = String(options && options.initialView ? options.initialView : '').trim().toLowerCase();
+    const initialView = requestedView === 'history' || requestedView === 'comic' ? requestedView : '';
+    const sidePanelPath = initialView ? `sidepanel/sidepanel.html?view=${initialView}` : 'sidepanel/sidepanel.html';
     try {
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (initialView) {
+        try {
+          await chrome.storage.local.set({ sidepanelInitialView: initialView });
+        } catch (_) {}
+      }
       await chrome.sidePanel.open({ tabId: tab.id });
       await chrome.sidePanel.setOptions({
         tabId: tab.id,
-        path: 'sidepanel/sidepanel.html'
+        path: sidePanelPath
       });
       return true;
     } catch (error) {
@@ -2161,7 +2517,7 @@ class PopupController {
       }
       console.error('Failed to open side panel:', error);
       try {
-        window.open('sidepanel/sidepanel.html', '_blank');
+        window.open(sidePanelPath, '_blank');
       } catch (_) {}
       return false;
     }
@@ -2178,12 +2534,68 @@ class PopupController {
     } catch (_) {}
   }
 
+  resolveImageSourceValue(value) {
+    if (!value) return '';
+    if (typeof value === 'string') return value.trim();
+    if (typeof value === 'object') {
+      const obj = value || {};
+      const candidate = obj.url || obj.data_url || obj.href || obj.src || '';
+      return typeof candidate === 'string' ? candidate.trim() : '';
+    }
+    return '';
+  }
+
+  getHistoryImageSources(item, maxCount = 4) {
+    const limit = Number(maxCount) > 0 ? Math.min(Number(maxCount), 6) : 4;
+    const images = [];
+    const pushUnique = (value) => {
+      const src = this.resolveImageSourceValue(value);
+      if (!src) return;
+      if (!images.includes(src)) images.push(src);
+    };
+
+    pushUnique(item?.thumbnail);
+    const panels = Array.isArray(item?.storyboard?.panels) ? item.storyboard.panels : [];
+    for (let i = 0; i < panels.length && images.length < limit; i++) {
+      pushUnique(panels[i]?.artifacts?.image_blob_ref);
+      pushUnique(panels[i]?.artifacts?.image_url);
+      pushUnique(panels[i]?.image_blob_ref);
+      pushUnique(panels[i]?.image_url);
+    }
+    return images.slice(0, limit);
+  }
+
+  renderHistoryThumbMarkup(item) {
+    const images = this.getHistoryImageSources(item, 4);
+    if (!images.length) {
+      return '<div class="history-thumb-empty" aria-hidden="true">No image</div>';
+    }
+    if (images.length === 1) {
+      const src = this.escapeHtml(images[0]);
+      return `<img src="${src}" alt="Comic thumbnail">`;
+    }
+    const collageCells = images.slice(0, 4).map((src) =>
+      `<span class="history-thumb-cell"><img src="${this.escapeHtml(src)}" alt=""></span>`
+    ).join('');
+    return `<div class="history-thumb-collage" aria-hidden="true">${collageCells}</div>`;
+  }
+
   async showHistory() {
     const modal = document.getElementById('history-modal');
     const list = document.getElementById('history-list');
     try {
-      const { history } = await chrome.storage.local.get('history');
-      const items = Array.isArray(history) ? history : [];
+      const { history, historyThumbnails } = await chrome.storage.local.get(['history', 'historyThumbnails']);
+      const thumbMap = (historyThumbnails && typeof historyThumbnails === 'object') ? historyThumbnails : {};
+      const items = (Array.isArray(history) ? history : []).map((item) => {
+        const id = String(item && item.id || '').trim();
+        if (!id) return item;
+        const mapped = this.resolveImageSourceValue(thumbMap[id]);
+        if (!mapped || this.resolveImageSourceValue(item?.thumbnail)) return item;
+        return {
+          ...(item || {}),
+          thumbnail: mapped
+        };
+      });
       void this.appendDebugLog('history.open', { count: items.length });
       
       if (items.length === 0) {
@@ -2193,22 +2605,40 @@ class PopupController {
           var sourceTitle = item && item.source && item.source.title ? item.source.title : 'Untitled';
           var generatedAt = item && item.generated_at ? new Date(item.generated_at) : null;
           var dateText = generatedAt && !isNaN(generatedAt.getTime())
-            ? generatedAt.toLocaleDateString()
+            ? generatedAt.toLocaleString(undefined, {
+              year: 'numeric',
+              month: 'short',
+              day: 'numeric',
+              hour: '2-digit',
+              minute: '2-digit'
+            })
             : 'Unknown date';
           var itemId = item && item.id ? item.id : '';
-          var thumbnail = item && item.thumbnail ? item.thumbnail : '';
           var safeSourceTitle = this.escapeHtml(sourceTitle);
           var safeItemId = this.escapeHtml(itemId);
+          var thumbMarkup = this.renderHistoryThumbMarkup(item);
           return `
             <div class="history-item" data-id="${safeItemId}">
               <div class="history-thumb">
-                ${thumbnail ? `<img src="${thumbnail}" alt="">` : ''}
+                ${thumbMarkup}
               </div>
               <div class="history-info">
                 <div class="history-title">${safeSourceTitle}</div>
                 <div class="history-meta">${this.escapeHtml(dateText)}</div>
               </div>
-              <button type="button" class="history-item-delete-btn" data-action="delete-history-item" aria-label="Delete comic from history">Delete</button>
+              <button
+                type="button"
+                class="history-item-delete-btn"
+                data-action="delete-history-item"
+                aria-label="Delete comic from My Collection"
+                title="Delete">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                  <path d="M4 7h16" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                  <path d="M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                  <path d="M7 7l1 12a1 1 0 0 0 1 .9h6a1 1 0 0 0 1-.9L17 7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                  <path d="M10 11v5M14 11v5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                </svg>
+              </button>
             </div>
           `;
         }).join('');
@@ -2232,10 +2662,16 @@ class PopupController {
             const itemEl = e.currentTarget.closest('.history-item');
             const itemId = itemEl && itemEl.dataset ? itemEl.dataset.id : '';
             if (!itemId) return;
-            if (!confirm('Delete this comic from history?')) return;
+            if (!confirm('Delete this comic from My Collection?')) return;
             const { history: currentHistory } = await chrome.storage.local.get('history');
             const nextHistory = (Array.isArray(currentHistory) ? currentHistory : []).filter((h) => h && h.id !== itemId);
             const payload = { history: nextHistory };
+            try {
+              const { historyThumbnails: currentThumbs } = await chrome.storage.local.get('historyThumbnails');
+              const nextThumbs = { ...((currentThumbs && typeof currentThumbs === 'object') ? currentThumbs : {}) };
+              delete nextThumbs[itemId];
+              payload.historyThumbnails = nextThumbs;
+            } catch (_) {}
             const { selectedHistoryComicId } = await chrome.storage.local.get('selectedHistoryComicId');
             if (selectedHistoryComicId === itemId) payload.selectedHistoryComicId = null;
             await chrome.storage.local.set(payload);
@@ -2247,9 +2683,9 @@ class PopupController {
       
       modal.classList.remove('hidden');
     } catch (error) {
-      console.error('Failed to open history:', error);
+      console.error('Failed to open My Collection:', error);
       void this.appendDebugLog('history.open.error', { message: error.message });
-      this.reportUserError('Failed to open history.', error && error.stack ? error.stack : error.message);
+      this.reportUserError('Failed to open My Collection.', error && error.stack ? error.stack : error.message);
     }
   }
 
@@ -2258,7 +2694,7 @@ class PopupController {
   }
 
   async clearHistory() {
-    if (confirm('Are you sure you want to clear all history?')) {
+    if (confirm('Are you sure you want to clear all items from My Collection?')) {
       await chrome.storage.local.set({ history: [] });
       void this.appendDebugLog('history.cleared');
       this.showHistory();

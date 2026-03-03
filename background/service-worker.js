@@ -96,10 +96,10 @@ var OBJECTIVE_PROFILES = {
 };
 
 function getObjectiveSpec(options) {
-  var objectiveId = String((options && options.objective) || 'summarize');
-  var profile = OBJECTIVE_PROFILES[objectiveId] || OBJECTIVE_PROFILES.summarize;
+  var objectiveId = String((options && options.objective) || 'explain-like-im-five');
+  var profile = OBJECTIVE_PROFILES[objectiveId] || OBJECTIVE_PROFILES['explain-like-im-five'];
   return {
-    id: profile === OBJECTIVE_PROFILES[objectiveId] ? objectiveId : 'summarize',
+    id: profile === OBJECTIVE_PROFILES[objectiveId] ? objectiveId : 'explain-like-im-five',
     label: profile.label,
     guidance: profile.guidance
   };
@@ -108,53 +108,63 @@ function getObjectiveSpec(options) {
 var OUTPUT_LANGUAGE_PROFILES = {
   auto: {
     label: 'Auto (match source language)',
-    captionInstruction: 'Write captions, beat summaries, and story text in the same language as the source content.',
-    imageInstruction: 'If visible text appears in the image, use the source content language.'
+    captionInstruction: 'Write all textual fields (title, short title, description, captions, beat summaries, and image_prompt text) in the same language as the source content.',
+    imageInstruction: 'Write the image prompt text in the same language as the source content. If visible text appears in the image, use the source content language.'
   },
   en: {
     label: 'English',
-    captionInstruction: 'Write captions, beat summaries, and story text in English.',
-    imageInstruction: 'If visible text appears in the image, it must be in English.'
+    captionInstruction: 'Write all textual fields (title, short title, description, captions, beat summaries, and image_prompt text) in English.',
+    imageInstruction: 'Write the image prompt text in English. If visible text appears in the image, it must be in English.'
   },
   es: {
     label: 'Spanish',
-    captionInstruction: 'Write captions, beat summaries, and story text in Spanish.',
-    imageInstruction: 'If visible text appears in the image, it must be in Spanish.'
+    captionInstruction: 'Write all textual fields (title, short title, description, captions, beat summaries, and image_prompt text) in Spanish.',
+    imageInstruction: 'Write the image prompt text in Spanish. If visible text appears in the image, it must be in Spanish.'
   },
   fr: {
     label: 'French',
-    captionInstruction: 'Write captions, beat summaries, and story text in French.',
-    imageInstruction: 'If visible text appears in the image, it must be in French.'
+    captionInstruction: 'Write all textual fields (title, short title, description, captions, beat summaries, and image_prompt text) in French.',
+    imageInstruction: 'Write the image prompt text in French. If visible text appears in the image, it must be in French.'
   },
   de: {
     label: 'German',
-    captionInstruction: 'Write captions, beat summaries, and story text in German.',
-    imageInstruction: 'If visible text appears in the image, it must be in German.'
+    captionInstruction: 'Write all textual fields (title, short title, description, captions, beat summaries, and image_prompt text) in German.',
+    imageInstruction: 'Write the image prompt text in German. If visible text appears in the image, it must be in German.'
   },
   it: {
     label: 'Italian',
-    captionInstruction: 'Write captions, beat summaries, and story text in Italian.',
-    imageInstruction: 'If visible text appears in the image, it must be in Italian.'
+    captionInstruction: 'Write all textual fields (title, short title, description, captions, beat summaries, and image_prompt text) in Italian.',
+    imageInstruction: 'Write the image prompt text in Italian. If visible text appears in the image, it must be in Italian.'
   },
   pt: {
     label: 'Portuguese',
-    captionInstruction: 'Write captions, beat summaries, and story text in Portuguese.',
-    imageInstruction: 'If visible text appears in the image, it must be in Portuguese.'
+    captionInstruction: 'Write all textual fields (title, short title, description, captions, beat summaries, and image_prompt text) in Portuguese.',
+    imageInstruction: 'Write the image prompt text in Portuguese. If visible text appears in the image, it must be in Portuguese.'
+  },
+  ru: {
+    label: 'Russian',
+    captionInstruction: 'Write all textual fields (title, short title, description, captions, beat summaries, and image_prompt text) in Russian.',
+    imageInstruction: 'Write the image prompt text in Russian. If visible text appears in the image, it must be in Russian.'
   },
   ja: {
     label: 'Japanese',
-    captionInstruction: 'Write captions, beat summaries, and story text in Japanese.',
-    imageInstruction: 'If visible text appears in the image, it must be in Japanese.'
+    captionInstruction: 'Write all textual fields (title, short title, description, captions, beat summaries, and image_prompt text) in Japanese.',
+    imageInstruction: 'Write the image prompt text in Japanese. If visible text appears in the image, it must be in Japanese.'
   },
   ko: {
     label: 'Korean',
-    captionInstruction: 'Write captions, beat summaries, and story text in Korean.',
-    imageInstruction: 'If visible text appears in the image, it must be in Korean.'
+    captionInstruction: 'Write all textual fields (title, short title, description, captions, beat summaries, and image_prompt text) in Korean.',
+    imageInstruction: 'Write the image prompt text in Korean. If visible text appears in the image, it must be in Korean.'
   },
   zh: {
     label: 'Chinese',
-    captionInstruction: 'Write captions, beat summaries, and story text in Chinese.',
-    imageInstruction: 'If visible text appears in the image, it must be in Chinese.'
+    captionInstruction: 'Write all textual fields (title, short title, description, captions, beat summaries, and image_prompt text) in Chinese.',
+    imageInstruction: 'Write the image prompt text in Chinese. If visible text appears in the image, it must be in Chinese.'
+  },
+  he: {
+    label: 'Hebrew',
+    captionInstruction: 'Write all textual fields (title, short title, description, captions, beat summaries, and image_prompt text) in Hebrew.',
+    imageInstruction: 'Write the image prompt text in Hebrew. If visible text appears in the image, it must be in Hebrew.'
   }
 };
 
@@ -179,9 +189,44 @@ function appendLanguageInstruction(prompt, languageInstruction) {
   return base + '\nLanguage requirement: ' + instruction;
 }
 
+var OUTPUT_LANGUAGE_FALLBACK_TEXT = {
+  en: {
+    panelLabelPrefix: 'Panel',
+    keyMoment: 'Key moment from the source',
+    keyPoint: 'Key point',
+    factFocus: 'Fact focus',
+    panelKeyEvent: 'panel key event',
+    imagePromptPrefix: 'Comic panel illustration of:',
+    keepFactsVisible: 'Keep these facts visible:',
+    preserveSceneMeaning: 'Preserve the same scene meaning and event context as this panel.',
+    storySummary: 'Story Summary',
+    conciseSummary: 'A concise visual summary of the selected story from the source.',
+    noSummary: 'No summary available.'
+  },
+  es: { panelLabelPrefix: 'Panel', keyMoment: 'Momento clave de la fuente', keyPoint: 'Punto clave', factFocus: 'Enfoque factual', panelKeyEvent: 'evento clave del panel', imagePromptPrefix: 'Ilustracion de panel de comic:', keepFactsVisible: 'Mantener visibles estos hechos:', preserveSceneMeaning: 'Conservar el mismo significado de escena y contexto del evento de este panel.', storySummary: 'Resumen de la historia', conciseSummary: 'Un resumen visual conciso de la historia seleccionada de la fuente.', noSummary: 'No hay resumen disponible.' },
+  fr: { panelLabelPrefix: 'Panneau', keyMoment: 'Moment cle de la source', keyPoint: 'Point cle', factFocus: 'Focus factuel', panelKeyEvent: 'evenement cle du panneau', imagePromptPrefix: 'Illustration de case de bande dessinee :', keepFactsVisible: 'Garder ces faits visibles :', preserveSceneMeaning: 'Conserver le meme sens de scene et le contexte de l evenement de ce panneau.', storySummary: 'Resume de l histoire', conciseSummary: 'Un resume visuel concis de l histoire selectionnee depuis la source.', noSummary: 'Aucun resume disponible.' },
+  de: { panelLabelPrefix: 'Panel', keyMoment: 'Schlusselmoment aus der Quelle', keyPoint: 'Kernpunkt', factFocus: 'Faktenfokus', panelKeyEvent: 'Schlusselereignis des Panels', imagePromptPrefix: 'Comic-Panel-Illustration von:', keepFactsVisible: 'Diese Fakten sichtbar halten:', preserveSceneMeaning: 'Die gleiche Szenenbedeutung und den Ereigniskontext dieses Panels beibehalten.', storySummary: 'Geschichtszusammenfassung', conciseSummary: 'Eine kurze visuelle Zusammenfassung der ausgewaehlten Geschichte aus der Quelle.', noSummary: 'Keine Zusammenfassung verfuegbar.' },
+  it: { panelLabelPrefix: 'Pannello', keyMoment: 'Momento chiave della fonte', keyPoint: 'Punto chiave', factFocus: 'Focus fattuale', panelKeyEvent: 'evento chiave del pannello', imagePromptPrefix: 'Illustrazione di pannello a fumetti di:', keepFactsVisible: 'Mantieni visibili questi fatti:', preserveSceneMeaning: 'Mantieni lo stesso significato della scena e il contesto dell evento di questo pannello.', storySummary: 'Riassunto della storia', conciseSummary: 'Un riassunto visivo conciso della storia selezionata dalla fonte.', noSummary: 'Nessun riassunto disponibile.' },
+  pt: { panelLabelPrefix: 'Painel', keyMoment: 'Momento chave da fonte', keyPoint: 'Ponto chave', factFocus: 'Foco factual', panelKeyEvent: 'evento chave do painel', imagePromptPrefix: 'Ilustracao de painel de quadrinhos de:', keepFactsVisible: 'Manter estes fatos visiveis:', preserveSceneMeaning: 'Preservar o mesmo significado da cena e contexto do evento deste painel.', storySummary: 'Resumo da historia', conciseSummary: 'Um resumo visual conciso da historia selecionada da fonte.', noSummary: 'Nenhum resumo disponivel.' },
+  ru: { panelLabelPrefix: 'Панель', keyMoment: 'Ключевой момент из источника', keyPoint: 'Ключевая мысль', factFocus: 'Фокус на фактах', panelKeyEvent: 'ключевое событие панели', imagePromptPrefix: 'Иллюстрация комикс-панели:', keepFactsVisible: 'Сохранить видимыми эти факты:', preserveSceneMeaning: 'Сохранить тот же смысл сцены и контекст события этой панели.', storySummary: 'Краткий пересказ истории', conciseSummary: 'Краткое визуальное изложение выбранной истории из источника.', noSummary: 'Нет доступного описания.' },
+  ja: { panelLabelPrefix: 'パネル', keyMoment: '元情報の重要な場面', keyPoint: '要点', factFocus: '事実重視', panelKeyEvent: 'パネルの主要イベント', imagePromptPrefix: 'コミックパネルのイラスト:', keepFactsVisible: '次の事実を見える形で保持:', preserveSceneMeaning: 'このパネルと同じ場面の意味と出来事の文脈を維持する。', storySummary: 'ストーリー要約', conciseSummary: 'ソースから選択したストーリーの簡潔なビジュアル要約。', noSummary: '要約はありません。' },
+  ko: { panelLabelPrefix: '패널', keyMoment: '원문 기반 핵심 장면', keyPoint: '핵심 요점', factFocus: '사실 중심', panelKeyEvent: '패널 핵심 사건', imagePromptPrefix: '코믹 패널 일러스트:', keepFactsVisible: '다음 사실이 보이도록 유지:', preserveSceneMeaning: '이 패널의 장면 의미와 사건 맥락을 동일하게 유지하세요.', storySummary: '스토리 요약', conciseSummary: '원문에서 선택한 스토리의 간결한 시각 요약.', noSummary: '요약이 없습니다.' },
+  zh: { panelLabelPrefix: '分镜', keyMoment: '来源内容中的关键时刻', keyPoint: '关键点', factFocus: '事实聚焦', panelKeyEvent: '分镜关键事件', imagePromptPrefix: '漫画分镜插图：', keepFactsVisible: '保持这些事实可见：', preserveSceneMeaning: '保持该分镜相同的场景含义和事件语境。', storySummary: '故事摘要', conciseSummary: '对来源中所选故事的简明视觉摘要。', noSummary: '暂无摘要。' },
+  he: { panelLabelPrefix: 'פאנל', keyMoment: 'רגע מרכזי מהמקור', keyPoint: 'נקודה מרכזית', factFocus: 'התמקדות בעובדות', panelKeyEvent: 'אירוע מרכזי בפאנל', imagePromptPrefix: 'איור פאנל קומיקס של:', keepFactsVisible: 'להשאיר גלויים את העובדות הבאות:', preserveSceneMeaning: 'לשמור על אותה משמעות סצנה והקשר אירוע של הפאנל הזה.', storySummary: 'סיכום הסיפור', conciseSummary: 'סיכום חזותי קצר של הסיפור שנבחר מהמקור.', noSummary: 'אין תקציר זמין.' }
+};
+
+function getOutputLanguageFallbackText(options) {
+  var spec = getOutputLanguageSpec(options);
+  var id = spec.id === 'auto'
+    ? String((options && (options.detectedSourceLanguage || options.source_language || options.sourceLanguage)) || 'en').trim().toLowerCase()
+    : spec.id;
+  if (!Object.prototype.hasOwnProperty.call(OUTPUT_LANGUAGE_FALLBACK_TEXT, id)) id = 'en';
+  return OUTPUT_LANGUAGE_FALLBACK_TEXT[id];
+}
+
 var DEFAULT_PROVIDER_PROMPT_TEMPLATES = {
   openai: {
-    storyboard: 'Create a comic storyboard as strict JSON.\nJSON only, no markdown.\nSchema: {"panels":[{"caption":string,"image_prompt":string}]}\n' +
+    storyboard: 'Create a comic storyboard as strict JSON.\nJSON only, no markdown.\nSchema: {"title":string,"panels":[{"caption":string,"image_prompt":string}]}\n' +
       'caption must be a short story beat for a reader (graphic-novel narration), not a visual prompt. image_prompt must be visual-generation instructions only.\n' +
       'Grounding rules:\n' +
       '- Choose one dominant story/topic from the content and keep all panels on that topic.\n' +
@@ -198,7 +243,7 @@ var DEFAULT_PROVIDER_PROMPT_TEMPLATES = {
       '- No text overlays unless explicitly required by the caption.'
   },
   gemini: {
-    storyboard: 'Generate a comic storyboard in strict JSON.\nJSON only, no markdown.\nSchema: {"panels":[{"caption":string,"image_prompt":string}]}\n' +
+    storyboard: 'Generate a comic storyboard in strict JSON.\nJSON only, no markdown.\nSchema: {"title":string,"panels":[{"caption":string,"image_prompt":string}]}\n' +
       'caption must be a short story beat for a reader (graphic-novel narration), not a visual prompt. image_prompt must be visual-generation instructions only.\n' +
       'Grounding rules:\n' +
       '- Choose one dominant story/topic from the content and keep all panels on that topic.\n' +
@@ -215,7 +260,7 @@ var DEFAULT_PROVIDER_PROMPT_TEMPLATES = {
       '- No text overlays unless explicitly required by the caption.'
   }
 };
-var STORYBOARD_RETRY_JSON_ONLY_PROMPT = 'Return ONLY valid JSON object with top-level "panels" array. No markdown fences.';
+var STORYBOARD_RETRY_JSON_ONLY_PROMPT = 'Return ONLY valid JSON object with top-level "title" string and "panels" array. No markdown fences.';
 var STORYBOARD_CAPTION_IMAGE_PROMPT_RULE =
   'caption must be a short story beat for a reader (graphic-novel narration), not a visual prompt. image_prompt must be visual-generation instructions only.';
 var STORYBOARD_CONTENT_GROUNDING_RULE =
@@ -227,6 +272,7 @@ var IMAGE_PROMPT_GROUNDING_RULE =
 
 var DEFAULT_FETCH_TIMEOUT_MS = 45000;
 var STORYBOARD_TIMEOUT_MS = 90000;
+var STORYBOARD_META_TIMEOUT_MS = 8000;
 var IMAGE_TIMEOUT_MS = 120000;
 
 function timeoutError(label, timeoutMs) {
@@ -354,8 +400,9 @@ function extractJsonCandidate(rawText) {
 function parseStoryboardMarkdownFallback(responseText, options) {
   var raw = String(responseText || '');
   var lines = raw.split(/\r?\n/).map(function(line) { return line.trim(); }).filter(Boolean);
+  var fallbackText = getOutputLanguageFallbackText(options);
   var titleLine = lines.find(function(line) { return /^#{1,6}\s+/.test(line); }) || '';
-  var title = titleLine ? titleLine.replace(/^#{1,6}\s+/, '').trim() : 'Comic Summary';
+  var title = titleLine ? titleLine.replace(/^#{1,6}\s+/, '').trim() : fallbackText.storySummary;
   var segments = [];
   var current = null;
 
@@ -376,13 +423,15 @@ function parseStoryboardMarkdownFallback(responseText, options) {
   var fallbackPanels = segments.map(function(seg, idx) {
     var bodyText = (seg.body || []).join(' ');
     var imagePromptMatch = bodyText.match(/image\s*prompt\s*[:\-]\s*(.+)$/i);
-    var caption = seg.caption || ('Panel ' + (idx + 1));
+    var caption = seg.caption || (fallbackText.panelLabelPrefix + ' ' + (idx + 1));
     var beat = bodyText.replace(/image\s*prompt\s*[:\-]\s*.+$/i, '').trim();
     return {
       panel_id: 'panel_' + (idx + 1),
       beat_summary: beat || caption,
       caption: caption,
-      image_prompt: (imagePromptMatch && imagePromptMatch[1] ? imagePromptMatch[1].trim() : ('Comic panel illustration of: ' + caption + (beat ? (', ' + beat) : '')))
+      image_prompt: (imagePromptMatch && imagePromptMatch[1]
+        ? imagePromptMatch[1].trim()
+        : (fallbackText.imagePromptPrefix + ' ' + caption + (beat ? ('. ' + beat) : '')))
     };
   }).filter(function(panel) { return panel.caption || panel.image_prompt; });
 
@@ -457,14 +506,15 @@ function discoverStoryboardPanelCandidates(parsed) {
   return candidateSpecs.length ? candidateSpecs[0].array : [];
 }
 
-function normalizeStoryboardPanels(parsed, requestedPanelCount) {
+function normalizeStoryboardPanels(parsed, requestedPanelCount, options) {
+  var fallbackText = getOutputLanguageFallbackText(options);
   var panelCandidates = discoverStoryboardPanelCandidates(parsed);
   var normalizedPanels = (panelCandidates || [])
     .map(function(p, i) {
       if (!p || typeof p !== 'object') return null;
       var beat = normalizeLooseTextValue(p.beat_summary || p.summary || p.beat || p.description || p.text || p.narration || '');
-      var caption = normalizeLooseTextValue(p.caption || p.title || p.dialogue || p.caption_text || p.text_content) || beat || ('Panel ' + (i + 1));
-      var imagePrompt = normalizeLooseTextValue(p.image_prompt || p.prompt || p.imagePrompt || p.visual_prompt || p.visual || p.image || p.scene_prompt) || ('Comic panel illustration of: ' + caption);
+      var caption = normalizeLooseTextValue(p.caption || p.title || p.dialogue || p.caption_text || p.text_content) || beat || (fallbackText.panelLabelPrefix + ' ' + (i + 1));
+      var imagePrompt = normalizeLooseTextValue(p.image_prompt || p.prompt || p.imagePrompt || p.visual_prompt || p.visual || p.image || p.scene_prompt) || (fallbackText.imagePromptPrefix + ' ' + caption);
       return {
         panel_id: 'panel_' + (i + 1),
         beat_summary: beat,
@@ -490,7 +540,7 @@ function parseStoryboardLoose(raw, options) {
     var jsonCandidate = extractJsonCandidate(raw);
     if (!jsonCandidate) throw new Error('No JSON object found in provider response');
     parsed = JSON.parse(jsonCandidate);
-    normalizedPanels = normalizeStoryboardPanels(parsed, options && options.panelCount);
+    normalizedPanels = normalizeStoryboardPanels(parsed, options && options.panelCount, options);
   } catch (e) {
     parseError = e;
   }
@@ -535,7 +585,7 @@ function parseStoryboardResponseShared(responseText, options, config) {
     title: (parsed && parsed.title) ? normalizeLooseTextValue(parsed.title) : undefined,
     settings: {
       panel_count: (options && options.panelCount) || 6,
-      objective: (options && options.objective) || 'summarize',
+      objective: (options && options.objective) || 'explain-like-im-five',
       output_language: (options && (options.outputLanguage || options.output_language)) || 'en',
       detail_level: (options && options.detailLevel) || 'medium',
       style_id: (options && options.styleId) || 'default',
@@ -583,7 +633,8 @@ function looksLikeImagePromptText(value) {
   return false;
 }
 
-function rewritePromptLikeCaptionToStoryBeat(captionText, panel, index) {
+function rewritePromptLikeCaptionToStoryBeat(captionText, panel, index, options) {
+  var fallbackText = getOutputLanguageFallbackText(options);
   var storyCandidates = [
     panel && panel.beat_summary,
     panel && panel.summary,
@@ -603,7 +654,7 @@ function rewritePromptLikeCaptionToStoryBeat(captionText, panel, index) {
 
   // Heuristic fallback: strip common prompt-style boilerplate and visual jargon.
   var src = normalizeLooseTextValue(captionText);
-  if (!src) return 'Panel ' + (index + 1);
+  if (!src) return fallbackText.panelLabelPrefix + ' ' + (index + 1);
   var out = src
     .replace(/^comic panel illustration of:\s*/i, '')
     .replace(/^illustration of:\s*/i, '')
@@ -614,13 +665,14 @@ function rewritePromptLikeCaptionToStoryBeat(captionText, panel, index) {
   // Prefer first natural clause/sentence fragment as story beat.
   var split = out.split(/[.;]|, and /i).map(function(part) { return part.trim(); }).filter(Boolean);
   var candidateBeat = split[0] || out;
-  if (!candidateBeat) return 'Panel ' + (index + 1);
+  if (!candidateBeat) return fallbackText.panelLabelPrefix + ' ' + (index + 1);
   if (!/[.!?]$/.test(candidateBeat)) candidateBeat += '.';
   return candidateBeat.substring(0, 180);
 }
 
-function validateStoryboardContract(storyboard, requestedPanelCount) {
+function validateStoryboardContract(storyboard, requestedPanelCount, options) {
   var normalized = (storyboard && typeof storyboard === 'object') ? storyboard : {};
+  var fallbackText = getOutputLanguageFallbackText(options);
   if (!Array.isArray(normalized.panels)) normalized.panels = [];
 
   var beforeMissingCaption = 0;
@@ -646,7 +698,7 @@ function validateStoryboardContract(storyboard, requestedPanelCount) {
       if (!imagePrompt) beforeMissingImagePrompt += 1;
 
       if (caption && (looksLikeImagePromptText(caption) || (imagePrompt && caption === imagePrompt))) {
-        var repairedCaption = rewritePromptLikeCaptionToStoryBeat(caption, p, index);
+        var repairedCaption = rewritePromptLikeCaptionToStoryBeat(caption, p, index, options);
         if (repairedCaption && repairedCaption !== caption) {
           caption = repairedCaption;
           promptLikeCaptionRepairs += 1;
@@ -654,9 +706,10 @@ function validateStoryboardContract(storyboard, requestedPanelCount) {
       }
 
       p.beat_summary = p.beat_summary || beat || '';
-      p.caption = caption || beat || ('Panel ' + (index + 1));
-      p.image_prompt = imagePrompt || ('Comic panel illustration of: ' + p.caption + (beat ? ('. ' + beat) : ''));
-      if (!p.panel_id) p.panel_id = 'panel_' + (index + 1);
+      p.caption = caption || beat || (fallbackText.panelLabelPrefix + ' ' + (index + 1));
+      p.image_prompt = imagePrompt || (fallbackText.imagePromptPrefix + ' ' + p.caption + (beat ? ('. ' + beat) : ''));
+      // Normalize panel ids by position to avoid duplicate-id collisions in archival image keys.
+      p.panel_id = 'panel_' + (index + 1);
 
       captionQuality.totalPanels += 1;
       var finalCaption = normalizeLooseTextValue(p.caption);
@@ -664,7 +717,8 @@ function validateStoryboardContract(storyboard, requestedPanelCount) {
         captionQuality.nonEmptyCaptions += 1;
         if (looksLikeImagePromptText(finalCaption)) captionQuality.promptLikeCaptions += 1;
         else captionQuality.storyLikeCaptions += 1;
-        if (/^Panel\s+\d+\.?$/i.test(finalCaption)) captionQuality.fallbackPanelLabelCaptions += 1;
+        var fallbackCaptionPattern = new RegExp('^' + fallbackText.panelLabelPrefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\s+\\d+\\.?$', 'i');
+        if (fallbackCaptionPattern.test(finalCaption)) captionQuality.fallbackPanelLabelCaptions += 1;
       }
       return p;
     })
@@ -815,7 +869,7 @@ class GeminiProvider {
         renderedTemplate += '\nOutput language: ' + languageSpec.label;
         renderedTemplate = appendLanguageInstruction(renderedTemplate, languageSpec.captionInstruction);
         if (options && options.panelCountRetry) {
-          renderedTemplate += '\n\nREMINDER: Return exactly ' + panelCount + ' panels in the top-level "panels" array.';
+          renderedTemplate += '\n\nREMINDER: Return top-level "title" plus exactly ' + panelCount + ' panels in the "panels" array.';
         }
         if (options && options.malformedRetry) {
           return renderedTemplate + '\n\nIMPORTANT RETRY: ' + STORYBOARD_RETRY_JSON_ONLY_PROMPT;
@@ -826,7 +880,7 @@ class GeminiProvider {
 
     var prompt = 'Create a ' + panelCount + '-panel comic storyboard.\n' +
       'JSON only, no markdown.\n' +
-      'Schema: {"panels":[{"caption":string,"image_prompt":string}]}\n' +
+      'Schema: {"title":string,"panels":[{"caption":string,"image_prompt":string}]}\n' +
       STORYBOARD_CAPTION_IMAGE_PROMPT_RULE + '\n' +
       STORYBOARD_CONTENT_GROUNDING_RULE + '\n' +
       renderPromptTemplate(STORYBOARD_OBJECTIVE_RULE, {
@@ -849,7 +903,7 @@ class GeminiProvider {
       prompt += '\n\nIMPORTANT RETRY: ' + STORYBOARD_RETRY_JSON_ONLY_PROMPT;
     }
     if (options && options.panelCountRetry) {
-      prompt += '\n\nREMINDER: Return exactly ' + panelCount + ' panels in the top-level "panels" array.';
+      prompt += '\n\nREMINDER: Return top-level "title" plus exactly ' + panelCount + ' panels in the "panels" array.';
     }
     return prompt;
   }
@@ -974,7 +1028,7 @@ class OpenAIProvider {
       var userPrompt =
         'Create a ' + (options.panelCount || 6) + '-panel comic storyboard. ' +
         'JSON only, no markdown. ' +
-        'Schema: {"panels":[{"caption":string,"image_prompt":string}]}. ' +
+        'Schema: {"title":string,"panels":[{"caption":string,"image_prompt":string}]}. ' +
         STORYBOARD_CAPTION_IMAGE_PROMPT_RULE + ' ' +
         STORYBOARD_CONTENT_GROUNDING_RULE + ' ' +
         renderPromptTemplate(STORYBOARD_OBJECTIVE_RULE, {
@@ -1018,7 +1072,7 @@ class OpenAIProvider {
         userPrompt += '\n\n' + String(options.parseFailureSummary).substring(0, 320);
       }
       if (options && options.panelCountRetry) {
-        userPrompt += '\n\nREMINDER: Return exactly ' + (options.panelCount || 6) + ' panels in the top-level "panels" array.';
+        userPrompt += '\n\nREMINDER: Return top-level "title" plus exactly ' + (options.panelCount || 6) + ' panels in the "panels" array.';
       }
       
       var response = await fetchWithTimeout(self.baseUrl + '/chat/completions', {
@@ -1031,7 +1085,7 @@ class OpenAIProvider {
               role: 'system',
               content:
                 'You are a comic storyboard generator. Respond with JSON only, no markdown fences. ' +
-                'Schema: {"panels":[{"caption":string,"image_prompt":string}]}. ' +
+                'Schema: {"title":string,"panels":[{"caption":string,"image_prompt":string}]}. ' +
                 STORYBOARD_CAPTION_IMAGE_PROMPT_RULE + ' ' +
                 STORYBOARD_CONTENT_GROUNDING_RULE + ' ' +
                 IMAGE_PROMPT_GROUNDING_RULE + ' ' +
@@ -1228,7 +1282,7 @@ class OpenRouterProvider {
     var prompt = [
       'Create a comic storyboard from the content below.',
       'JSON only, no markdown.',
-      'Schema: {"panels":[{"caption":string,"image_prompt":string}]}',
+      'Schema: {"title":string,"panels":[{"caption":string,"image_prompt":string}]}',
       STORYBOARD_CAPTION_IMAGE_PROMPT_RULE,
       STORYBOARD_CONTENT_GROUNDING_RULE,
       renderPromptTemplate(STORYBOARD_OBJECTIVE_RULE, {
@@ -1254,7 +1308,7 @@ class OpenRouterProvider {
       prompt += '\n' + String(options.parseFailureSummary).substring(0, 320);
     }
     if (options && options.panelCountRetry) {
-      prompt += '\nREMINDER: Return exactly ' + panelCount + ' panels in the top-level "panels" array.';
+      prompt += '\nREMINDER: Return top-level "title" plus exactly ' + panelCount + ' panels in the "panels" array.';
     }
     return prompt;
   }
@@ -1531,7 +1585,7 @@ class HuggingFaceProvider {
     var languageSpec = getOutputLanguageSpec(options);
     var prompt = [
       'JSON only, no markdown.',
-      'Schema: {"panels":[{"caption":string,"image_prompt":string}]}',
+      'Schema: {"title":string,"panels":[{"caption":string,"image_prompt":string}]}',
       STORYBOARD_CAPTION_IMAGE_PROMPT_RULE,
       STORYBOARD_CONTENT_GROUNDING_RULE,
       renderPromptTemplate(STORYBOARD_OBJECTIVE_RULE, {
@@ -1556,7 +1610,7 @@ class HuggingFaceProvider {
       prompt += '\n' + String(options.parseFailureSummary).substring(0, 320);
     }
     if (options && options.panelCountRetry) {
-      prompt += '\nREMINDER: Return exactly ' + panelCount + ' panels in the top-level "panels" array.';
+      prompt += '\nREMINDER: Return top-level "title" plus exactly ' + panelCount + ' panels in the "panels" array.';
     }
     return prompt;
   }
@@ -1870,7 +1924,7 @@ class CloudflareProvider {
     var prompt = [
       'Create a comic storyboard from the content below.',
       'JSON only, no markdown.',
-      'Schema: {"panels":[{"caption":string,"image_prompt":string}]}',
+      'Schema: {"title":string,"panels":[{"caption":string,"image_prompt":string}]}',
       STORYBOARD_CAPTION_IMAGE_PROMPT_RULE,
       STORYBOARD_CONTENT_GROUNDING_RULE,
       renderPromptTemplate(STORYBOARD_OBJECTIVE_RULE, {
@@ -1896,7 +1950,7 @@ class CloudflareProvider {
       prompt += '\n' + String(options.parseFailureSummary).substring(0, 320);
     }
     if (options && options.panelCountRetry) {
-      prompt += '\nREMINDER: Return exactly ' + panelCount + ' panels in the top-level "panels" array.';
+      prompt += '\nREMINDER: Return top-level "title" plus exactly ' + panelCount + ' panels in the "panels" array.';
     }
     return prompt;
   }
@@ -2045,10 +2099,15 @@ var ServiceWorker = function() {
   var self = this;
   this.SELECTION_CONTEXT_MENU_ID = 'web2comics-create-from-selection';
   this.SELECTION_CONTEXT_MENU_OPEN_PANEL_ID = 'web2comics-open-from-selection';
+  this.TOOLBAR_CONTEXT_MENU_COMICIFY_ID = 'web2comics-toolbar-comicify';
+  this.TOOLBAR_CONTEXT_MENU_COLLECTION_ID = 'web2comics-toolbar-collection';
   
   this.currentJob = null;
   this.isProcessing = false;
   this.messageHandlers = {};
+  this.IMAGE_ARCHIVE_DB_NAME = 'web2comics-image-archive';
+  this.IMAGE_ARCHIVE_STORE = 'panelImages';
+  this.HISTORY_THUMBNAILS_KEY = 'historyThumbnails';
   
   this.init = function() {
     self.setupMessageHandlers();
@@ -2088,6 +2147,157 @@ var ServiceWorker = function() {
     var str = String(value == null ? '' : value);
     var limit = maxLen || 240;
     return str.length > limit ? (str.substring(0, limit) + '...') : str;
+  };
+
+  this.resolveImageSourceValue = function(value) {
+    if (!value) return '';
+    if (typeof value === 'string') return value.trim();
+    if (typeof value === 'object') {
+      var candidate = value.url || value.data_url || value.href || value.src || '';
+      return typeof candidate === 'string' ? candidate.trim() : '';
+    }
+    return '';
+  };
+
+  this.openImageArchiveDb = function() {
+    try {
+      if (typeof indexedDB === 'undefined' || !indexedDB || !indexedDB.open) return Promise.resolve(null);
+      return new Promise(function(resolve) {
+        var req = indexedDB.open(self.IMAGE_ARCHIVE_DB_NAME, 1);
+        req.onupgradeneeded = function(event) {
+          var db = event && event.target && event.target.result;
+          if (!db) return;
+          if (!db.objectStoreNames.contains(self.IMAGE_ARCHIVE_STORE)) {
+            db.createObjectStore(self.IMAGE_ARCHIVE_STORE, { keyPath: 'key' });
+          }
+        };
+        req.onsuccess = function() { resolve(req.result || null); };
+        req.onerror = function() { resolve(null); };
+      });
+    } catch (_) {
+      return Promise.resolve(null);
+    }
+  };
+
+  this.cacheImageInArchive = function(key, dataUrl) {
+    var imageKey = String(key || '').trim();
+    var imageData = String(dataUrl || '').trim();
+    if (!imageKey || !imageData) return Promise.resolve(false);
+    return self.openImageArchiveDb().then(function(db) {
+      if (!db) return false;
+      return new Promise(function(resolve) {
+        try {
+          var tx = db.transaction([self.IMAGE_ARCHIVE_STORE], 'readwrite');
+          var store = tx.objectStore(self.IMAGE_ARCHIVE_STORE);
+          store.put({
+            key: imageKey,
+            dataUrl: imageData,
+            updatedAt: Date.now()
+          });
+          tx.oncomplete = function() { resolve(true); };
+          tx.onerror = function() { resolve(false); };
+          tx.onabort = function() { resolve(false); };
+        } catch (_) {
+          resolve(false);
+        }
+      });
+    });
+  };
+
+  this.getArchivedImagesByKeys = function(keys) {
+    var list = Array.isArray(keys) ? keys.map(function(key) { return String(key || '').trim(); }).filter(Boolean) : [];
+    if (!list.length) return Promise.resolve({});
+    return self.openImageArchiveDb().then(function(db) {
+      if (!db) return {};
+      return new Promise(function(resolve) {
+        try {
+          var tx = db.transaction([self.IMAGE_ARCHIVE_STORE], 'readonly');
+          var store = tx.objectStore(self.IMAGE_ARCHIVE_STORE);
+          var out = {};
+          var remaining = list.length;
+          list.forEach(function(key) {
+            var req = store.get(key);
+            req.onsuccess = function() {
+              var row = req.result || null;
+              var dataUrl = row && typeof row.dataUrl === 'string' ? row.dataUrl : '';
+              if (dataUrl) out[key] = dataUrl;
+              remaining -= 1;
+              if (remaining <= 0) resolve(out);
+            };
+            req.onerror = function() {
+              remaining -= 1;
+              if (remaining <= 0) resolve(out);
+            };
+          });
+        } catch (_) {
+          resolve({});
+        }
+      });
+    });
+  };
+
+  this.cacheJobPanelImagesInArchive = function(job) {
+    var jobId = String(job && (job.id || job.jobId) || '').trim();
+    var panels = job && job.storyboard && Array.isArray(job.storyboard.panels) ? job.storyboard.panels : [];
+    if (!jobId || !panels.length) return Promise.resolve(0);
+    var writes = [];
+    var cached = 0;
+    for (var i = 0; i < panels.length; i += 1) {
+      var panel = panels[i] && typeof panels[i] === 'object' ? panels[i] : {};
+      var imageSrc = self.resolveImageSourceValue(panel.artifacts && panel.artifacts.image_blob_ref) ||
+        self.resolveImageSourceValue(panel.artifacts && panel.artifacts.image_url) ||
+        self.resolveImageSourceValue(panel.image_blob_ref) ||
+        self.resolveImageSourceValue(panel.image_url);
+      if (!imageSrc) continue;
+      // Use stable position-based keys to prevent duplicate panel_id collisions.
+      var cacheKey = jobId + '::panel_' + (i + 1);
+      panel.artifacts = panel.artifacts && typeof panel.artifacts === 'object' ? panel.artifacts : {};
+      panel.artifacts.image_archive_key = cacheKey;
+      writes.push(
+        self.cacheImageInArchive(cacheKey, imageSrc).then(function(ok) {
+          if (ok) cached += 1;
+        })
+      );
+    }
+    if (!writes.length) return Promise.resolve(0);
+    return Promise.all(writes).then(function() { return cached; });
+  };
+
+  this.createTinyThumbnailDataUrl = function(srcDataUrl) {
+    var source = String(srcDataUrl || '').trim();
+    if (!/^data:image\//i.test(source)) return Promise.resolve('');
+    if (source.length <= 90000) return Promise.resolve(source);
+    try {
+      if (typeof fetch !== 'function' || typeof createImageBitmap !== 'function' || typeof OffscreenCanvas === 'undefined') {
+        return Promise.resolve('');
+      }
+      return fetch(source)
+        .then(function(resp) { return resp.blob(); })
+        .then(function(blob) { return createImageBitmap(blob); })
+        .then(function(bitmap) {
+          var maxW = 192;
+          var maxH = 108;
+          var scale = Math.min(maxW / Math.max(1, bitmap.width), maxH / Math.max(1, bitmap.height), 1);
+          var w = Math.max(1, Math.round(bitmap.width * scale));
+          var h = Math.max(1, Math.round(bitmap.height * scale));
+          var canvas = new OffscreenCanvas(w, h);
+          var ctx = canvas.getContext('2d');
+          if (!ctx) return '';
+          ctx.drawImage(bitmap, 0, 0, w, h);
+          return canvas.convertToBlob({ type: 'image/jpeg', quality: 0.78 })
+            .then(function(blob) {
+              return new Promise(function(resolve) {
+                var reader = new FileReader();
+                reader.onloadend = function() { resolve(String(reader.result || '')); };
+                reader.onerror = function() { resolve(''); };
+                reader.readAsDataURL(blob);
+              });
+            });
+        })
+        .catch(function() { return ''; });
+    } catch (_) {
+      return Promise.resolve('');
+    }
   };
 
   this.getImageRefusalPolicy = function(settings) {
@@ -2696,7 +2906,8 @@ var ServiceWorker = function() {
     return storyboard;
   };
 
-  this.transformPanelCaption = function(panel, action) {
+  this.transformPanelCaption = function(panel, action, options) {
+    var fallbackText = getOutputLanguageFallbackText(options);
     var p = panel && typeof panel === 'object' ? panel : {};
     var panelIndex = Number(p.panel_index || p.panelIndex || 0) || 0;
     var beatAnchor = normalizeLooseTextValue(
@@ -2704,9 +2915,9 @@ var ServiceWorker = function() {
     ) || '';
     var currentCaption = normalizeLooseTextValue(
       p.caption || p.beat_summary || p.summary || p.title || p.text || p.narration || p.description || p.dialogue
-    ) || 'Key moment from the source';
+    ) || fallbackText.keyMoment;
     if (!beatAnchor) {
-      beatAnchor = rewritePromptLikeCaptionToStoryBeat(currentCaption, p, panelIndex);
+      beatAnchor = rewritePromptLikeCaptionToStoryBeat(currentCaption, p, panelIndex, options);
     }
     var facts = p.facts_used || {};
     var entity = Array.isArray(facts.entities) && facts.entities.length ? facts.entities[0] : '';
@@ -2720,48 +2931,54 @@ var ServiceWorker = function() {
       );
       var baseCaption = storyLikeSource && !looksLikeImagePromptText(storyLikeSource)
         ? storyLikeSource
-        : rewritePromptLikeCaptionToStoryBeat(currentCaption, p, panelIndex);
+        : rewritePromptLikeCaptionToStoryBeat(currentCaption, p, panelIndex, options);
       var simplified = baseCaption
         .replace(/\s+/g, ' ')
         .split(/[;:,.]/)[0]
         .slice(0, 130)
         .trim();
-      if (!simplified) simplified = ('Key point: ' + (entity || date || number || snippet || currentCaption)).slice(0, 130).trim();
+      if (!simplified) simplified = (fallbackText.keyPoint + ': ' + (entity || date || number || snippet || currentCaption)).slice(0, 130).trim();
       if (looksLikeImagePromptText(simplified)) {
-        simplified = rewritePromptLikeCaptionToStoryBeat(simplified, p, panelIndex);
+        simplified = rewritePromptLikeCaptionToStoryBeat(simplified, p, panelIndex, options);
       }
       return simplified;
     }
 
     if (action === 'make-factual') {
-      var anchor = beatAnchor || currentCaption;
-      var factualBits = [date, number, entity].filter(Boolean).join(' | ');
-      if (factualBits) return (anchor + ' [' + factualBits + ']').slice(0, 180);
-      if (snippet) return (anchor + ' [' + snippet.slice(0, 70) + ']').slice(0, 180);
-      return anchor.slice(0, 180);
+      var anchor = (beatAnchor || currentCaption || fallbackText.keyMoment).replace(/\s+/g, ' ').trim();
+      var evidenceBits = [];
+      if (entity) evidenceBits.push('entity: ' + entity);
+      if (date) evidenceBits.push('date: ' + date);
+      if (number) evidenceBits.push('number: ' + number);
+      if (!evidenceBits.length && snippet) evidenceBits.push('evidence: ' + snippet.slice(0, 70));
+      if (evidenceBits.length) {
+        return (anchor + ' (' + fallbackText.factFocus + ': ' + evidenceBits.join('; ') + ')').slice(0, 220);
+      }
+      return (fallbackText.factFocus + ': ' + anchor).slice(0, 220);
     }
 
     if (action === 'regenerate-caption') {
       var sourceBeat = beatAnchor || currentCaption;
       var compact = sourceBeat.replace(/\s+/g, ' ').replace(/[.!?]+$/g, '').trim();
-      if (!compact) compact = 'Key moment from the source';
-      if (compact.length > 150) return (compact.slice(0, 150) + '.').trim();
-      // Reword form while keeping beat meaning unchanged.
-      return ('In this moment: ' + compact + '.').slice(0, 180);
+      if (!compact) compact = fallbackText.keyMoment;
+      if (compact.length > 180) compact = compact.slice(0, 180).trim();
+      // Keep it as a clean beat-preserving rephrase without canned lead-in text.
+      return /[.!?]$/.test(compact) ? compact : (compact + '.');
     }
 
     return currentCaption;
   };
 
-  this.buildBeatPreservingImagePrompt = function(panel, panelIndex) {
+  this.buildBeatPreservingImagePrompt = function(panel, panelIndex, options) {
+    var fallbackText = getOutputLanguageFallbackText(options);
     var p = panel && typeof panel === 'object' ? panel : {};
     var idx = Number(panelIndex || 0);
     var beatAnchor = normalizeLooseTextValue(
       p.beat_summary || p.summary || p.beat || p.narration || p.description || p.title || p.text || p.dialogue || p.caption
     ) || '';
-    if (!beatAnchor) beatAnchor = 'Panel ' + (idx + 1) + ' key event';
+    if (!beatAnchor) beatAnchor = fallbackText.panelLabelPrefix + ' ' + (idx + 1) + ' ' + fallbackText.panelKeyEvent;
     if (looksLikeImagePromptText(beatAnchor)) {
-      beatAnchor = rewritePromptLikeCaptionToStoryBeat(beatAnchor, p, idx);
+      beatAnchor = rewritePromptLikeCaptionToStoryBeat(beatAnchor, p, idx, options);
     }
 
     var facts = p.facts_used || {};
@@ -2771,10 +2988,135 @@ var ServiceWorker = function() {
       Array.isArray(facts.numbers) && facts.numbers.length ? facts.numbers[0] : ''
     ].filter(Boolean).join(', ');
 
-    var rebuilt = 'Comic panel illustration of: ' + beatAnchor;
-    if (factualHint) rebuilt += '. Keep these facts visible: ' + factualHint;
-    rebuilt += '. Preserve the same scene meaning and event context as this panel.';
+    var rebuilt = fallbackText.imagePromptPrefix + ' ' + beatAnchor;
+    if (factualHint) rebuilt += '. ' + fallbackText.keepFactsVisible + ' ' + factualHint;
+    rebuilt += '. ' + fallbackText.preserveSceneMeaning;
     return rebuilt.replace(/\s+/g, ' ').trim().slice(0, 420);
+  };
+
+  this.deriveStoryboardMetaHeuristic = function(storyboard, sourceTitle, options) {
+    var fallbackText = getOutputLanguageFallbackText(options);
+    var panels = Array.isArray(storyboard && storyboard.panels) ? storyboard.panels : [];
+    var titleFromPanel = '';
+    var summaryFromPanels = [];
+    for (var i = 0; i < panels.length; i += 1) {
+      var beat = normalizeLooseTextValue(
+        panels[i] && (panels[i].beat_summary || panels[i].summary || panels[i].caption || panels[i].title || panels[i].description || panels[i].text)
+      );
+      if (!beat) continue;
+      if (!titleFromPanel && !/^panel\s+\d+/i.test(beat)) titleFromPanel = beat;
+      if (summaryFromPanels.length < 2) summaryFromPanels.push(beat.replace(/[.!?]+$/g, ''));
+    }
+    var fallbackTitle = normalizeLooseTextValue(sourceTitle || (storyboard && storyboard.title) || fallbackText.storySummary)
+      .replace(/\s*[|•]\s+|\s+-\s+|\s+\/\s+/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    var titleSeed = titleFromPanel || fallbackTitle || fallbackText.storySummary;
+    var title = titleSeed.replace(/[.!?]+$/g, '').trim().slice(0, 88);
+    if (!title) title = fallbackText.storySummary;
+    var descriptionSeed = summaryFromPanels.length
+      ? summaryFromPanels.join('. ') + '.'
+      : fallbackText.conciseSummary;
+    var description = descriptionSeed.replace(/\s+/g, ' ').trim().slice(0, 240);
+    return { title: title, description: description };
+  };
+
+  this.sanitizeStoryboardMeta = function(meta, fallbackMeta, options) {
+    var fallbackText = getOutputLanguageFallbackText(options);
+    var fallback = fallbackMeta && typeof fallbackMeta === 'object'
+      ? fallbackMeta
+      : { title: fallbackText.storySummary, shortTitle: fallbackText.storySummary, description: '' };
+    var m = meta && typeof meta === 'object' ? meta : {};
+    var title = normalizeLooseTextValue(m.title || fallback.title || fallbackText.storySummary)
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, 88);
+    if (!title) title = fallbackText.storySummary;
+    var shortTitle = normalizeLooseTextValue(m.short_title || m.shortTitle || fallback.shortTitle || title)
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, 52);
+    if (!shortTitle) shortTitle = title.slice(0, 52);
+    var description = normalizeLooseTextValue(m.description || fallback.description || '')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, 240);
+    return { title: title, shortTitle: shortTitle, description: description };
+  };
+
+  this.generateStoryboardMetaWithGemini = async function(job, storyboard, settings) {
+    if (!settings || settings.provider_text !== 'gemini-free') return null;
+    var apiKeysResult = await chrome.storage.local.get('apiKeys');
+    var apiKey = apiKeysResult && apiKeysResult.apiKeys ? apiKeysResult.apiKeys.gemini : '';
+    if (!apiKey) return null;
+
+    var model = String((settings && settings.text_model) || 'gemini-2.5-flash').trim() || 'gemini-2.5-flash';
+    var languageSpec = getOutputLanguageSpec(settings || {});
+    var sourceTitle = normalizeLooseTextValue(job && job.sourceTitle);
+    var sourceText = String((job && job.extractedText) || '').replace(/\s+/g, ' ').trim().slice(0, 5000);
+    var panelBeats = (Array.isArray(storyboard && storyboard.panels) ? storyboard.panels : [])
+      .slice(0, 6)
+      .map(function(panel, index) {
+        var beat = normalizeLooseTextValue(panel && (panel.beat_summary || panel.caption || panel.summary || panel.title || panel.description || panel.text));
+        return (index + 1) + '. ' + (beat || ('Panel ' + (index + 1)));
+      })
+      .join('\n');
+
+    var prompt = [
+      'Create a stable story title, short card title, and short description for a comic storyboard.',
+      'Return strict JSON only: {"title":"...","short_title":"...","description":"..."}',
+      'Rules:',
+      '- title: 4-12 words, specific to one story, no headline mashup',
+      '- short_title: 2-7 words, compact for card views, still specific',
+      '- title must not contain "|" or "/" separators',
+      '- description: 1-2 factual sentences, max 240 chars',
+      '- Use this output language for all fields: ' + languageSpec.label,
+      '- ' + languageSpec.captionInstruction,
+      '',
+      'Source title: ' + (sourceTitle || '(none)'),
+      'Selected beats:',
+      panelBeats || '(none)',
+      '',
+      'Source text excerpt:',
+      sourceText || '(none)'
+    ].join('\n');
+
+    var response = await fetchWithTimeout(
+      'https://generativelanguage.googleapis.com/v1beta/models/' + model + ':generateContent?key=' + apiKey,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: { temperature: 0.2, maxOutputTokens: 300 }
+        })
+      },
+      STORYBOARD_META_TIMEOUT_MS,
+      'Gemini storyboard metadata'
+    );
+    if (!response.ok) return null;
+    var data = await response.json();
+    var content = (((data || {}).candidates || [])[0] || {}).content;
+    var raw = content && Array.isArray(content.parts) && content.parts[0] ? content.parts[0].text : '';
+    var jsonCandidate = extractJsonCandidate(raw || '');
+    if (!jsonCandidate) return null;
+    var parsed = JSON.parse(jsonCandidate);
+    return parsed && typeof parsed === 'object' ? parsed : null;
+  };
+
+  this.generateStableStoryboardMeta = async function(job, storyboard, settings) {
+    var heuristic = self.deriveStoryboardMetaHeuristic(storyboard, job && job.sourceTitle, settings || {});
+    var fallbackText = getOutputLanguageFallbackText(settings || {});
+    heuristic.shortTitle = String(heuristic.title || fallbackText.storySummary).slice(0, 52);
+    try {
+      var llmMeta = await self.generateStoryboardMetaWithGemini(job, storyboard, settings);
+      return self.sanitizeStoryboardMeta(llmMeta, heuristic, settings || {});
+    } catch (error) {
+      self.appendDebugLog('storyboard.meta.generation.error', {
+        message: error && error.message ? error.message : String(error)
+      });
+      return self.sanitizeStoryboardMeta(null, heuristic, settings || {});
+    }
   };
 
   this.resolvePanelEditTarget = function(payload) {
@@ -2815,7 +3157,7 @@ var ServiceWorker = function() {
           settings: (item.storyboard && item.storyboard.settings) || {},
           extractedText: item.extractedText || '',
           sourceUrl: (item.source && item.source.url) || (item.storyboard && item.storyboard.source && item.storyboard.source.url) || '',
-          sourceTitle: (item.source && item.source.title) || (item.storyboard && item.storyboard.source && item.storyboard.source.title) || ''
+          sourceTitle: (item.storyboard && item.storyboard.title) || (item.source && item.source.title) || (item.storyboard && item.storyboard.source && item.storyboard.source.title) || ''
         };
         return target;
       });
@@ -2863,9 +3205,43 @@ var ServiceWorker = function() {
       }
 
       if (action === 'regenerate-image') {
-        var providerId = (job.settings && job.settings.provider_image) || (self.settings && self.settings.provider_image) || '';
+        var providerMeta = (panel && panel.artifacts && panel.artifacts.provider_metadata) || {};
+        var originalPrompt = String(panel && panel.original_image_prompt || '').trim()
+          || String(panel && panel.image_prompt || '').trim();
+        if (!originalPrompt) {
+          originalPrompt = self.buildBeatPreservingImagePrompt(panel, panelIndex, job.settings || {});
+        }
+        panel.original_image_prompt = panel.original_image_prompt || originalPrompt;
+        panel.image_prompt = panel.original_image_prompt;
+
+        var originalProviderId = String(
+          panel && panel.original_image_provider_id ||
+          providerMeta.provider_id ||
+          (job.settings && job.settings.provider_image) ||
+          (self.settings && self.settings.provider_image) ||
+          ''
+        ).trim();
+        var originalModel = String(
+          panel && panel.original_image_model ||
+          providerMeta.model ||
+          (job.settings && job.settings.image_model) ||
+          ''
+        ).trim();
+        if (originalProviderId) panel.original_image_provider_id = originalProviderId;
+        if (originalModel) panel.original_image_model = originalModel;
+
+        var effectiveSettings = {
+          ...(job.settings || {})
+        };
+        if (originalProviderId) effectiveSettings.provider_image = originalProviderId;
+        if (originalModel) effectiveSettings.image_model = originalModel;
+        var jobForRender = {
+          ...job,
+          settings: effectiveSettings
+        };
+
+        var providerId = effectiveSettings.provider_image || (self.settings && self.settings.provider_image) || '';
         var provider = self.getImageProvider(providerId);
-        panel.image_prompt = self.buildBeatPreservingImagePrompt(panel, panelIndex);
         panel.runtime_status = 'rendering';
         return persistTarget().then(function() {
           return self.generateImageWithRefusalHandling(
@@ -2873,7 +3249,7 @@ var ServiceWorker = function() {
             panel,
             panelIndex,
             panels.length,
-            job,
+            jobForRender,
             null
           ).then(function(imageResult) {
             if (!imageResult || !imageResult.imageData) throw new Error('Provider returned no image data');
@@ -2881,6 +3257,20 @@ var ServiceWorker = function() {
               image_blob_ref: imageResult.imageData,
               provider_metadata: imageResult.providerMetadata || null
             };
+            if (!panel.original_image_provider_id) {
+              panel.original_image_provider_id = String(
+                (imageResult && imageResult.providerMetadata && imageResult.providerMetadata.provider_id) ||
+                providerId ||
+                ''
+              ).trim();
+            }
+            if (!panel.original_image_model) {
+              panel.original_image_model = String(
+                (imageResult && imageResult.providerMetadata && imageResult.providerMetadata.model) ||
+                effectiveSettings.image_model ||
+                ''
+              ).trim();
+            }
             panel.runtime_status = 'completed';
             self.trackMetric('panel_edit_regenerate_image', {
               panel_index: panelIndex,
@@ -2891,7 +3281,7 @@ var ServiceWorker = function() {
         });
       }
 
-      panel.caption = self.transformPanelCaption(panel, action);
+      panel.caption = self.transformPanelCaption(panel, action, job.settings || {});
       panel.facts_used = self.extractPanelFacts(panel, job.extractedText || '');
       self.trackMetric('panel_edit_caption', { action: action, panel_index: panelIndex });
       return persistTarget();
@@ -2901,6 +3291,355 @@ var ServiceWorker = function() {
   this.handleTrackMetric = function(message) {
     var payload = message && message.payload ? message.payload : {};
     return self.trackMetric(payload.event, payload).then(function() { return { tracked: true }; });
+  };
+
+  this.handleGetArchivedPanelImages = function(message) {
+    var payload = message && message.payload ? message.payload : {};
+    var keys = Array.isArray(payload.keys) ? payload.keys : [];
+    return self.getArchivedImagesByKeys(keys).then(function(images) {
+      return { images: images || {} };
+    });
+  };
+
+  this.getStorySelectionTextModel = function(providerId, settings) {
+    var safeSettings = settings && typeof settings === 'object' ? settings : {};
+    switch (providerId) {
+      case 'gemini-free':
+        return safeSettings.geminiTextModel || safeSettings.text_model || 'gemini-2.5-flash';
+      case 'openai':
+        return safeSettings.textModel || safeSettings.text_model || 'gpt-4o-mini';
+      case 'openrouter':
+        return safeSettings.openrouterTextModel || safeSettings.text_model || 'openai/gpt-oss-20b:free';
+      case 'huggingface':
+        return safeSettings.huggingfaceTextModel || safeSettings.text_model || 'mistralai/Mistral-7B-Instruct-v0.2';
+      default:
+        return safeSettings.text_model || safeSettings.textModel || 'gemini-2.5-flash';
+    }
+  };
+
+  this.pickCandidateForStory = function(storyTitle, storySummary, storyCandidateId, candidatePayloads) {
+    var items = Array.isArray(candidatePayloads) ? candidatePayloads : [];
+    if (!items.length) return null;
+    var requestedId = String(storyCandidateId || '').trim();
+    if (requestedId) {
+      var exact = items.find(function(candidate) { return String(candidate && candidate.id || '') === requestedId; });
+      if (exact) return exact;
+    }
+    var tokenSource = String((storyTitle || '') + ' ' + (storySummary || '')).toLowerCase();
+    var tokens = tokenSource.split(/[^a-z0-9]+/).filter(function(token) { return token && token.length >= 3; });
+    if (!tokens.length) return items[0];
+    var best = items[0];
+    var bestScore = -Infinity;
+    for (var i = 0; i < items.length; i++) {
+      var candidate = items[i] || {};
+      var haystack = String((candidate.summary || '') + ' ' + (candidate.text || '')).toLowerCase();
+      var score = Number(candidate.score || 0);
+      for (var t = 0; t < tokens.length; t++) {
+        if (haystack.indexOf(tokens[t]) >= 0) score += 2;
+      }
+      if (score > bestScore) {
+        bestScore = score;
+        best = candidate;
+      }
+    }
+    return best;
+  };
+
+  this.normalizeStorySelectionResult = function(rawText, candidatePayloads) {
+    function makeStoryStableId(sourceCandidateId, title, summary, index) {
+      var candidate = String(sourceCandidateId || '').trim();
+      if (candidate) {
+        return 'candidate_' + candidate.replace(/[^a-zA-Z0-9_-]+/g, '_');
+      }
+      var seed = String(title || summary || ('story_' + (index + 1))).toLowerCase();
+      var slug = seed
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '')
+        .slice(0, 48);
+      if (!slug) slug = 'story-' + (index + 1);
+      return 'story_' + slug + '_' + (index + 1);
+    }
+
+    var items = Array.isArray(candidatePayloads) ? candidatePayloads : [];
+    var fallbackText = getOutputLanguageFallbackText(self.settings || {});
+    var parsed = null;
+    var jsonCandidate = extractJsonCandidate(rawText || '');
+    if (jsonCandidate) {
+      try {
+        parsed = JSON.parse(jsonCandidate);
+      } catch (_) {}
+    }
+
+    var stories = [];
+    var inputStories = [];
+    if (parsed && Array.isArray(parsed.stories)) inputStories = parsed.stories;
+    else if (parsed && Array.isArray(parsed.items)) inputStories = parsed.items;
+
+    for (var i = 0; i < inputStories.length; i++) {
+      var story = inputStories[i] || {};
+      var title = String(story.title || '').trim();
+      var summary = String(story.summary || story.long_summary || '').trim();
+      if (!title && !summary) continue;
+      var matched = self.pickCandidateForStory(title, summary, story.candidate_id, items);
+      var text = String((matched && matched.text) || '').trim();
+      var fallbackSummary = String((matched && matched.summary) || '').trim();
+      var score = Number(story.score || (matched && matched.score) || 0);
+      var sourceCandidateId = matched && matched.id ? String(matched.id) : '';
+      stories.push({
+        id: makeStoryStableId(sourceCandidateId, title, summary, i),
+        title: title || ('Story ' + (i + 1)),
+        summary: summary || fallbackSummary || fallbackText.noSummary,
+        score: Number.isFinite(score) ? Number(score.toFixed(2)) : 0,
+        chars: Number(matched && matched.chars || text.length || 0),
+        sourceCandidateId: sourceCandidateId,
+        text: text || summary || fallbackSummary || ''
+      });
+    }
+
+    if (!stories.length) {
+      var fallback = items.slice().sort(function(a, b) {
+        return Number(b && b.score || 0) - Number(a && a.score || 0);
+      }).slice(0, 5);
+      stories = fallback.map(function(candidate, index) {
+        var candidateTitle = String(candidate.summary || '').split(/[.!?]/)[0].trim();
+        var sourceCandidateId = String(candidate.id || '');
+        return {
+          id: makeStoryStableId(sourceCandidateId, candidateTitle, String(candidate.summary || ''), index),
+          title: candidateTitle || ('Story ' + (index + 1)),
+          summary: String(candidate.summary || fallbackText.noSummary),
+          score: Number(candidate.score || 0),
+          chars: Number(candidate.chars || 0),
+          sourceCandidateId: sourceCandidateId,
+          text: String(candidate.text || '')
+        };
+      });
+    }
+
+    return {
+      stories: stories.slice(0, 5),
+      selectedStoryId: stories[0] ? stories[0].id : ''
+    };
+  };
+
+  this.runStorySelectionPrompt = async function(providerId, modelName, prompt, settings) {
+    var result = await chrome.storage.local.get('apiKeys');
+    var apiKeys = result && result.apiKeys ? result.apiKeys : {};
+
+    if (providerId === 'gemini-free') {
+      var geminiKey = apiKeys.gemini;
+      if (!geminiKey) throw new Error('Gemini API key not configured');
+      var geminiRes = await fetchWithTimeout(
+        'https://generativelanguage.googleapis.com/v1beta/models/' + encodeURIComponent(modelName) + ':generateContent?key=' + geminiKey,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: prompt }] }],
+            generationConfig: { temperature: 0.2, maxOutputTokens: 4096 }
+          })
+        },
+        STORYBOARD_TIMEOUT_MS,
+        'Story selection (Gemini)'
+      );
+      if (!geminiRes.ok) {
+        var geminiErr = await geminiRes.text();
+        throw new Error('Gemini story selection failed: ' + geminiErr);
+      }
+      var geminiData = await geminiRes.json();
+      return String(geminiData && geminiData.candidates && geminiData.candidates[0] && geminiData.candidates[0].content && geminiData.candidates[0].content.parts && geminiData.candidates[0].content.parts[0] && geminiData.candidates[0].content.parts[0].text || '');
+    }
+
+    if (providerId === 'openai') {
+      var openaiKey = apiKeys.openai;
+      if (!openaiKey) throw new Error('OpenAI API key not configured');
+      var openaiRes = await fetchWithTimeout(
+        'https://api.openai.com/v1/chat/completions',
+        {
+          method: 'POST',
+          headers: {
+            'Authorization': 'Bearer ' + openaiKey,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            model: modelName,
+            temperature: 0.2,
+            messages: [
+              { role: 'system', content: 'Return strict JSON only.' },
+              { role: 'user', content: prompt }
+            ]
+          })
+        },
+        STORYBOARD_TIMEOUT_MS,
+        'Story selection (OpenAI)'
+      );
+      if (!openaiRes.ok) {
+        var openaiErr = await openaiRes.text();
+        throw new Error('OpenAI story selection failed: ' + openaiErr);
+      }
+      var openaiData = await openaiRes.json();
+      return String(openaiData && openaiData.choices && openaiData.choices[0] && openaiData.choices[0].message && openaiData.choices[0].message.content || '');
+    }
+
+    if (providerId === 'openrouter') {
+      var openrouterKey = apiKeys.openrouter;
+      if (!openrouterKey) throw new Error('OpenRouter API key not configured');
+      var openrouterRes = await fetchWithTimeout(
+        'https://openrouter.ai/api/v1/chat/completions',
+        {
+          method: 'POST',
+          headers: {
+            'Authorization': 'Bearer ' + openrouterKey,
+            'Content-Type': 'application/json',
+            'HTTP-Referer': 'https://web2comics.local',
+            'X-Title': 'Web2Comics'
+          },
+          body: JSON.stringify({
+            model: modelName,
+            temperature: 0.2,
+            messages: [
+              { role: 'system', content: 'Return strict JSON only.' },
+              { role: 'user', content: prompt }
+            ]
+          })
+        },
+        STORYBOARD_TIMEOUT_MS,
+        'Story selection (OpenRouter)'
+      );
+      if (!openrouterRes.ok) {
+        var openrouterErr = await openrouterRes.text();
+        throw new Error('OpenRouter story selection failed: ' + openrouterErr);
+      }
+      var openrouterData = await openrouterRes.json();
+      return String(openrouterData && openrouterData.choices && openrouterData.choices[0] && openrouterData.choices[0].message && openrouterData.choices[0].message.content || '');
+    }
+
+    if (providerId === 'huggingface') {
+      var hfKey = apiKeys.huggingface;
+      if (!hfKey) throw new Error('Hugging Face API key not configured');
+      var hfRes = await fetchWithTimeout(
+        'https://api-inference.huggingface.co/models/' + encodeURIComponent(modelName),
+        {
+          method: 'POST',
+          headers: {
+            'Authorization': 'Bearer ' + hfKey,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            inputs: prompt,
+            parameters: {
+              temperature: 0.2,
+              max_new_tokens: 1000,
+              return_full_text: false
+            }
+          })
+        },
+        STORYBOARD_TIMEOUT_MS,
+        'Story selection (Hugging Face)'
+      );
+      if (!hfRes.ok) {
+        var hfErr = await hfRes.text();
+        throw new Error('Hugging Face story selection failed: ' + hfErr);
+      }
+      var hfData = await hfRes.json();
+      if (Array.isArray(hfData) && hfData[0] && typeof hfData[0].generated_text === 'string') {
+        return hfData[0].generated_text;
+      }
+      if (hfData && typeof hfData.generated_text === 'string') return hfData.generated_text;
+      throw new Error('Hugging Face story selection returned no text');
+    }
+
+    throw new Error('Unsupported provider for story selection: ' + providerId);
+  };
+
+  this.handleProcessContentStories = async function(message) {
+    var payload = message && message.payload ? message.payload : {};
+    var sourceText = String(payload.sourceText || '').trim();
+    var sourceHtml = String(payload.sourceHtml || '').trim();
+    var candidatePayloads = Array.isArray(payload.candidatePayloads) ? payload.candidatePayloads : [];
+    var preferredProvider = String(payload.preferredProvider || 'gemini-free');
+    var settings = payload.settings && typeof payload.settings === 'object' ? payload.settings : {};
+
+    if (!candidatePayloads.length && sourceText.length < 80 && sourceHtml.length < 120) {
+      return {
+        stories: [],
+        selectedStoryId: ''
+      };
+    }
+
+    var candidateContext = candidatePayloads.slice(0, 8).map(function(candidate, index) {
+      return {
+        id: String(candidate && candidate.id || ('candidate_' + (index + 1))),
+        score: Number(candidate && candidate.score || 0),
+        chars: Number(candidate && candidate.chars || 0),
+        summary: String(candidate && candidate.summary || ''),
+        text: String(candidate && candidate.text || '').slice(0, 2200)
+      };
+    });
+
+    var prompt = [
+      'You are extracting top stories from a webpage for comic generation.',
+      'Primary signal is FULL HTML document structure + content. Use candidate blocks only as anchors.',
+      'Return STRICT JSON only with schema:',
+      '{"stories":[{"title":string,"summary":string,"candidate_id":string,"score":number}]}',
+      'Rules:',
+      '- Extract up to 5 distinct top stories.',
+      '- summary must be long and informative (3-6 sentences).',
+      '- Use only facts present in source/candidates.',
+      '- Rank stories by user relevance/importance on the page.',
+      '- candidate_id must match one of provided candidate ids when possible; otherwise empty string.',
+      '- score is 0-100 relevance/confidence.',
+      'Source title: ' + String(payload.sourceTitle || ''),
+      'Source URL: ' + String(payload.sourceUrl || ''),
+      'Candidate blocks:',
+      JSON.stringify(candidateContext),
+      'Full HTML document (truncated):',
+      sourceHtml.slice(0, 100000),
+      'Full source text (truncated):',
+      sourceText.slice(0, 30000)
+    ].join('\n');
+
+    var providerOrder = [];
+    function pushProvider(id) {
+      if (!id) return;
+      if (providerOrder.indexOf(id) >= 0) return;
+      providerOrder.push(id);
+    }
+    pushProvider(preferredProvider);
+    pushProvider('gemini-free');
+    pushProvider('openai');
+    pushProvider('openrouter');
+    pushProvider('huggingface');
+
+    var lastError = null;
+    for (var i = 0; i < providerOrder.length; i++) {
+      var providerId = providerOrder[i];
+      var modelName = self.getStorySelectionTextModel(providerId, settings);
+      try {
+        var raw = await self.runStorySelectionPrompt(providerId, modelName, prompt, settings);
+        var normalized = self.normalizeStorySelectionResult(raw, candidatePayloads);
+        if (normalized && Array.isArray(normalized.stories) && normalized.stories.length) {
+          return {
+            stories: normalized.stories,
+            selectedStoryId: normalized.selectedStoryId,
+            providerUsed: providerId
+          };
+        }
+      } catch (error) {
+        lastError = error;
+      }
+    }
+
+    var fallback = self.normalizeStorySelectionResult('', candidatePayloads);
+    if (fallback && Array.isArray(fallback.stories) && fallback.stories.length) {
+      return {
+        stories: fallback.stories,
+        selectedStoryId: fallback.selectedStoryId,
+        providerUsed: 'fallback',
+        warning: lastError ? ((lastError && lastError.message) || String(lastError)) : ''
+      };
+    }
+
+    throw (lastError || new Error('Story selection failed'));
   };
   
   this.setupMessageHandlers = function() {
@@ -2917,9 +3656,14 @@ var ServiceWorker = function() {
     self.messageHandlers['FACEBOOK_GET_STATUS'] = function(msg) { return self.handleFacebookGetStatus(msg); };
     self.messageHandlers['FACEBOOK_CONNECT'] = function(msg) { return self.handleFacebookConnect(msg); };
     self.messageHandlers['FACEBOOK_DISCONNECT'] = function(msg) { return self.handleFacebookDisconnect(msg); };
+    self.messageHandlers['FACEBOOK_GET_PAGES'] = function(msg) { return self.handleFacebookGetPages(msg); };
+    self.messageHandlers['FACEBOOK_SET_PAGE'] = function(msg) { return self.handleFacebookSetPage(msg); };
+    self.messageHandlers['FACEBOOK_POST_PAGE'] = function(msg) { return self.handleFacebookPostPage(msg); };
     self.messageHandlers['X_GET_STATUS'] = function(msg) { return self.handleXGetStatus(msg); };
     self.messageHandlers['X_CONNECT'] = function(msg) { return self.handleXConnect(msg); };
     self.messageHandlers['X_DISCONNECT'] = function(msg) { return self.handleXDisconnect(msg); };
+    self.messageHandlers['PROCESS_CONTENT_STORIES'] = function(msg) { return self.handleProcessContentStories(msg); };
+    self.messageHandlers['GET_ARCHIVED_PANEL_IMAGES'] = function(msg) { return self.handleGetArchivedPanelImages(msg); };
   };
   
   this.setupLifecycleHandlers = function() {
@@ -2979,6 +3723,26 @@ var ServiceWorker = function() {
             console.warn('Failed to create selection context menu:', err.message || err);
           }
         });
+        chrome.contextMenus.create({
+          id: self.TOOLBAR_CONTEXT_MENU_COMICIFY_ID,
+          title: 'Comicify',
+          contexts: ['action']
+        }, function() {
+          var err = chrome.runtime && chrome.runtime.lastError;
+          if (err && !/duplicate id/i.test(String(err.message || ''))) {
+            console.warn('Failed to create toolbar context menu (Comicify):', err.message || err);
+          }
+        });
+        chrome.contextMenus.create({
+          id: self.TOOLBAR_CONTEXT_MENU_COLLECTION_ID,
+          title: 'My Collection',
+          contexts: ['action']
+        }, function() {
+          var err = chrome.runtime && chrome.runtime.lastError;
+          if (err && !/duplicate id/i.test(String(err.message || ''))) {
+            console.warn('Failed to create toolbar context menu (My Collection):', err.message || err);
+          }
+        });
       } catch (error) {
         console.warn('Failed to create selection context menu:', error);
       }
@@ -3011,8 +3775,77 @@ var ServiceWorker = function() {
           .catch(function(error) {
             console.error('Selection context menu composer open failed:', error);
           });
+        return;
+      }
+      if (info.menuItemId === self.TOOLBAR_CONTEXT_MENU_COMICIFY_ID) {
+        self.handleToolbarContextMenuComicifyClick(tab)
+          .catch(function(error) {
+            console.error('Toolbar context menu Comicify failed:', error);
+          });
+        return;
+      }
+      if (info.menuItemId === self.TOOLBAR_CONTEXT_MENU_COLLECTION_ID) {
+        self.handleToolbarContextMenuCollectionClick(tab)
+          .catch(function(error) {
+            console.error('Toolbar context menu My Collection failed:', error);
+          });
       }
     });
+  };
+
+  this.handleToolbarContextMenuComicifyClick = function() {
+    if (chrome.action && chrome.action.openPopup) {
+      return Promise.resolve(chrome.action.openPopup())
+        .then(function() {
+          return { opened: true };
+        })
+        .catch(function() {
+          var popupUrl = (chrome.runtime && chrome.runtime.getURL)
+            ? chrome.runtime.getURL('popup/popup.html')
+            : 'popup/popup.html';
+          if (chrome.tabs && chrome.tabs.create) {
+            return Promise.resolve(chrome.tabs.create({ url: popupUrl })).then(function() {
+              return { opened: true, fallback: 'tab' };
+            });
+          }
+          return { opened: false };
+        });
+    }
+    return Promise.resolve({ opened: false });
+  };
+
+  this.handleToolbarContextMenuCollectionClick = function(tab) {
+    var sidepanelUrl = (chrome.runtime && chrome.runtime.getURL)
+      ? chrome.runtime.getURL('sidepanel/sidepanel.html?view=history')
+      : 'sidepanel/sidepanel.html?view=history';
+    return Promise.resolve()
+      .then(function() {
+        return chrome.storage.local.set({
+          sidepanelInitialView: 'history'
+        });
+      })
+      .then(function() {
+        if (chrome.sidePanel && chrome.sidePanel.open && tab && tab.windowId != null) {
+          return Promise.resolve(chrome.sidePanel.open({ windowId: tab.windowId }))
+            .then(function() {
+              return { opened: true, target: 'sidepanel' };
+            })
+            .catch(function() {
+              if (chrome.tabs && chrome.tabs.create) {
+                return Promise.resolve(chrome.tabs.create({ url: sidepanelUrl })).then(function() {
+                  return { opened: true, target: 'tab' };
+                });
+              }
+              return { opened: false };
+            });
+        }
+        if (chrome.tabs && chrome.tabs.create) {
+          return Promise.resolve(chrome.tabs.create({ url: sidepanelUrl })).then(function() {
+            return { opened: true, target: 'tab' };
+          });
+        }
+        return { opened: false };
+      });
   };
 
   this.getContextMenuGenerationSettings = function(userSettings) {
@@ -3049,7 +3882,7 @@ var ServiceWorker = function() {
 
     return {
       panel_count: settings.panelCount || 3,
-      objective: settings.objective || 'summarize',
+      objective: settings.objective || 'explain-like-im-five',
       output_language: settings.outputLanguage || 'en',
       detail_level: settings.detailLevel || 'low',
       style_id: settings.styleId || 'default',
@@ -3193,7 +4026,7 @@ var ServiceWorker = function() {
       var overrides = extra && typeof extra === 'object' ? extra : {};
       return {
         panelCount: settings.panel_count,
-        objective: settings.objective || 'summarize',
+        objective: settings.objective || 'explain-like-im-five',
         outputLanguage: settings.output_language || 'en',
         detailLevel: settings.detail_level,
         styleId: settings.style_id,
@@ -3225,7 +4058,7 @@ var ServiceWorker = function() {
     }
 
     function validateStoryboardBeforeImages(storyboard, providerId) {
-      var validated = validateStoryboardContract(storyboard, settings.panel_count);
+      var validated = validateStoryboardContract(storyboard, settings.panel_count, settings);
       var s = validated.storyboard;
       if (!s.panels.length) {
         var emptyErr = new Error('Storyboard has no panels after validation');
@@ -3318,7 +4151,7 @@ var ServiceWorker = function() {
     var url = payload.url;
     var title = payload.title;
     var settings = payload.settings || {};
-    if (!settings.objective) settings.objective = 'summarize';
+    if (!settings.objective) settings.objective = 'explain-like-im-five';
     if (!settings.output_language && settings.outputLanguage) {
       settings.output_language = settings.outputLanguage;
     }
@@ -3356,7 +4189,7 @@ var ServiceWorker = function() {
     });
     self.trackMetric('generation_created', {
       domain: (() => { try { return new URL(String(url || '')).hostname; } catch (_) { return ''; } })(),
-      objective: settings.objective || 'summarize',
+      objective: settings.objective || 'explain-like-im-five',
       provider_text: settings.provider_text,
       provider_image: settings.provider_image,
       panel_count: settings.panel_count
@@ -3385,7 +4218,7 @@ var ServiceWorker = function() {
           self.notifyProgress();
           self.trackMetric('generation_failed', {
             domain: (() => { try { return new URL(String(self.currentJob.sourceUrl || '')).hostname; } catch (_) { return ''; } })(),
-            objective: self.currentJob.settings && self.currentJob.settings.objective ? self.currentJob.settings.objective : 'summarize'
+            objective: self.currentJob.settings && self.currentJob.settings.objective ? self.currentJob.settings.objective : 'explain-like-im-five'
           });
         }
       })
@@ -3432,7 +4265,7 @@ var ServiceWorker = function() {
         'Panels: ' + ((storyboard && storyboard.panels && storyboard.panels.length) || 0) +
           '; source title: ' + self.truncateForDebug(job.sourceTitle || '', 120)
       );
-      var contract = validateStoryboardContract(storyboard, settings.panel_count);
+      var contract = validateStoryboardContract(storyboard, settings.panel_count, settings);
       storyboard = contract.storyboard;
       if (!contract.meta.hasPanelsArray || contract.meta.panelCount === 0) {
         self.appendDebugLog('unexpected_output.storyboard.no_panels', {
@@ -3470,86 +4303,111 @@ var ServiceWorker = function() {
         return p;
       });
       storyboard = self.enrichStoryboardFacts(storyboard, job.extractedText || '');
-      storyboard.settings = {
-        ...(storyboard.settings || {}),
-        debug_flag: !!settings.debug_flag,
-        image_refusal_handling: settings.image_refusal_handling || 'rewrite_and_retry',
-        show_rewritten_badge: settings.show_rewritten_badge !== false,
-        log_rewritten_prompts: !!settings.log_rewritten_prompts
-      };
-      storyboard.caption_quality = job.captionQuality || null;
-      job.storyboard = storyboard;
-      job.status = 'generating_images';
-      job.currentPanelIndex = 0;
-      job.completedPanels = 0;
-      job.updatedAt = new Date().toISOString();
-      self.saveJob();
-      self.notifyProgress();
-      self.appendDebugLog('job.storyboard_ready', { panels: storyboard.panels ? storyboard.panels.length : 0 });
-      if (Array.isArray(storyboard.panels) && storyboard.panels.length) {
-        if (contract.meta.missingCaptionBeforeSynthesis > 0) {
-          self.appendDebugLog('unexpected_output.storyboard.missing_panel_text', {
-            missingPanels: contract.meta.missingCaptionBeforeSynthesis,
-            totalPanels: storyboard.panels.length
-          });
+      return self.generateStableStoryboardMeta(job, storyboard, settings).then(function(meta) {
+        if (meta && meta.title) storyboard.title = meta.title;
+        if (meta && meta.shortTitle) storyboard.collection_title_short = meta.shortTitle;
+        if (meta && meta.description) storyboard.description = meta.description;
+        storyboard.settings = {
+          ...(storyboard.settings || {}),
+          debug_flag: !!settings.debug_flag,
+          image_refusal_handling: settings.image_refusal_handling || 'rewrite_and_retry',
+          show_rewritten_badge: settings.show_rewritten_badge !== false,
+          log_rewritten_prompts: !!settings.log_rewritten_prompts
+        };
+        storyboard.caption_quality = job.captionQuality || null;
+        job.storyboard = storyboard;
+        job.status = 'generating_images';
+        job.currentPanelIndex = 0;
+        job.completedPanels = 0;
+        job.updatedAt = new Date().toISOString();
+        self.saveJob();
+        self.notifyProgress();
+        self.appendDebugLog('job.storyboard_ready', {
+          panels: storyboard.panels ? storyboard.panels.length : 0,
+          title: storyboard.title || null,
+          hasDescription: !!(storyboard.description && String(storyboard.description).trim())
+        });
+        if (Array.isArray(storyboard.panels) && storyboard.panels.length) {
+          if (contract.meta.missingCaptionBeforeSynthesis > 0) {
+            self.appendDebugLog('unexpected_output.storyboard.missing_panel_text', {
+              missingPanels: contract.meta.missingCaptionBeforeSynthesis,
+              totalPanels: storyboard.panels.length
+            });
+          }
+          if (contract.meta.missingImagePromptBeforeSynthesis > 0) {
+            self.appendDebugLog('unexpected_output.storyboard.missing_image_prompts', {
+              missingPanels: contract.meta.missingImagePromptBeforeSynthesis,
+              totalPanels: storyboard.panels.length
+            });
+          }
         }
-        if (contract.meta.missingImagePromptBeforeSynthesis > 0) {
-          self.appendDebugLog('unexpected_output.storyboard.missing_image_prompts', {
-            missingPanels: contract.meta.missingImagePromptBeforeSynthesis,
-            totalPanels: storyboard.panels.length
-          });
-        }
-      }
 
-      // Generate images sequentially so UI can show panel-by-panel progress reliably.
-      var chain = Promise.resolve();
-      for (var i = 0; i < storyboard.panels.length; i++) {
-        (function(panelIndex) {
-          chain = chain.then(function() {
-            if (job.status === 'canceled') return;
+        // Generate images sequentially so UI can show panel-by-panel progress reliably.
+        var chain = Promise.resolve();
+        for (var i = 0; i < storyboard.panels.length; i++) {
+          (function(panelIndex) {
+            chain = chain.then(function() {
+              if (job.status === 'canceled') return;
 
-            var panel = storyboard.panels[panelIndex];
-            job.currentPanelIndex = panelIndex;
-            panel.runtime_status = 'sent';
-            job.updatedAt = new Date().toISOString();
-            self.pushProgressEvent(
-              'panel.prompt',
-              'Sending image prompt for panel ' + (panelIndex + 1),
-              panel.image_prompt || ''
-            );
-            self.saveJob();
-            self.notifyProgress();
-            self.appendDebugLog('panel.image.start', { panelIndex: panelIndex, panelId: panel.panel_id || null });
-
-            return withTimeout(self.generateImageWithRefusalHandling(
-              imageProvider,
-              panel,
-              panelIndex,
-              storyboard.panels.length,
-              job,
-              imagePromptTemplate
-            ), IMAGE_TIMEOUT_MS + 30000, 'Panel ' + (panelIndex + 1) + ' image generation')
-            .then(function(imageResult) {
-              if (!imageResult || !imageResult.imageData) {
-                self.appendDebugLog('unexpected_output.panel.no_image_data', {
-                  panelIndex: panelIndex,
-                  panelId: panel.panel_id || null,
-                  providerMetadata: imageResult && imageResult.providerMetadata ? imageResult.providerMetadata : null
-                });
-                self.pushProgressEvent(
-                  'unexpected_output',
-                  'Panel ' + (panelIndex + 1) + ' returned no image data',
-                  'Provider response was missing image data'
-                );
-                throw new Error('Provider returned no image data');
-              }
-              panel.runtime_status = 'receiving';
+              var panel = storyboard.panels[panelIndex];
+              job.currentPanelIndex = panelIndex;
+              panel.runtime_status = 'sent';
               job.updatedAt = new Date().toISOString();
+              self.pushProgressEvent(
+                'panel.prompt',
+                'Sending image prompt for panel ' + (panelIndex + 1),
+                panel.image_prompt || ''
+              );
               self.saveJob();
               self.notifyProgress();
+              self.appendDebugLog('panel.image.start', { panelIndex: panelIndex, panelId: panel.panel_id || null });
+
+              return withTimeout(self.generateImageWithRefusalHandling(
+                imageProvider,
+                panel,
+                panelIndex,
+                storyboard.panels.length,
+                job,
+                imagePromptTemplate
+              ), IMAGE_TIMEOUT_MS + 30000, 'Panel ' + (panelIndex + 1) + ' image generation')
+              .then(function(imageResult) {
+                if (!imageResult || !imageResult.imageData) {
+                  self.appendDebugLog('unexpected_output.panel.no_image_data', {
+                    panelIndex: panelIndex,
+                    panelId: panel.panel_id || null,
+                    providerMetadata: imageResult && imageResult.providerMetadata ? imageResult.providerMetadata : null
+                  });
+                  self.pushProgressEvent(
+                    'unexpected_output',
+                    'Panel ' + (panelIndex + 1) + ' returned no image data',
+                    'Provider response was missing image data'
+                  );
+                  throw new Error('Provider returned no image data');
+                }
+                panel.runtime_status = 'receiving';
+                job.updatedAt = new Date().toISOString();
+                self.saveJob();
+                self.notifyProgress();
 
               panel.runtime_status = 'rendering';
               panel.artifacts = { image_blob_ref: imageResult.imageData, provider_metadata: imageResult.providerMetadata };
+              if (!panel.original_image_prompt) {
+                panel.original_image_prompt = String(panel.image_prompt || '').trim();
+              }
+              if (!panel.original_image_provider_id) {
+                panel.original_image_provider_id = String(
+                  (imageResult && imageResult.providerMetadata && imageResult.providerMetadata.provider_id) ||
+                  (settings && settings.provider_image) ||
+                  ''
+                ).trim();
+              }
+              if (!panel.original_image_model) {
+                panel.original_image_model = String(
+                  (imageResult && imageResult.providerMetadata && imageResult.providerMetadata.model) ||
+                  (settings && settings.image_model) ||
+                  ''
+                ).trim();
+              }
               if (imageResult && imageResult.refusalDebug) {
                 panel.artifacts.refusal_debug = imageResult.refusalDebug;
               }
@@ -3565,7 +4423,7 @@ var ServiceWorker = function() {
                 self.trackMetric('time_to_first_panel', {
                   ms: firstPanelMs,
                   domain: (() => { try { return new URL(String(job.sourceUrl || '')).hostname; } catch (_) { return ''; } })(),
-                  objective: job.settings && job.settings.objective ? job.settings.objective : 'summarize'
+                  objective: job.settings && job.settings.objective ? job.settings.objective : 'explain-like-im-five'
                 });
               }
             })
@@ -3600,12 +4458,13 @@ var ServiceWorker = function() {
               );
               self.saveJob();
               self.notifyProgress();
+              });
             });
-          });
-        })(i);
-      }
+          })(i);
+        }
 
-      return chain;
+        return chain;
+      });
     })
     .then(function() {
       if (job.status !== 'canceled') {
@@ -3663,7 +4522,7 @@ var ServiceWorker = function() {
         });
         self.trackMetric('generation_completed', {
           domain: (() => { try { return new URL(String(job.sourceUrl || '')).hostname; } catch (_) { return ''; } })(),
-          objective: job.settings && job.settings.objective ? job.settings.objective : 'summarize',
+          objective: job.settings && job.settings.objective ? job.settings.objective : 'explain-like-im-five',
           panel_errors: (job.panelErrors && job.panelErrors.length) || 0
         });
         return self.addCompletedJobToHistory(job);
@@ -3822,25 +4681,59 @@ var ServiceWorker = function() {
     }
   };
 
+  this.loadBundledOAuthClientConfig = async function() {
+    try {
+      if (self._bundledOAuthClientConfigLoaded) {
+        return self._bundledOAuthClientConfig || {};
+      }
+      self._bundledOAuthClientConfigLoaded = true;
+      var url = chrome.runtime && chrome.runtime.getURL
+        ? chrome.runtime.getURL('shared/oauth-client-config.local.json')
+        : '';
+      if (!url || typeof fetch !== 'function') {
+        self._bundledOAuthClientConfig = {};
+        return {};
+      }
+      var response = await fetch(url, { cache: 'no-store' });
+      if (!response || !response.ok) {
+        self._bundledOAuthClientConfig = {};
+        return {};
+      }
+      var parsed = await response.json();
+      self._bundledOAuthClientConfig = (parsed && typeof parsed === 'object') ? parsed : {};
+      return self._bundledOAuthClientConfig;
+    } catch (_) {
+      self._bundledOAuthClientConfig = {};
+      return {};
+    }
+  };
+
   this.getOAuthClientConfig = async function() {
     var stored = await chrome.storage.local.get('oauthClientConfig');
     var configured = stored && stored.oauthClientConfig && typeof stored.oauthClientConfig === 'object'
       ? stored.oauthClientConfig
       : {};
+    var bundled = await self.loadBundledOAuthClientConfig();
     var googleDriveClientId = String(
       configured.googleDriveClientId ||
       configured.googleDrive?.clientId ||
+      bundled.googleDriveClientId ||
+      bundled.googleDrive?.clientId ||
       self.getManifestOAuthClientId() ||
       ''
     ).trim();
     var facebookAppId = String(
       configured.facebookAppId ||
       configured.facebook?.appId ||
+      bundled.facebookAppId ||
+      bundled.facebook?.appId ||
       ''
     ).trim();
     var xClientId = String(
       configured.xClientId ||
       configured.x?.clientId ||
+      bundled.xClientId ||
+      bundled.x?.clientId ||
       ''
     ).trim();
     return {
@@ -3874,6 +4767,19 @@ var ServiceWorker = function() {
     return expiresAt > (Date.now() + 60 * 1000);
   };
 
+  this.getGoogleDriveRedirectCandidates = function() {
+    var candidates = [];
+    try {
+      if (chrome.identity && chrome.identity.getRedirectURL) {
+        var withSuffix = String(chrome.identity.getRedirectURL('google-oauth2') || '').trim();
+        var plain = String(chrome.identity.getRedirectURL() || '').trim();
+        if (withSuffix) candidates.push(withSuffix);
+        if (plain && candidates.indexOf(plain) < 0) candidates.push(plain);
+      }
+    } catch (_) {}
+    return candidates.filter(Boolean);
+  };
+
   this.launchGoogleWebAuthFlow = function(url, interactive) {
     return new Promise(function(resolve, reject) {
       if (!chrome.identity || !chrome.identity.launchWebAuthFlow) {
@@ -3895,29 +4801,141 @@ var ServiceWorker = function() {
     });
   };
 
-  this.parseGoogleOAuthTokenFromRedirect = function(redirectUrl) {
-    var hash = '';
+  this.parseGoogleOAuthResponseFromRedirect = function(redirectUrl) {
+    var text = String(redirectUrl || '');
+    var queryPart = '';
+    var hashPart = '';
     try {
-      var idx = String(redirectUrl || '').indexOf('#');
-      hash = idx >= 0 ? String(redirectUrl).slice(idx + 1) : '';
-    } catch (_) {
-      hash = '';
+      var qIdx = text.indexOf('?');
+      queryPart = qIdx >= 0 ? text.slice(qIdx + 1).split('#')[0] : '';
+      var hIdx = text.indexOf('#');
+      hashPart = hIdx >= 0 ? text.slice(hIdx + 1) : '';
+    } catch (_) {}
+    var query = new URLSearchParams(queryPart);
+    var hash = new URLSearchParams(hashPart);
+    var errorValue = query.get('error') || hash.get('error');
+    if (errorValue) {
+      var errorDesc = query.get('error_description') || hash.get('error_description') || errorValue;
+      throw new Error('Google OAuth error: ' + errorDesc);
     }
-    if (!hash) throw new Error('Missing OAuth token response');
-    var params = new URLSearchParams(hash);
-    var token = params.get('access_token');
-    var expiresInSec = Number(params.get('expires_in') || 0);
-    if (!token) throw new Error('Google OAuth did not return access token');
+    var code = query.get('code') || hash.get('code');
+    var state = query.get('state') || hash.get('state') || '';
+    if (code) {
+      return { type: 'code', code: code, state: state };
+    }
+    var token = hash.get('access_token') || query.get('access_token');
+    if (token) {
+      var expiresInSec = Number(hash.get('expires_in') || query.get('expires_in') || 0);
+      return {
+        type: 'token',
+        accessToken: token,
+        expiresAt: Date.now() + Math.max(300, expiresInSec) * 1000
+      };
+    }
+    throw new Error('Google OAuth did not return code or access token');
+  };
+
+  this.exchangeGoogleAuthorizationCode = async function(clientId, code, codeVerifier, redirectUri) {
+    var body = new URLSearchParams({
+      grant_type: 'authorization_code',
+      client_id: clientId,
+      code: code,
+      redirect_uri: redirectUri,
+      code_verifier: codeVerifier
+    });
+    var response = await fetchWithTimeout('https://oauth2.googleapis.com/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: body.toString()
+    }, 20000, 'Google OAuth token exchange');
+    if (!response.ok) {
+      var message = 'Google token exchange failed';
+      try {
+        var jsonErr = await response.json();
+        message = (jsonErr && (jsonErr.error_description || jsonErr.error)) || message;
+      } catch (_) {}
+      throw new Error(message + ' (HTTP ' + response.status + ')');
+    }
+    var tokenJson = await response.json();
+    if (!tokenJson || !tokenJson.access_token) {
+      throw new Error('Google token exchange returned no access token');
+    }
+    var expiresIn = Number(tokenJson.expires_in || 0);
     return {
-      accessToken: token,
-      expiresAt: Date.now() + Math.max(300, expiresInSec) * 1000
+      accessToken: tokenJson.access_token,
+      refreshToken: tokenJson.refresh_token || '',
+      expiresAt: Date.now() + Math.max(300, expiresIn) * 1000
     };
+  };
+
+  this.refreshGoogleDriveAccessToken = async function(clientId, refreshToken) {
+    var body = new URLSearchParams({
+      grant_type: 'refresh_token',
+      client_id: clientId,
+      refresh_token: refreshToken
+    });
+    var response = await fetchWithTimeout('https://oauth2.googleapis.com/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: body.toString()
+    }, 20000, 'Google OAuth token refresh');
+    if (!response.ok) {
+      var message = 'Google token refresh failed';
+      try {
+        var jsonErr = await response.json();
+        message = (jsonErr && (jsonErr.error_description || jsonErr.error)) || message;
+      } catch (_) {}
+      throw new Error(message + ' (HTTP ' + response.status + ')');
+    }
+    var tokenJson = await response.json();
+    if (!tokenJson || !tokenJson.access_token) {
+      throw new Error('Google token refresh returned no access token');
+    }
+    var expiresIn = Number(tokenJson.expires_in || 0);
+    return {
+      accessToken: tokenJson.access_token,
+      refreshToken: tokenJson.refresh_token || '',
+      expiresAt: Date.now() + Math.max(300, expiresIn) * 1000
+    };
+  };
+
+  this.ensureGoogleDriveAccessToken = async function() {
+    var auth = await self.getGoogleDriveAuth();
+    if (!auth || typeof auth !== 'object') {
+      throw new Error('Google Drive is not connected');
+    }
+    if (self.isGoogleDriveAuthValid(auth)) {
+      return { accessToken: auth.accessToken, auth: auth };
+    }
+    var refreshToken = String(auth.refreshToken || '').trim();
+    if (!refreshToken) {
+      throw new Error('Google Drive session expired. Reconnect Google Drive.');
+    }
+    var settings = await self.getGoogleDriveSettings();
+    var clientId = String(auth.clientId || settings.clientId || '').trim();
+    if (!clientId) {
+      throw new Error('Google Drive OAuth client is not configured');
+    }
+    var refreshed = await self.refreshGoogleDriveAccessToken(clientId, refreshToken);
+    var nextAuth = {
+      accessToken: refreshed.accessToken,
+      refreshToken: refreshed.refreshToken || refreshToken,
+      expiresAt: refreshed.expiresAt,
+      connectedAt: auth.connectedAt || new Date().toISOString(),
+      clientId: clientId,
+      refreshedAt: new Date().toISOString()
+    };
+    await chrome.storage.local.set({ googleDriveAuth: nextAuth });
+    self.appendDebugLog('drive.token.refresh.success', {
+      expiresAt: nextAuth.expiresAt
+    });
+    return { accessToken: nextAuth.accessToken, auth: nextAuth };
   };
 
   this.getGoogleDriveConnectionStatus = async function() {
     var settings = await self.getGoogleDriveSettings();
     var auth = await self.getGoogleDriveAuth();
-    var connected = self.isGoogleDriveAuthValid(auth);
+    var connected = self.isGoogleDriveAuthValid(auth) || !!(auth && auth.refreshToken);
     return {
       connected: connected,
       autoSave: settings.autoSave,
@@ -3937,35 +4955,71 @@ var ServiceWorker = function() {
     if (!clientId) {
       throw new Error('Google Drive OAuth is not configured for this extension build');
     }
-    var redirectUri = chrome.identity && chrome.identity.getRedirectURL
-      ? chrome.identity.getRedirectURL('google-oauth2')
-      : '';
-    if (!redirectUri) {
+    var redirectCandidates = self.getGoogleDriveRedirectCandidates();
+    if (!redirectCandidates.length) {
       throw new Error('Unable to resolve OAuth redirect URL');
     }
     var scopes = 'https://www.googleapis.com/auth/drive.file';
-    var authUrl =
-      'https://accounts.google.com/o/oauth2/v2/auth' +
-      '?client_id=' + encodeURIComponent(clientId) +
-      '&response_type=token' +
-      '&redirect_uri=' + encodeURIComponent(redirectUri) +
-      '&scope=' + encodeURIComponent(scopes) +
-      '&include_granted_scopes=true' +
-      '&prompt=consent';
-    var redirectResult = await self.launchGoogleWebAuthFlow(authUrl, true);
-    var tokenResult = self.parseGoogleOAuthTokenFromRedirect(redirectResult);
-    await chrome.storage.local.set({
-      googleDriveAuth: {
-        accessToken: tokenResult.accessToken,
-        expiresAt: tokenResult.expiresAt,
-        connectedAt: new Date().toISOString(),
-        clientId: clientId
+    var lastError = null;
+    for (var i = 0; i < redirectCandidates.length; i++) {
+      var redirectUri = redirectCandidates[i];
+      try {
+        var state = self.randomUrlSafeString(24);
+        var pkce = await self.createXPkcePair();
+        var authUrl =
+          'https://accounts.google.com/o/oauth2/v2/auth' +
+          '?client_id=' + encodeURIComponent(clientId) +
+          '&response_type=code' +
+          '&redirect_uri=' + encodeURIComponent(redirectUri) +
+          '&scope=' + encodeURIComponent(scopes) +
+          '&include_granted_scopes=true' +
+          '&access_type=offline' +
+          '&prompt=consent' +
+          '&state=' + encodeURIComponent(state) +
+          '&code_challenge=' + encodeURIComponent(pkce.challenge) +
+          '&code_challenge_method=S256';
+        var redirectResult = await self.launchGoogleWebAuthFlow(authUrl, true);
+        var parsed = self.parseGoogleOAuthResponseFromRedirect(redirectResult);
+        var tokenResult = null;
+        if (parsed.type === 'code') {
+          if (!parsed.state || parsed.state !== state) {
+            throw new Error('Google OAuth state mismatch');
+          }
+          tokenResult = await self.exchangeGoogleAuthorizationCode(clientId, parsed.code, pkce.verifier, redirectUri);
+        } else if (parsed.type === 'token') {
+          tokenResult = {
+            accessToken: parsed.accessToken,
+            refreshToken: '',
+            expiresAt: parsed.expiresAt
+          };
+        } else {
+          throw new Error('Unsupported Google OAuth response type');
+        }
+
+        await chrome.storage.local.set({
+          googleDriveAuth: {
+            accessToken: tokenResult.accessToken,
+            refreshToken: tokenResult.refreshToken || '',
+            expiresAt: tokenResult.expiresAt,
+            connectedAt: new Date().toISOString(),
+            clientId: clientId
+          }
+        });
+        self.appendDebugLog('drive.connect.success', {
+          expiresAt: tokenResult.expiresAt,
+          redirectUri: redirectUri,
+          hasRefreshToken: !!tokenResult.refreshToken
+        });
+        return { status: await self.getGoogleDriveConnectionStatus() };
+      } catch (error) {
+        lastError = error;
+        self.appendDebugLog('drive.connect.attempt_failed', {
+          redirectUri: redirectUri,
+          message: error && error.message ? error.message : String(error)
+        });
       }
-    });
-    self.appendDebugLog('drive.connect.success', {
-      expiresAt: tokenResult.expiresAt
-    });
-    return { status: await self.getGoogleDriveConnectionStatus() };
+    }
+    throw lastError || new Error('Google Drive OAuth failed');
   };
 
   this.handleGoogleDriveDisconnect = async function() {
@@ -3990,6 +5044,10 @@ var ServiceWorker = function() {
     return auth;
   };
 
+  this.setFacebookAuth = async function(nextAuth) {
+    await chrome.storage.local.set({ facebookAuth: nextAuth });
+  };
+
   this.isFacebookAuthValid = function(auth) {
     if (!auth || typeof auth !== 'object') return false;
     if (!auth.accessToken) return false;
@@ -3997,7 +5055,7 @@ var ServiceWorker = function() {
     return expiresAt > (Date.now() + 60 * 1000);
   };
 
-  this.parseFacebookOAuthTokenFromRedirect = function(redirectUrl) {
+  this.parseFacebookOAuthResponseFromRedirect = function(redirectUrl) {
     var text = String(redirectUrl || '');
     var queryPart = '';
     var hashPart = '';
@@ -4016,23 +5074,117 @@ var ServiceWorker = function() {
     if (hashParams.get('error')) {
       throw new Error(hashParams.get('error_description') || hashParams.get('error') || 'Facebook OAuth error');
     }
-    var token = hashParams.get('access_token') || queryParams.get('access_token');
+    var code = queryParams.get('code') || '';
+    var state = queryParams.get('state') || '';
+    if (code) {
+      return { code: code, state: state };
+    }
+    var token = hashParams.get('access_token') || queryParams.get('access_token') || '';
     var expiresInSec = Number(hashParams.get('expires_in') || queryParams.get('expires_in') || 0);
-    if (!token) throw new Error('Facebook OAuth did not return access token');
+    if (!token) throw new Error('Facebook OAuth did not return authorization code or access token');
     return {
       accessToken: token,
       expiresAt: Date.now() + Math.max(300, expiresInSec) * 1000
     };
   };
 
+  this.exchangeFacebookAuthorizationCode = async function(params) {
+    var appId = String(params && params.appId ? params.appId : '').trim();
+    var redirectUri = String(params && params.redirectUri ? params.redirectUri : '').trim();
+    var code = String(params && params.code ? params.code : '').trim();
+    var codeVerifier = String(params && params.codeVerifier ? params.codeVerifier : '').trim();
+    if (!appId || !redirectUri || !code) {
+      throw new Error('Missing Facebook OAuth code exchange parameters');
+    }
+
+    var tokenUrl = 'https://graph.facebook.com/v19.0/oauth/access_token';
+    var body = new URLSearchParams();
+    body.set('client_id', appId);
+    body.set('redirect_uri', redirectUri);
+    body.set('code', code);
+    if (codeVerifier) body.set('code_verifier', codeVerifier);
+
+    var response = await fetchWithTimeout(tokenUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: body.toString()
+    }, 20000, 'Facebook OAuth token exchange');
+    if (!response.ok) {
+      var message = 'Facebook OAuth token exchange failed';
+      try {
+        var jsonErr = await response.json();
+        var err = jsonErr && jsonErr.error ? jsonErr.error : null;
+        var errMsg = err && (err.error_user_msg || err.message);
+        if (errMsg) message = errMsg;
+      } catch (_) {}
+      throw new Error(message + ' (HTTP ' + response.status + ')');
+    }
+    var json = await response.json();
+    var accessToken = String(json && json.access_token ? json.access_token : '').trim();
+    if (!accessToken) throw new Error('Facebook OAuth token exchange returned no access token');
+    var expiresIn = Number(json && json.expires_in ? json.expires_in : 0);
+    return {
+      accessToken: accessToken,
+      expiresAt: Date.now() + Math.max(300, expiresIn || 3600) * 1000
+    };
+  };
+
+  this.fetchFacebookManagedPages = async function(userAccessToken) {
+    var token = String(userAccessToken || '').trim();
+    if (!token) return [];
+    var requestUrl = 'https://graph.facebook.com/v19.0/me/accounts?fields=id,name,access_token,perms&limit=100';
+    var response = await fetchWithTimeout(requestUrl, {
+      method: 'GET',
+      headers: { Authorization: 'Bearer ' + token }
+    }, 20000, 'Facebook pages list');
+    if (!response.ok) {
+      var message = 'Failed to load Facebook pages';
+      try {
+        var jsonErr = await response.json();
+        var fbMsg = jsonErr && jsonErr.error && (jsonErr.error.message || jsonErr.error.error_user_msg);
+        if (fbMsg) message = fbMsg;
+      } catch (_) {}
+      throw new Error(message + ' (HTTP ' + response.status + ')');
+    }
+    var json = await response.json();
+    var rows = json && Array.isArray(json.data) ? json.data : [];
+    return rows
+      .map(function(item) {
+        return {
+          id: String(item && item.id ? item.id : '').trim(),
+          name: String(item && item.name ? item.name : '').trim(),
+          accessToken: String(item && item.access_token ? item.access_token : '').trim(),
+          perms: Array.isArray(item && item.perms) ? item.perms : []
+        };
+      })
+      .filter(function(item) {
+        return !!(item.id && item.name && item.accessToken);
+      });
+  };
+
+  this.selectFacebookPage = function(auth, selectedPageId) {
+    var pages = Array.isArray(auth && auth.pages) ? auth.pages : [];
+    if (!pages.length) return '';
+    var requested = String(selectedPageId || '').trim();
+    if (requested && pages.some(function(p) { return String(p.id || '') === requested; })) return requested;
+    var existing = String(auth && auth.selectedPageId ? auth.selectedPageId : '').trim();
+    if (existing && pages.some(function(p) { return String(p.id || '') === existing; })) return existing;
+    return String(pages[0].id || '').trim();
+  };
+
   this.getFacebookConnectionStatus = async function() {
     var settings = await self.getFacebookSettings();
     var auth = await self.getFacebookAuth();
     var connected = self.isFacebookAuthValid(auth);
+    var pages = Array.isArray(auth && auth.pages) ? auth.pages : [];
+    var selectedPageId = self.selectFacebookPage(auth, auth && auth.selectedPageId ? auth.selectedPageId : '');
     return {
       connected: connected,
       hasAppId: !!settings.appId,
-      expiresAt: auth && auth.expiresAt ? auth.expiresAt : 0
+      expiresAt: auth && auth.expiresAt ? auth.expiresAt : 0,
+      pageCount: pages.length,
+      selectedPageId: selectedPageId,
+      hasPageAccess: pages.length > 0
     };
   };
 
@@ -4053,24 +5205,48 @@ var ServiceWorker = function() {
     if (!redirectUri) {
       throw new Error('Unable to resolve OAuth redirect URL');
     }
+    var state = self.randomUrlSafeString(20);
+    var pkce = await self.createXPkcePair();
     var authUrl =
       'https://www.facebook.com/v19.0/dialog/oauth' +
       '?client_id=' + encodeURIComponent(appId) +
       '&redirect_uri=' + encodeURIComponent(redirectUri) +
-      '&response_type=token' +
-      '&scope=' + encodeURIComponent('public_profile');
+      '&response_type=code' +
+      '&state=' + encodeURIComponent(state) +
+      '&code_challenge=' + encodeURIComponent(pkce.challenge) +
+      '&code_challenge_method=S256' +
+      '&scope=' + encodeURIComponent('public_profile,pages_show_list,pages_manage_posts,pages_read_engagement');
     var redirectResult = await self.launchGoogleWebAuthFlow(authUrl, true);
-    var tokenResult = self.parseFacebookOAuthTokenFromRedirect(redirectResult);
+    var oauthResult = self.parseFacebookOAuthResponseFromRedirect(redirectResult);
+    var tokenResult = null;
+    if (oauthResult && oauthResult.code) {
+      if (oauthResult.state && oauthResult.state !== state) {
+        throw new Error('Facebook OAuth state mismatch');
+      }
+      tokenResult = await self.exchangeFacebookAuthorizationCode({
+        appId: appId,
+        redirectUri: redirectUri,
+        code: oauthResult.code,
+        codeVerifier: pkce.verifier
+      });
+    } else {
+      tokenResult = oauthResult;
+    }
+    var pages = await self.fetchFacebookManagedPages(tokenResult.accessToken);
+    var selectedPageId = pages.length ? String(pages[0].id || '') : '';
     await chrome.storage.local.set({
       facebookAuth: {
         accessToken: tokenResult.accessToken,
         expiresAt: tokenResult.expiresAt,
         connectedAt: new Date().toISOString(),
-        appId: appId
+        appId: appId,
+        pages: pages,
+        selectedPageId: selectedPageId
       }
     });
     self.appendDebugLog('facebook.connect.success', {
-      expiresAt: tokenResult.expiresAt
+      expiresAt: tokenResult.expiresAt,
+      pages: pages.length
     });
     return { status: await self.getFacebookConnectionStatus() };
   };
@@ -4079,6 +5255,79 @@ var ServiceWorker = function() {
     await chrome.storage.local.remove('facebookAuth');
     self.appendDebugLog('facebook.disconnect');
     return { status: await self.getFacebookConnectionStatus() };
+  };
+
+  this.handleFacebookGetPages = async function() {
+    var auth = await self.getFacebookAuth();
+    var pages = Array.isArray(auth && auth.pages) ? auth.pages : [];
+    var selectedPageId = self.selectFacebookPage(auth, auth && auth.selectedPageId ? auth.selectedPageId : '');
+    return {
+      pages: pages.map(function(p) { return { id: p.id, name: p.name, perms: Array.isArray(p.perms) ? p.perms : [] }; }),
+      selectedPageId: selectedPageId
+    };
+  };
+
+  this.handleFacebookSetPage = async function(message) {
+    var payload = message && message.payload ? message.payload : {};
+    var requestedPageId = String(payload.pageId || '').trim();
+    var auth = await self.getFacebookAuth();
+    if (!auth || !self.isFacebookAuthValid(auth)) throw new Error('Facebook is not connected');
+    var pages = Array.isArray(auth.pages) ? auth.pages : [];
+    if (!requestedPageId || !pages.some(function(p) { return String(p.id || '') === requestedPageId; })) {
+      throw new Error('Selected Facebook page is not available');
+    }
+    var nextAuth = {
+      ...auth,
+      selectedPageId: requestedPageId
+    };
+    await self.setFacebookAuth(nextAuth);
+    return { status: await self.getFacebookConnectionStatus() };
+  };
+
+  this.handleFacebookPostPage = async function(message) {
+    var payload = message && message.payload ? message.payload : {};
+    var auth = await self.getFacebookAuth();
+    if (!auth || !self.isFacebookAuthValid(auth)) throw new Error('Facebook is not connected');
+    var pages = Array.isArray(auth.pages) ? auth.pages : [];
+    var selectedPageId = self.selectFacebookPage(auth, payload.pageId || auth.selectedPageId || '');
+    if (!selectedPageId) throw new Error('No Facebook Page is selected');
+    var selectedPage = pages.find(function(p) { return String(p.id || '') === selectedPageId; }) || null;
+    if (!selectedPage || !selectedPage.accessToken) throw new Error('Facebook Page token is missing');
+
+    var messageText = String(payload.message || '').trim();
+    var linkUrl = String(payload.link || '').trim();
+    if (!messageText && !linkUrl) throw new Error('Facebook post requires message or link');
+
+    var bodyParams = new URLSearchParams();
+    if (messageText) bodyParams.set('message', messageText);
+    if (linkUrl) bodyParams.set('link', linkUrl);
+    bodyParams.set('access_token', selectedPage.accessToken);
+
+    var postUrl = 'https://graph.facebook.com/v19.0/' + encodeURIComponent(selectedPageId) + '/feed';
+    var response = await fetchWithTimeout(postUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: bodyParams.toString()
+    }, 20000, 'Facebook page post');
+    if (!response.ok) {
+      var messageTextError = 'Facebook post failed';
+      try {
+        var jsonErr = await response.json();
+        var errObj = jsonErr && jsonErr.error ? jsonErr.error : null;
+        var errMsg = errObj && (errObj.error_user_msg || errObj.message);
+        if (errMsg) messageTextError = errMsg;
+      } catch (_) {}
+      throw new Error(messageTextError + ' (HTTP ' + response.status + ')');
+    }
+    var postJson = await response.json();
+    self.appendDebugLog('facebook.post.success', {
+      pageId: selectedPageId,
+      postId: postJson && postJson.id ? postJson.id : ''
+    });
+    return {
+      pageId: selectedPageId,
+      postId: postJson && postJson.id ? postJson.id : ''
+    };
   };
 
   this.getXSettings = async function() {
@@ -4317,7 +5566,7 @@ var ServiceWorker = function() {
       '<script>const storyboard=' + payload + ';' +
       'const panels=(storyboard&&Array.isArray(storyboard.panels))?storyboard.panels:[];' +
       'const source=(storyboard&&storyboard.source)?storyboard.source:{};' +
-      'const titleEl=document.getElementById("comic-title");titleEl.textContent=source.title||storyboard.title||"Web2Comics";' +
+      'const titleEl=document.getElementById("comic-title");titleEl.textContent=storyboard.title||source.title||"Web2Comics";' +
       'const sourceEl=document.getElementById("comic-source");sourceEl.href=source.url||"#";sourceEl.textContent=source.url||"Source unavailable";' +
       'const panelsEl=document.getElementById("panels");' +
       'function captionFor(p,i){return String((p&& (p.caption||p.beat_summary||p.summary||p.title||p.text))||("Panel "+(i+1)));}' +
@@ -4335,12 +5584,16 @@ var ServiceWorker = function() {
     if (!opts.force && !settings.autoSave) {
       return { skipped: true, reason: 'auto_save_disabled' };
     }
-    var auth = await self.getGoogleDriveAuth();
-    if (!self.isGoogleDriveAuthValid(auth)) {
+    var authResult = null;
+    try {
+      authResult = await self.ensureGoogleDriveAccessToken();
+    } catch (_) {
       return { skipped: true, reason: 'not_connected_or_expired' };
     }
-    var folderId = await self.ensureGoogleDriveFolder(auth.accessToken, 'Web2Comics');
-    var sourceTitle = job.sourceTitle || (job.storyboard && job.storyboard.source && job.storyboard.source.title) || 'Web2Comics Comic';
+    var accessToken = authResult && authResult.accessToken ? authResult.accessToken : '';
+    if (!accessToken) return { skipped: true, reason: 'not_connected_or_expired' };
+    var folderId = await self.ensureGoogleDriveFolder(accessToken, 'MyComics');
+    var sourceTitle = (job.storyboard && job.storyboard.title) || job.sourceTitle || (job.storyboard && job.storyboard.source && job.storyboard.source.title) || 'Web2Comics Comic';
     var fileName = self.sanitizeDriveFilename(sourceTitle) + '-' + new Date().toISOString().slice(0, 10) + '.html';
     var html = self.buildInteractiveComicHtml(job.storyboard);
     var boundary = 'web2comics_' + Date.now() + '_' + Math.random().toString(16).slice(2);
@@ -4361,7 +5614,7 @@ var ServiceWorker = function() {
     var uploadResponse = await fetchWithTimeout('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,webViewLink', {
       method: 'POST',
       headers: {
-        Authorization: 'Bearer ' + auth.accessToken,
+        Authorization: 'Bearer ' + accessToken,
         'Content-Type': 'multipart/related; boundary=' + boundary
       },
       body: multipartBody
@@ -4520,7 +5773,7 @@ var ServiceWorker = function() {
   };
   
   this.cleanupOldJobs = function() {
-    chrome.storage.local.get('history', function(result) {
+    chrome.storage.local.get(['history', self.HISTORY_THUMBNAILS_KEY], function(result) {
       var history = result.history;
       if (!history || history.length === 0) return;
 
@@ -4531,7 +5784,17 @@ var ServiceWorker = function() {
       });
 
       if (filtered.length !== history.length) {
-        var maybeSetPromise = chrome.storage.local.set({ history: filtered });
+        var thumbs = result && result[self.HISTORY_THUMBNAILS_KEY] && typeof result[self.HISTORY_THUMBNAILS_KEY] === 'object'
+          ? { ...result[self.HISTORY_THUMBNAILS_KEY] }
+          : {};
+        var validIds = new Set(filtered.map(function(item) { return String(item && item.id || ''); }));
+        Object.keys(thumbs).forEach(function(key) {
+          if (!validIds.has(String(key))) delete thumbs[key];
+        });
+        var maybeSetPromise = chrome.storage.local.set({
+          history: filtered,
+          [self.HISTORY_THUMBNAILS_KEY]: thumbs
+        });
         if (maybeSetPromise && typeof maybeSetPromise.catch === 'function') {
           maybeSetPromise.catch(function(error) {
             self.appendDebugLog('history.cleanup.persist.error', {
@@ -4546,29 +5809,68 @@ var ServiceWorker = function() {
   this.addCompletedJobToHistory = function(job) {
     if (!job || !job.storyboard) return Promise.resolve();
 
-    return chrome.storage.local.get('history')
+    return chrome.storage.local.get(['history', self.HISTORY_THUMBNAILS_KEY])
       .then(function(result) {
         var history = Array.isArray(result.history) ? result.history : [];
-        var entry = {
-          id: job.id,
-          source: {
-            url: job.sourceUrl,
-            title: job.sourceTitle
-          },
-          generated_at: new Date().toISOString(),
-          settings_snapshot: job.storyboard.settings,
-          storyboard: job.storyboard,
-          thumbnail: job.storyboard.panels && job.storyboard.panels[0] && job.storyboard.panels[0].artifacts
-            ? job.storyboard.panels[0].artifacts.image_blob_ref
-            : undefined
+        var historyThumbnails = result && result[self.HISTORY_THUMBNAILS_KEY] && typeof result[self.HISTORY_THUMBNAILS_KEY] === 'object'
+          ? { ...result[self.HISTORY_THUMBNAILS_KEY] }
+          : {};
+        var deriveHistoryThumbnail = function(storyboard) {
+          var explicit = self.resolveImageSourceValue(storyboard && storyboard.thumbnail);
+          if (explicit) return explicit;
+          var panels = storyboard && Array.isArray(storyboard.panels) ? storyboard.panels : [];
+          for (var i = 0; i < panels.length; i += 1) {
+            var panel = panels[i] || {};
+            var src = self.resolveImageSourceValue(panel.artifacts && panel.artifacts.image_blob_ref) ||
+              self.resolveImageSourceValue(panel.artifacts && panel.artifacts.image_url) ||
+              self.resolveImageSourceValue(panel.image_blob_ref) ||
+              self.resolveImageSourceValue(panel.image_url);
+            if (src) return src;
+          }
+          return '';
         };
+        return self.cacheJobPanelImagesInArchive(job)
+          .then(function(cachedCount) {
+            var entryThumbnail = deriveHistoryThumbnail(job.storyboard);
+            return self.createTinyThumbnailDataUrl(entryThumbnail)
+              .then(function(smallThumb) {
+                var entry = {
+                  id: job.id,
+                  source: {
+                    url: job.sourceUrl,
+                    title: job.sourceTitle
+                  },
+                  generated_at: new Date().toISOString(),
+                  settings_snapshot: job.storyboard.settings,
+                  storyboard: job.storyboard,
+                  thumbnail: entryThumbnail || undefined
+                };
+                if (globalThis && globalThis.__WEB2COMICS_TEST_LOGS__) {
+                  self.appendDebugLog('history.thumbnail.derived', {
+                    jobId: job.id || null,
+                    hasThumbnail: !!entryThumbnail,
+                    panelCount: Array.isArray(job.storyboard && job.storyboard.panels) ? job.storyboard.panels.length : 0,
+                    archivedPanels: cachedCount || 0
+                  });
+                }
 
-        history = history.filter(function(item) { return item && item.id !== entry.id; });
-        history.unshift(entry);
-        if (history.length > 50) {
-          history = history.slice(0, 50);
-        }
-        return chrome.storage.local.set({ history: history })
+                history = history.filter(function(item) { return item && item.id !== entry.id; });
+                history.unshift(entry);
+                if (history.length > 50) {
+                  history = history.slice(0, 50);
+                }
+                var thumbValue = String(smallThumb || '').trim() || String(entryThumbnail || '').trim();
+                if (thumbValue) historyThumbnails[String(entry.id)] = thumbValue;
+                var validIds = new Set(history.map(function(item) { return String(item && item.id || ''); }));
+                Object.keys(historyThumbnails).forEach(function(key) {
+                  if (!validIds.has(String(key))) delete historyThumbnails[key];
+                });
+                return chrome.storage.local.set({
+                  history: history,
+                  [self.HISTORY_THUMBNAILS_KEY]: historyThumbnails
+                });
+              });
+          })
           .catch(function(error) {
             var message = error && error.message ? error.message : String(error);
             if (!/quota/i.test(message)) throw error;
@@ -4585,13 +5887,16 @@ var ServiceWorker = function() {
                 }
                 return p;
               });
-              if (compactItem.thumbnail) {
-                compactItem.thumbnail_omitted_due_to_quota = true;
-                delete compactItem.thumbnail;
-              }
               return compactItem;
             });
-            return chrome.storage.local.set({ history: compactHistory })
+            var compactIds = new Set(compactHistory.map(function(item) { return String(item && item.id || ''); }));
+            Object.keys(historyThumbnails).forEach(function(key) {
+              if (!compactIds.has(String(key))) delete historyThumbnails[key];
+            });
+            return chrome.storage.local.set({
+              history: compactHistory,
+              [self.HISTORY_THUMBNAILS_KEY]: historyThumbnails
+            })
               .catch(function(secondError) {
                 var secondMessage = secondError && secondError.message ? secondError.message : String(secondError);
                 if (!/quota/i.test(secondMessage)) throw secondError;
@@ -4624,7 +5929,14 @@ var ServiceWorker = function() {
                   }
                   return minimal;
                 });
-                return chrome.storage.local.set({ history: minimalHistory });
+                var minimalIds = new Set(minimalHistory.map(function(item) { return String(item && item.id || ''); }));
+                Object.keys(historyThumbnails).forEach(function(key) {
+                  if (!minimalIds.has(String(key))) delete historyThumbnails[key];
+                });
+                return chrome.storage.local.set({
+                  history: minimalHistory,
+                  [self.HISTORY_THUMBNAILS_KEY]: historyThumbnails
+                });
               });
           })
           .then(function() {
@@ -4659,6 +5971,12 @@ try {
     globalThis.__WEB2COMICS_E2E__.triggerSelectionMenuOpenComposer = function(info, tab, options) {
       return __web2comicsServiceWorker.handleSelectionContextMenuOpenComposerClick(info, tab, options || null);
     };
+    globalThis.__WEB2COMICS_E2E__.triggerToolbarMenuComicify = function(tab) {
+      return __web2comicsServiceWorker.handleToolbarContextMenuComicifyClick(tab || null);
+    };
+    globalThis.__WEB2COMICS_E2E__.triggerToolbarMenuCollection = function(tab) {
+      return __web2comicsServiceWorker.handleToolbarContextMenuCollectionClick(tab || null);
+    };
   }
 } catch (_) {}
 
@@ -4681,3 +5999,4 @@ try {
 } catch (e) {
   console.warn('Failed to register onInstalled handler:', e);
 }
+
