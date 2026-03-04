@@ -80,6 +80,27 @@ class RenderApiClient {
   async triggerDeploy(serviceId) {
     return this.request(`/services/${serviceId}/deploys`, 'POST', { clearCache: 'do_not_clear' });
   }
+
+  async listDeploys(serviceId, limit = 10) {
+    const q = new URLSearchParams();
+    q.set('limit', String(Math.max(1, Number(limit) || 10)));
+    const rows = await this.request(`/services/${serviceId}/deploys?${q.toString()}`, 'GET');
+    return Array.isArray(rows) ? rows : [];
+  }
+
+  async getDeploy(serviceId, deployId) {
+    return this.request(`/services/${serviceId}/deploys/${deployId}`, 'GET');
+  }
+
+  async listLogs({ ownerId, resourceId, direction = 'backward', startTime, endTime }) {
+    const q = new URLSearchParams();
+    q.set('ownerId', String(ownerId || '').trim());
+    q.append('resource', String(resourceId || '').trim());
+    q.set('direction', direction);
+    if (startTime) q.set('startTime', String(startTime));
+    if (endTime) q.set('endTime', String(endTime));
+    return this.request(`/logs?${q.toString()}`, 'GET');
+  }
 }
 
 module.exports = {

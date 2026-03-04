@@ -55,6 +55,12 @@ Use the one-command deploy script:
 npm run render:deploy:auto -- --render-api-key <RENDER_API_KEY>
 ```
 
+Deploy isolated test stack (separate service/database name):
+
+```bash
+npm run render:deploy:auto -- --test-deployment true --branch engine
+```
+
 What it automates:
 - resolves owner/workspace ID (or uses `--owner-id`)
 - creates or reuses a Render Postgres database (unless `--database-url` is provided)
@@ -62,6 +68,8 @@ What it automates:
 - creates the Render web service if missing
 - updates env vars (token, webhook secret, provider keys, bot config paths)
 - triggers deploy
+- waits for deploy result (`live`/failed) instead of exiting early
+- on failure, downloads recent Render logs and prints them
 - fetches service URL
 - registers Telegram webhook
 
@@ -71,6 +79,7 @@ Inputs it can read automatically:
 
 Optional flags:
 - `--service-name web2comics-telegram-render-bot`
+- `--test-deployment true`
 - `--repo-url https://github.com/ApartsinProjects/Web2Comics`
 - `--branch main`
 - `--owner-id <workspace-id>`
@@ -104,6 +113,16 @@ Example flow:
 6. `/keys` - show provider key statuses.
 7. `/setkey GEMINI_API_KEY <value>` - set key at runtime.
 
+## Provider credentials options (user can provide keys)
+You can provide provider credentials in either way:
+- Deploy-time env/flags:
+  - env vars: `GEMINI_API_KEY`, `OPENAI_API_KEY`, `OPENROUTER_API_KEY`, `CLOUDFLARE_API_TOKEN`, `HUGGINGFACE_INFERENCE_API_TOKEN`
+  - deploy flags: `--gemini-key`, `--openai-key`, `--openrouter-key`, `--cloudflare-api-token`, `--huggingface-token`
+- Runtime in Telegram chat:
+  - `/keys` or `/credentials` to inspect key status
+  - `/setkey <KEY> <VALUE>` to set/update a key
+  - `/unsetkey <KEY>` to remove runtime override
+
 ## Persistence behavior
 - If `DATABASE_URL` or `RENDER_BOT_PG_URL` is set, runtime config is persisted in Postgres.
 - If no Postgres URL is provided, fallback is local file `RENDER_BOT_STATE_FILE` (ephemeral on free services).
@@ -118,6 +137,11 @@ Example flow:
 npm run test:render
 node --check render/src/webhook-bot.js
 ```
+
+The test suite includes:
+- config/options/unit tests
+- persistence factory tests
+- webhook REST flow tests with a fake Telegram API (verifies webhook auth and outbound `/sendMessage`)
 
 ## Scripts
 - `npm run render:start` - run webhook bot locally

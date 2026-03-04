@@ -1,11 +1,12 @@
 const http = require('http');
 const path = require('path');
 const { loadEnvFiles } = require('./env');
-const { TelegramApi } = require('../../comicbot/src/telegram-api');
+const { TelegramApi } = require('./telegram-api');
 const { RuntimeConfigStore } = require('./config-store');
 const { allOptionPaths, getOptions, parseUserValue, formatOptionsMessage, SECRET_KEYS } = require('./options');
 const { generateWithRuntimeConfig } = require('./generate');
 const { createPersistence } = require('./persistence');
+const { redactSensitiveText } = require('./redact');
 
 const repoRoot = path.resolve(__dirname, '../..');
 loadEnvFiles([
@@ -29,8 +30,38 @@ if (!token) throw new Error('Missing TELEGRAM_BOT_TOKEN');
 const webhookSecret = String(process.env.TELEGRAM_WEBHOOK_SECRET || '').trim();
 if (!webhookSecret) throw new Error('Missing TELEGRAM_WEBHOOK_SECRET');
 
-const api = new TelegramApi(token);
+const api = new TelegramApi(token, process.env.TELEGRAM_API_BASE_URL || '');
 let configStore = null;
+const rawSendMessage = api.sendMessage.bind(api);
+
+function collectSensitiveValues() {
+  const keys = new Set([
+    ...SECRET_KEYS,
+    'TELEGRAM_BOT_TOKEN',
+    'TELEGRAM_WEBHOOK_SECRET',
+    'DATABASE_URL',
+    'RENDER_BOT_PG_URL'
+  ]);
+  const values = [];
+  keys.forEach((k) => {
+    const envVal = String(process.env[k] || '').trim();
+    if (envVal) values.push(envVal);
+  });
+
+  if (configStore && configStore.state && configStore.state.secrets) {
+    Object.values(configStore.state.secrets).forEach((v) => {
+      const secretVal = String(v || '').trim();
+      if (secretVal) values.push(secretVal);
+    });
+  }
+
+  return values;
+}
+
+api.sendMessage = async (chatId, text, extra) => {
+  const redacted = redactSensitiveText(text, collectSensitiveValues());
+  return rawSendMessage(chatId, redacted, extra);
+};
 
 let jobQueue = Promise.resolve();
 
@@ -101,6 +132,7 @@ function commandHelp() {
     '/concurrency <1..5>',
     '/retries <0..3>',
     '/keys',
+    '/credentials',
     '/setkey <KEY> <VALUE>',
     '/unsetkey <KEY>',
     '/reset_config'
@@ -337,7 +369,7 @@ async function handleCommand(chatId, text) {
     return true;
   }
 
-  if (command === '/keys') {
+  if (command === '/keys' || command === '/credentials') {
     await api.sendMessage(chatId, keysStatusMessage());
     return true;
   }

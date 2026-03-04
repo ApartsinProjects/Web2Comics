@@ -24,7 +24,8 @@
     "render:start": "node render/src/webhook-bot.js",
     "render:set-webhook": "node render/src/set-webhook.js",
     "render:deploy:auto": "node render/scripts/deploy-render-webhook.js",
-    "test:render": "vitest run -c render/vitest.config.js"
+    "test:render": "vitest run -c render/vitest.config.js",
+    "test:render:local": "vitest run -c render/vitest.config.js render/tests/webhook-rest.test.js render/tests/redact.test.js"
   },
   "dependencies": {
     "js-yaml": "^4.1.0",

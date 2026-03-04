@@ -40,12 +40,54 @@ async function waitForPostgresConnectionString(render, postgresId, timeoutMs = 2
   throw new Error(`Timed out waiting for Postgres connection string. ${lastError}`);
 }
 
+function extractDeployId(deployResponse) {
+  return String(
+    (deployResponse && deployResponse.id)
+      || (deployResponse && deployResponse.deploy && deployResponse.deploy.id)
+      || ''
+  ).trim();
+}
+
+async function waitForDeploy(render, serviceId, deployId, timeoutMs = 360000) {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    const deploy = await render.getDeploy(serviceId, deployId);
+    const status = String(deploy?.status || '').toLowerCase();
+    if (status === 'live') return deploy;
+    if (status.includes('fail') || status === 'canceled') return deploy;
+    await new Promise((r) => setTimeout(r, 5000));
+  }
+  throw new Error(`Timed out waiting for deploy ${deployId}`);
+}
+
+async function fetchRecentServiceLogs(render, ownerId, serviceId) {
+  const end = Date.now();
+  const start = end - (15 * 60 * 1000);
+  const logs = await render.listLogs({
+    ownerId,
+    resourceId: serviceId,
+    direction: 'backward',
+    startTime: new Date(start).toISOString(),
+    endTime: new Date(end).toISOString()
+  });
+  const rows = Array.isArray(logs?.logs) ? logs.logs : [];
+  return rows
+    .slice(0, 60)
+    .map((row) => String(row?.message || '').trim())
+    .filter(Boolean);
+}
+
 function firstNonEmpty(...values) {
   for (const v of values) {
     const s = String(v == null ? '' : v).trim();
     if (s) return s;
   }
   return '';
+}
+
+function parseBool(value) {
+  const v = String(value == null ? '' : value).trim().toLowerCase();
+  return v === '1' || v === 'true' || v === 'yes' || v === 'on';
 }
 
 async function main() {
@@ -59,11 +101,13 @@ async function main() {
 
   const args = parseArgs(process.argv.slice(2));
   const tgYaml = readTelegramYaml(repoRoot);
+  const testDeployment = parseBool(args['test-deployment'] || process.env.RENDER_TEST_DEPLOYMENT);
 
   const renderApiKey = firstNonEmpty(args['render-api-key'], process.env.RENDER_API_KEY);
   const repoUrl = firstNonEmpty(args['repo-url'], process.env.RENDER_REPO_URL, 'https://github.com/ApartsinProjects/Web2Comics');
   const branch = firstNonEmpty(args.branch, process.env.RENDER_REPO_BRANCH, 'main');
-  const serviceName = firstNonEmpty(args['service-name'], process.env.RENDER_SERVICE_NAME, 'web2comics-telegram-render-bot');
+  const defaultServiceName = testDeployment ? 'web2comics-telegram-render-bot-test' : 'web2comics-telegram-render-bot';
+  const serviceName = firstNonEmpty(args['service-name'], process.env.RENDER_SERVICE_NAME, defaultServiceName);
   const ownerIdArg = firstNonEmpty(args['owner-id'], process.env.RENDER_OWNER_ID);
   const region = firstNonEmpty(args.region, process.env.RENDER_REGION, 'oregon');
   const plan = firstNonEmpty(args.plan, process.env.RENDER_PLAN, 'free');
@@ -90,7 +134,8 @@ async function main() {
   const pgTable = firstNonEmpty(args['pg-table'], process.env.RENDER_BOT_PG_TABLE, 'render_bot_state');
   const pgStateKey = firstNonEmpty(args['pg-state-key'], process.env.RENDER_BOT_PG_STATE_KEY, 'runtime_config');
   const postgresIdArg = firstNonEmpty(args['postgres-id'], process.env.RENDER_POSTGRES_ID);
-  const postgresName = firstNonEmpty(args['postgres-name'], process.env.RENDER_POSTGRES_NAME, `${serviceName}-db`);
+  const defaultPostgresName = `${serviceName}-db`;
+  const postgresName = firstNonEmpty(args['postgres-name'], process.env.RENDER_POSTGRES_NAME, defaultPostgresName);
   const postgresPlan = firstNonEmpty(args['postgres-plan'], process.env.RENDER_POSTGRES_PLAN, 'free');
   const postgresVersion = firstNonEmpty(args['postgres-version'], process.env.RENDER_POSTGRES_VERSION, '16');
   const postgresRegion = firstNonEmpty(args['postgres-region'], process.env.RENDER_POSTGRES_REGION, region);
@@ -197,8 +242,28 @@ async function main() {
   await render.setServiceEnvVars(serviceId, envVars);
   console.log('[deploy] env vars synced');
 
-  await render.triggerDeploy(serviceId);
+  const deployStart = await render.triggerDeploy(serviceId);
   console.log('[deploy] deploy triggered');
+  const deployId = extractDeployId(deployStart);
+  if (!deployId) throw new Error('Could not resolve deploy ID after trigger.');
+  const finalDeploy = await waitForDeploy(render, serviceId, deployId);
+  const deployStatus = String(finalDeploy?.status || '').toLowerCase();
+  if (deployStatus !== 'live') {
+    console.log(`[deploy] deploy ended with status: ${deployStatus || 'unknown'}`);
+    try {
+      const tail = await fetchRecentServiceLogs(render, ownerId, serviceId);
+      if (tail.length) {
+        console.log('[deploy] recent logs:');
+        tail.forEach((line) => console.log(line));
+      } else {
+        console.log('[deploy] no recent logs found via API.');
+      }
+    } catch (error) {
+      console.log(`[deploy] failed to fetch logs: ${String(error?.message || error)}`);
+    }
+    throw new Error(`Render deploy failed with status: ${deployStatus || 'unknown'}`);
+  }
+  console.log('[deploy] deploy is live');
 
   let service = await render.getService(serviceId);
   const start = Date.now();
