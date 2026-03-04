@@ -38,8 +38,31 @@ function randomSecret(len = 36) {
   return out;
 }
 
+function resolveLatestDeployId(rows, triggerStartedAtMs) {
+  const list = (Array.isArray(rows) ? rows : [])
+    .map((row) => (row && row.deploy ? row.deploy : row))
+    .filter(Boolean)
+    .map((d) => ({
+      id: String(d.id || '').trim(),
+      createdAtMs: Date.parse(String(d.createdAt || ''))
+    }))
+    .filter((d) => d.id);
+
+  if (!list.length) return '';
+  const threshold = Number.isFinite(triggerStartedAtMs) ? (triggerStartedAtMs - 5000) : -Infinity;
+
+  const recent = list
+    .filter((d) => Number.isFinite(d.createdAtMs) && d.createdAtMs >= threshold)
+    .sort((a, b) => b.createdAtMs - a.createdAtMs);
+  if (recent.length) return recent[0].id;
+
+  list.sort((a, b) => (Number.isFinite(b.createdAtMs) ? b.createdAtMs : 0) - (Number.isFinite(a.createdAtMs) ? a.createdAtMs : 0));
+  return list[0].id;
+}
+
 module.exports = {
   parseArgs,
   readTelegramYaml,
-  randomSecret
+  randomSecret,
+  resolveLatestDeployId
 };

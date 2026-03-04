@@ -2,7 +2,7 @@
 const path = require('path');
 const { loadEnvFiles } = require('../src/env');
 const { RenderApiClient } = require('./render-api');
-const { parseArgs, readTelegramYaml, randomSecret } = require('./lib');
+const { parseArgs, readTelegramYaml, randomSecret, resolveLatestDeployId } = require('./lib');
 
 async function setTelegramWebhook(token, secret, publicBaseUrl) {
   const url = `${String(publicBaseUrl || '').replace(/\/+$/, '')}/telegram/webhook/${secret}`;
@@ -46,6 +46,14 @@ function extractDeployId(deployResponse) {
       || (deployResponse && deployResponse.deploy && deployResponse.deploy.id)
       || ''
   ).trim();
+}
+
+async function resolveDeployId(render, serviceId, deployResponse, triggerStartedAtMs) {
+  const direct = extractDeployId(deployResponse);
+  if (direct) return direct;
+
+  const rows = await render.listDeploys(serviceId, 10);
+  return resolveLatestDeployId(rows, triggerStartedAtMs);
 }
 
 async function waitForDeploy(render, serviceId, deployId, timeoutMs = 360000) {
@@ -242,9 +250,10 @@ async function main() {
   await render.setServiceEnvVars(serviceId, envVars);
   console.log('[deploy] env vars synced');
 
+  const triggerStartedAtMs = Date.now();
   const deployStart = await render.triggerDeploy(serviceId);
   console.log('[deploy] deploy triggered');
-  const deployId = extractDeployId(deployStart);
+  const deployId = await resolveDeployId(render, serviceId, deployStart, triggerStartedAtMs);
   if (!deployId) throw new Error('Could not resolve deploy ID after trigger.');
   const finalDeploy = await waitForDeploy(render, serviceId, deployId);
   const deployStatus = String(finalDeploy?.status || '').toLowerCase();
