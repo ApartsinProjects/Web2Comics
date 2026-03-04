@@ -3,46 +3,149 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Web2Comics Privacy Note</title>
+  <title>Web2Comics Privacy Policy</title>
   <style>
     :root {
-      color-scheme: light dark;
       --bg: #ffffff;
       --fg: #0f172a;
       --muted: #475569;
       --border: #e2e8f0;
-      --link: #2563eb;
+      --panel: #f8fafc;
+      --link: #1d4ed8;
     }
     body {
       margin: 0;
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+      font-family: "Segoe UI", Tahoma, Arial, sans-serif;
       background: var(--bg);
       color: var(--fg);
-      line-height: 1.5;
+      line-height: 1.55;
     }
     main {
-      max-width: 760px;
+      max-width: 860px;
       margin: 0 auto;
-      padding: 24px 16px 40px;
+      padding: 24px 16px 48px;
     }
-    h1 { margin-top: 0; }
-    .note {
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      padding: 12px 14px;
+    h1, h2 {
+      line-height: 1.2;
+    }
+    h1 {
+      margin: 0 0 8px;
+    }
+    h2 {
+      margin-top: 28px;
+      margin-bottom: 8px;
+      font-size: 1.1rem;
+    }
+    p, li {
+      color: var(--fg);
+    }
+    ul {
+      padding-left: 20px;
+      margin-top: 8px;
+    }
+    .meta {
       color: var(--muted);
-      background: rgba(148, 163, 184, 0.08);
+      margin-top: 0;
     }
-    a { color: var(--link); }
+    .panel {
+      border: 1px solid var(--border);
+      background: var(--panel);
+      border-radius: 10px;
+      padding: 12px 14px;
+    }
+    a {
+      color: var(--link);
+    }
+    code {
+      background: #eef2ff;
+      padding: 1px 4px;
+      border-radius: 4px;
+      font-family: Consolas, "Courier New", monospace;
+      font-size: 0.92em;
+    }
   </style>
 </head>
 <body>
   <main>
-    <h1>Web2Comics Privacy Note</h1>
-    <p class="note">This extension processes page text and sends generation prompts to the model providers you configure.</p>
-    <p>Do not use sensitive or regulated data unless your configured provider and workflow comply with your privacy requirements.</p>
-    <p>Optional integrations (Google Drive backup, Facebook connection, X connection) use OAuth tokens stored in extension local storage and are used only after explicit user connect actions.</p>
-    <p>Review provider and platform privacy terms in extension settings before production use.</p>
+    <h1>Web2Comics Privacy Policy</h1>
+    <p class="meta">Last updated: March 4, 2026</p>
+
+    <p class="panel">
+      Web2Comics is a Chrome extension that converts web content into comic-style summaries. This policy explains what data is processed, how it is used, and when it is shared.
+    </p>
+
+    <h2>1. Scope</h2>
+    <p>
+      This policy applies to the Web2Comics Chrome extension. Web2Comics does not operate a project-hosted backend server for core generation. Most data processing happens in your browser extension runtime, with outbound requests made only to providers/integrations you enable.
+    </p>
+
+    <h2>2. Data We Process</h2>
+    <ul>
+      <li><strong>Web content data:</strong> page text you select or content extracted from the active page, plus source metadata such as URL and title.</li>
+      <li><strong>Generation data:</strong> prompts, settings, panel captions, image prompts, and generated comic outputs.</li>
+      <li><strong>Credentials and connection data:</strong> API keys and OAuth tokens you provide or authorize (for configured providers and optional integrations).</li>
+      <li><strong>Local extension data:</strong> settings, generation history, thumbnails, and optional debug logs stored in <code>chrome.storage.local</code>.</li>
+      <li><strong>Optional social/share data:</strong> only when you explicitly use sharing features (for example posting to Facebook Page or opening X/LinkedIn/Reddit share flows).</li>
+    </ul>
+
+    <h2>3. How Data Is Used</h2>
+    <ul>
+      <li>To extract and summarize content into a storyboard and images.</li>
+      <li>To run selected AI model providers you configure in extension settings.</li>
+      <li>To save your history/settings locally for product functionality.</li>
+      <li>To support optional user-initiated integrations (Google Drive export, Facebook posting, X connection, external share links).</li>
+      <li>To provide troubleshooting information when debug mode is enabled.</li>
+    </ul>
+
+    <h2>4. Third-Party Sharing</h2>
+    <p>Web2Comics shares data only with third parties required for features you use:</p>
+    <ul>
+      <li><strong>AI providers you configure:</strong> Google Gemini, OpenAI, OpenRouter, Hugging Face, Cloudflare Workers AI (requests include extracted text and generation prompts).</li>
+      <li><strong>Google APIs (optional):</strong> OAuth and Google Drive API for saving exported comic HTML files to your Drive when connected/enabled.</li>
+      <li><strong>Facebook Graph API (optional):</strong> OAuth, page retrieval, and page posting only after user action.</li>
+      <li><strong>X API (optional):</strong> OAuth connection management when explicitly connected; sharing may also use X web intent URLs.</li>
+    </ul>
+    <p>
+      We do not sell your personal information.
+    </p>
+
+    <h2>5. Storage and Retention</h2>
+    <ul>
+      <li>Data is primarily stored locally in <code>chrome.storage.local</code>.</li>
+      <li>History is limited in-app (for example capped list size and periodic cleanup of older entries).</li>
+      <li>Debug logs are limited to a bounded recent set and can be exported/cleared by the user.</li>
+      <li>OAuth tokens and API keys remain until you remove/disconnect them, clear extension storage, or uninstall the extension.</li>
+    </ul>
+
+    <h2>6. User Controls</h2>
+    <ul>
+      <li>Configure or remove provider keys/tokens in Options.</li>
+      <li>Disconnect Google Drive, Facebook, and X in Options.</li>
+      <li>Clear comic history and local data from extension settings or by uninstalling the extension.</li>
+      <li>Choose when to share/post; sharing actions are user-initiated.</li>
+    </ul>
+
+    <h2>7. Security</h2>
+    <ul>
+      <li>Network requests to providers/integrations use HTTPS endpoints.</li>
+      <li>No remote code execution is used for core extension logic.</li>
+      <li>You are responsible for reviewing the privacy/security terms of external providers you enable.</li>
+    </ul>
+
+    <h2>8. Google API Limited Use Statement</h2>
+    <p>
+      The use of information received from Google APIs will adhere to the Chrome Web Store User Data Policy, including the Limited Use requirements.
+    </p>
+
+    <h2>9. Changes To This Policy</h2>
+    <p>
+      This policy may be updated as features or integrations change. The date at the top indicates the latest revision.
+    </p>
+
+    <h2>10. Contact</h2>
+    <p>
+      Support and privacy questions: <a href="https://github.com/ApartsinProjects/Web2Comics/issues" target="_blank" rel="noopener noreferrer">https://github.com/ApartsinProjects/Web2Comics/issues</a>
+    </p>
   </main>
 </body>
 </html>
