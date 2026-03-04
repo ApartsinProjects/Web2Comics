@@ -2,7 +2,7 @@
 const path = require('path');
 const { loadEnvFiles } = require('../src/env');
 const { RenderApiClient } = require('./render-api');
-const { parseArgs, readTelegramYaml, randomSecret, resolveLatestDeployId, validateProviderEnv } = require('./lib');
+const { parseArgs, readTelegramYaml, resolveLatestDeployId, validateProviderEnv } = require('./lib');
 
 async function setTelegramWebhook(token, secret, publicBaseUrl) {
   const url = `${String(publicBaseUrl || '').replace(/\/+$/, '')}/telegram/webhook/${secret}`;
@@ -141,7 +141,11 @@ async function main() {
   const plan = firstNonEmpty(args.plan, process.env.RENDER_PLAN, 'free');
 
   const telegramToken = firstNonEmpty(args['telegram-token'], process.env.TELEGRAM_BOT_TOKEN, tgYaml.bot_token);
-  const webhookSecret = firstNonEmpty(args['webhook-secret'], process.env.TELEGRAM_WEBHOOK_SECRET, randomSecret(40));
+  const webhookSecret = firstNonEmpty(
+    args['webhook-secret'],
+    process.env.TELEGRAM_WEBHOOK_SECRET,
+    'web2comics-render-webhook-secret-v1'
+  );
 
   const providerEnv = {
     GEMINI_API_KEY: firstNonEmpty(args['gemini-key'], process.env.GEMINI_API_KEY),
