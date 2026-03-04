@@ -107,7 +107,7 @@ The extension includes:
 - `Test Text Model` / `Test Image Model` buttons (where supported)
 
 For step-by-step key/token instructions, see:
-- `docs/user-manual.html` (appendix)
+- [`docs/user-manual.html`](docs/user-manual.html) (appendix)
 - [`docs/Gemini_key.md`](docs/Gemini_key.md) (quick Gemini API key setup for free tier access)
 
 ## Requirements / Compatibility
