@@ -56,7 +56,7 @@ async function startFakeTelegramServer() {
   };
 }
 
-async function startBotProcess(botPort, telegramBaseUrl, statePath) {
+async function startBotProcess(botPort, telegramBaseUrl, statePath, extraEnv = {}) {
   const repoRoot = path.resolve(__dirname, '../..');
   const env = {
     ...process.env,
@@ -68,7 +68,8 @@ async function startBotProcess(botPort, telegramBaseUrl, statePath) {
     RENDER_BOT_FAKE_GENERATOR: 'true',
     RENDER_BOT_STATE_FILE: statePath,
     RENDER_BOT_BASE_CONFIG: path.join(repoRoot, 'render/config/default.render.yml'),
-    RENDER_BOT_OUT_DIR: path.join(repoRoot, 'render/out')
+    RENDER_BOT_OUT_DIR: path.join(repoRoot, 'render/out'),
+    ...extraEnv
   };
 
   const child = spawn(process.execPath, ['render/src/webhook-bot.js'], {
@@ -292,4 +293,56 @@ describe('render webhook bot REST + telegram flow', () => {
       await tg.close();
     }
   }, 30000);
+
+  it('supports /invent flow and produces comic photo from expanded story', async () => {
+    const tg = await startFakeTelegramServer();
+    const botPort = await getFreePort();
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'render-bot-webhook-'));
+    const bot = await startBotProcess(
+      botPort,
+      `http://127.0.0.1:${tg.port}/botTEST_TOKEN`,
+      path.join(tmpDir, 'runtime-state.json')
+    );
+
+    try {
+      const res = await postUpdate(botPort, {
+        chat: { id: 777 },
+        text: '/invent A shy inventor tries to impress the town.'
+      });
+      expect(res.status).toBe(200);
+      await waitFor(() => tg.calls.some((c) => c.url.endsWith('/sendPhoto')), 12000, 100);
+      const texts = tg.calls.filter((c) => c.url.endsWith('/sendMessage')).map((c) => String(c.body.text || ''));
+      expect(texts.some((m) => m.includes('Inventing an expanded story'))).toBe(true);
+      expect(texts.some((m) => m.includes('Invented story ready'))).toBe(true);
+    } finally {
+      await bot.stop();
+      await tg.close();
+    }
+  }, 30000);
+
+  it('sends deploy-ready notification on startup when enabled', async () => {
+    const tg = await startFakeTelegramServer();
+    const botPort = await getFreePort();
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'render-bot-webhook-'));
+    const bot = await startBotProcess(
+      botPort,
+      `http://127.0.0.1:${tg.port}/botTEST_TOKEN`,
+      path.join(tmpDir, 'runtime-state.json'),
+      {
+        TELEGRAM_NOTIFY_ON_START: 'true',
+        TELEGRAM_NOTIFY_CHAT_ID: '777'
+      }
+    );
+
+    try {
+      await waitFor(() => tg.calls.some((c) =>
+        c.url.endsWith('/sendMessage')
+          && Number(c.body.chat_id) === 777
+          && String(c.body.text || '').includes('new version is ready')
+      ), 8000, 100);
+    } finally {
+      await bot.stop();
+      await tg.close();
+    }
+  }, 20000);
 });

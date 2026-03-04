@@ -32,6 +32,11 @@ class RuntimeConfigStore {
     this.persistence = persistence;
     this.baseConfig = loadConfig(this.baseConfigPath).config;
     this.state = { users: {}, history: [] };
+    this.baseSecrets = {};
+    SECRET_KEYS.forEach((key) => {
+      const value = String(process.env[key] || '').trim();
+      if (value) this.baseSecrets[key] = value;
+    });
   }
 
   async load() {
@@ -131,9 +136,13 @@ class RuntimeConfigStore {
     SECRET_KEYS.forEach((key) => {
       const stateVal = String((user.secrets || {})[key] || '').trim();
       const sharedVal = String((shared && shared.secrets && shared.secrets[key]) || '').trim();
+      const envVal = String((this.baseSecrets || {})[key] || '').trim();
+      const resolved = stateVal || sharedVal || envVal;
       out[key] = {
-        hasValue: Boolean(stateVal || sharedVal),
-        source: stateVal ? 'runtime' : (sharedVal ? `shared:${user.sharedFrom}` : 'missing')
+        hasValue: Boolean(resolved),
+        source: stateVal
+          ? 'runtime'
+          : (sharedVal ? `shared:${user.sharedFrom}` : (envVal ? 'env' : 'missing'))
       };
     });
     return out;
@@ -158,16 +167,17 @@ class RuntimeConfigStore {
     const user = this.ensureUser(chatId);
     const shared = user.sharedFrom ? this.ensureUser(user.sharedFrom) : null;
     const applied = [];
-    SECRET_KEYS.forEach((key) => {
-      delete process.env[key];
-    });
     SECRET_KEYS.forEach((k) => {
       const own = String((user.secrets || {})[k] || '').trim();
       const sharedVal = String((shared && shared.secrets && shared.secrets[k]) || '').trim();
-      const val = own || sharedVal;
-      if (!val) return;
-      process.env[k] = val;
-      applied.push(k);
+      const baseVal = String((this.baseSecrets || {})[k] || '').trim();
+      const resolved = own || sharedVal || baseVal;
+      if (!resolved) {
+        delete process.env[k];
+        return;
+      }
+      process.env[k] = resolved;
+      if (own || sharedVal) applied.push(k);
     });
     return applied;
   }

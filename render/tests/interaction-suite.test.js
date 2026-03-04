@@ -155,6 +155,7 @@ describe('render bot comprehensive interaction suite', () => {
 
     try {
       await runCommandAndExpect('/help', 'aistudio.google.com/apikey');
+      await runCommandAndExpect('/help', '/invent <story>');
       const helpMsgs = sentMessages(tg.calls).map((c) => String(c.body.text || ''));
       expect(helpMsgs.some((m) => m.includes('/peek'))).toBe(false);
       await runCommandAndExpect('/presets', 'Friendly presets');
@@ -261,7 +262,7 @@ describe('render bot comprehensive interaction suite', () => {
       const first888 = await command(888, '/credentials');
       expect(first888.some((m) => m.includes('free Gemini'))).toBe(true);
       expect(first888.some((m) => m.includes('/help  /config  /presets'))).toBe(true);
-      expect(first888.some((m) => m.includes('GEMINI_API_KEY: missing'))).toBe(true);
+      expect(first888.some((m) => m.includes('GEMINI_API_KEY: set (env)'))).toBe(true);
 
       await command(777, '/panels 8');
       const cfg777 = await command(777, '/config');
@@ -393,7 +394,7 @@ describe('render bot comprehensive interaction suite', () => {
       await command('/panels 8');
       await command('/restart');
       const creds = await command('/credentials');
-      expect(creds.some((m) => m.includes('GEMINI_API_KEY: missing'))).toBe(true);
+      expect(creds.some((m) => m.includes('GEMINI_API_KEY: set (env)'))).toBe(true);
       const cfg = await command('/config');
       expect(cfg.some((m) => m.includes('generation.panel_count: 3'))).toBe(true);
     } finally {

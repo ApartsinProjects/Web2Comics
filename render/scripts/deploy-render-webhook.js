@@ -98,6 +98,13 @@ function parseBool(value) {
   return v === '1' || v === 'true' || v === 'yes' || v === 'on';
 }
 
+function firstChatId(value, fallback = '') {
+  const raw = String(value == null ? '' : value).trim();
+  if (!raw) return String(fallback || '').trim();
+  const first = raw.split(',').map((v) => v.trim()).find(Boolean);
+  return String(first || fallback || '').trim();
+}
+
 async function main() {
   const repoRoot = path.resolve(__dirname, '../..');
   loadEnvFiles([
@@ -134,6 +141,10 @@ async function main() {
   };
 
   const allowedChatIds = firstNonEmpty(args['allowed-chat-ids'], process.env.COMICBOT_ALLOWED_CHAT_IDS);
+  const notifyChatId = firstChatId(
+    firstNonEmpty(args['notify-chat-id'], process.env.TELEGRAM_NOTIFY_CHAT_ID, tgYaml.allowed_chat_ids),
+    '1796415913'
+  );
   let databaseUrl = firstNonEmpty(
     args['database-url'],
     args['pg-url'],
@@ -263,6 +274,8 @@ async function main() {
     RENDER_BOT_OUT_DIR: 'render/out',
     RENDER_BOT_FETCH_TIMEOUT_MS: '45000',
     RENDER_BOT_DEBUG_ARTIFACTS: 'false',
+    TELEGRAM_NOTIFY_ON_START: 'true',
+    TELEGRAM_NOTIFY_CHAT_ID: notifyChatId,
     COMICBOT_ALLOWED_CHAT_IDS: allowedChatIds,
     ...providerEnv
   };

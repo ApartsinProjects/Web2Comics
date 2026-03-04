@@ -72,4 +72,24 @@ describe('render config store', () => {
     store.applySecretsToEnv('user2');
     expect(String(process.env.GEMINI_API_KEY || '')).toBe('ADMIN_KEY');
   });
+
+  it('keeps base env key when user has no runtime/shared key', async () => {
+    const previous = process.env.GEMINI_API_KEY;
+    process.env.GEMINI_API_KEY = 'ENV_DEFAULT_KEY';
+    try {
+      const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'render-bot-'));
+      const baseConfig = path.resolve(__dirname, '../config/default.render.yml');
+      const store = new RuntimeConfigStore(baseConfig, new FilePersistence(path.join(tmp, 'state.json')));
+      await store.load();
+      store.applySecretsToEnv('new-user');
+      expect(String(process.env.GEMINI_API_KEY || '')).toBe('ENV_DEFAULT_KEY');
+
+      const status = store.getSecretsStatus('new-user');
+      expect(status.GEMINI_API_KEY.hasValue).toBe(true);
+      expect(status.GEMINI_API_KEY.source).toBe('env');
+    } finally {
+      if (previous == null) delete process.env.GEMINI_API_KEY;
+      else process.env.GEMINI_API_KEY = previous;
+    }
+  });
 });

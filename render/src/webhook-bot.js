@@ -4,7 +4,7 @@ const { loadEnvFiles } = require('./env');
 const { TelegramApi } = require('./telegram-api');
 const { RuntimeConfigStore } = require('./config-store');
 const { allOptionPaths, getOptions, parseUserValue, formatOptionsMessage, SECRET_KEYS } = require('./options');
-const { generateWithRuntimeConfig } = require('./generate');
+const { generateWithRuntimeConfig, inventStoryText } = require('./generate');
 const { createPersistence } = require('./persistence');
 const { redactSensitiveText } = require('./redact');
 
@@ -35,6 +35,8 @@ if (!webhookSecret) throw new Error('Missing TELEGRAM_WEBHOOK_SECRET');
 const api = new TelegramApi(token, process.env.TELEGRAM_API_BASE_URL || '');
 let configStore = null;
 const rawSendMessage = api.sendMessage.bind(api);
+const notifyOnStart = String(process.env.TELEGRAM_NOTIFY_ON_START || '').trim().toLowerCase() === 'true';
+const notifyChatId = Number(process.env.TELEGRAM_NOTIFY_CHAT_ID || 0);
 
 function collectSensitiveValues(chatId) {
   const keys = new Set([
@@ -74,6 +76,19 @@ async function safeNotifyUser(chatId, text) {
   } catch (_) {
     // Do not throw from fallback notifications.
   }
+}
+
+async function notifyDeploymentReady() {
+  if (!notifyOnStart || !Number.isFinite(notifyChatId) || notifyChatId <= 0) return;
+  const stamp = new Date().toISOString();
+  const version = String(process.env.RENDER_GIT_COMMIT || process.env.RENDER_GIT_BRANCH || '').trim();
+  const versionLine = version ? `Version: ${version}` : '';
+  const lines = [
+    'Web2Comics bot: new version is ready.',
+    `Time: ${stamp}`
+  ];
+  if (versionLine) lines.push(versionLine);
+  await safeNotifyUser(notifyChatId, lines.join('\n'));
 }
 
 let jobQueue = Promise.resolve();
@@ -161,6 +176,7 @@ function commandHelp(chatId) {
     '/setkey <KEY> <VALUE>',
     '/unsetkey <KEY>',
     '/restart',
+    '/invent <story>',
     '/reset_config',
     '',
     'Provider key links (Gemini free first):',
@@ -572,6 +588,51 @@ async function processMessage(message) {
       await api.sendMessage(chatId, onboardingMessage());
     }
 
+    if (incoming.kind === 'command' && incoming.command === '/invent') {
+      const seed = text.replace(/^\/invent\b/i, '').trim();
+      if (!seed) {
+        await api.sendMessage(chatId, 'Usage: /invent <story seed>');
+        await configStore.recordInteraction(chatId, {
+          kind: incoming.kind,
+          command: incoming.command,
+          requestText: text,
+          result: { ok: false, type: 'command', error: 'missing_seed' },
+          config: configStore.getEffectiveConfig(chatId)
+        });
+        return;
+      }
+
+      await api.sendChatAction(chatId, 'upload_photo');
+      await api.sendMessage(chatId, 'Inventing an expanded story...');
+
+      const effectiveConfigPath = configStore.writeEffectiveConfigFile(chatId, path.join(runtime.outDir, 'effective-config.yml'));
+      configStore.applySecretsToEnv(chatId);
+      const inventedStory = await inventStoryText(seed, effectiveConfigPath);
+      await api.sendMessage(chatId, 'Invented story ready. Generating your comic...');
+
+      const result = await generateWithRuntimeConfig(inventedStory, runtime, effectiveConfigPath);
+      const caption = [
+        'Done: invent -> comic',
+        `Panels: ${result.panelCount}`,
+        `Time: ${(Number(result.elapsedMs || 0) / 1000).toFixed(1)}s`
+      ].join('\n');
+      await api.sendPhoto(chatId, result.outputPath, caption);
+      await configStore.recordInteraction(chatId, {
+        kind: incoming.kind,
+        command: incoming.command,
+        requestText: text,
+        result: {
+          ok: true,
+          type: 'invent',
+          outputPath: result.outputPath,
+          panelCount: result.panelCount,
+          elapsedMs: result.elapsedMs
+        },
+        config: configStore.getEffectiveConfig(chatId)
+      });
+      return;
+    }
+
     const handled = await handleCommand(chatId, text);
     if (handled) {
       await configStore.recordInteraction(chatId, {
@@ -701,6 +762,9 @@ async function startServer() {
     console.log(`[render-bot] webhook path: ${webhookPath}`);
     console.log(`[render-bot] persistence: ${persistenceMode.mode}`);
     console.log('[render-bot] ready');
+    notifyDeploymentReady().catch((error) => {
+      console.error('[render-bot] deployment notification failed:', error && error.message ? error.message : String(error));
+    });
   });
 }
 

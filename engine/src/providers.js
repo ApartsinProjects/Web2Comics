@@ -71,6 +71,8 @@ async function generateTextWithProvider(providerConfig, prompt, runtimeConfig) {
   const provider = String(providerConfig.provider || '').toLowerCase();
   const model = String(providerConfig.model || '').trim();
   const timeoutMs = Number(runtimeConfig.timeout_ms || DEFAULT_TIMEOUT_MS);
+  const temperature = Number(runtimeConfig && runtimeConfig.text_temperature);
+  const hasTemperature = Number.isFinite(temperature);
 
   if (provider === 'gemini') {
     const apiKey = resolveProviderValue(providerConfig, 'api_key', 'GEMINI_API_KEY');
@@ -81,7 +83,10 @@ async function generateTextWithProvider(providerConfig, prompt, runtimeConfig) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: { maxOutputTokens: 4096 }
+        generationConfig: {
+          maxOutputTokens: 4096,
+          ...(hasTemperature ? { temperature } : {})
+        }
       })
     }, timeoutMs, 'Gemini text');
     const text = getGeminiText(json);
@@ -101,7 +106,7 @@ async function generateTextWithProvider(providerConfig, prompt, runtimeConfig) {
       body: JSON.stringify({
         model,
         messages: [{ role: 'user', content: prompt }],
-        temperature: 0.3
+        temperature: hasTemperature ? temperature : 0.3
       })
     }, timeoutMs, 'OpenAI text');
     const text = String(json?.choices?.[0]?.message?.content || '').trim();
@@ -123,7 +128,7 @@ async function generateTextWithProvider(providerConfig, prompt, runtimeConfig) {
       body: JSON.stringify({
         model,
         messages: [{ role: 'user', content: prompt }],
-        temperature: 0.3
+        temperature: hasTemperature ? temperature : 0.3
       })
     }, timeoutMs, 'OpenRouter text');
     const text = String(json?.choices?.[0]?.message?.content || '').trim();

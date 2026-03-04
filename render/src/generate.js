@@ -1,7 +1,9 @@
 const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
-const { runComicEngine } = require('../../engine/src');
+const { runComicEngine, withRetries } = require('../../engine/src');
+const { loadConfig } = require('../../engine/src/config');
+const { generateTextWithProvider } = require('../../engine/src/providers');
 const { fetchUrlToHtmlSnapshot, buildSnapshotPath } = require('../../engine/src/url-fetch');
 const { classifyMessageInput } = require('./message-utils');
 
@@ -122,7 +124,49 @@ async function generateWithRuntimeConfig(text, runtime, effectiveConfigPath) {
   };
 }
 
+async function inventStoryText(seedText, effectiveConfigPath) {
+  const seed = String(seedText || '').trim();
+  if (!seed) throw new Error('Usage: /invent <story seed>');
+
+  if (isFakeGeneratorEnabled()) {
+    return [
+      'Expanded Storyboard Draft',
+      '',
+      `${seed}`,
+      '',
+      'Unexpected turn: a hidden clue changes who the hero can trust.',
+      'Unexpected turn: a quiet side character reveals critical information.',
+      'Ending beat: the conflict resolves with an emotional payoff.'
+    ].join('\n');
+  }
+
+  const loaded = loadConfig(effectiveConfigPath);
+  const config = loaded.config;
+  const prompt = [
+    'You are a creative comic writer.',
+    'Expand the seed into an engaging short narrative that is easy to storyboard into comic panels.',
+    'Add at least two unexpected but coherent twists.',
+    'Keep characters and timeline consistent.',
+    'Return plain text only (no JSON, no markdown headings).',
+    '',
+    `Seed story:`,
+    seed
+  ].join('\n');
+
+  const runtimeConfig = {
+    ...(config.runtime || {}),
+    text_temperature: 0.95
+  };
+
+  return withRetries(
+    () => generateTextWithProvider(config.providers.text, prompt, runtimeConfig),
+    config.runtime.retries,
+    'Story invention'
+  );
+}
+
 module.exports = {
   generateWithRuntimeConfig,
-  shouldInstallPlaywrightBrowser
+  shouldInstallPlaywrightBrowser,
+  inventStoryText
 };
