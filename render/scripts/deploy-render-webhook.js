@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 const path = require('path');
-const { loadEnvFiles } = require('../../comicbot/src/env');
+const { loadEnvFiles } = require('../src/env');
 const { RenderApiClient } = require('./render-api');
 const { parseArgs, readTelegramYaml, randomSecret } = require('./lib');
 

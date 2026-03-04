@@ -1,5 +1,5 @@
 const path = require('path');
-const { loadEnvFiles } = require('../../comicbot/src/env');
+const { loadEnvFiles } = require('./env');
 
 const repoRoot = path.resolve(__dirname, '../..');
 loadEnvFiles([

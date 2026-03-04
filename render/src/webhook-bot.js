@@ -1,6 +1,6 @@
 const http = require('http');
 const path = require('path');
-const { loadEnvFiles } = require('../../comicbot/src/env');
+const { loadEnvFiles } = require('./env');
 const { TelegramApi } = require('../../comicbot/src/telegram-api');
 const { RuntimeConfigStore } = require('./config-store');
 const { allOptionPaths, getOptions, parseUserValue, formatOptionsMessage, SECRET_KEYS } = require('./options');
