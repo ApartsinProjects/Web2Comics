@@ -60,9 +60,29 @@ function resolveLatestDeployId(rows, triggerStartedAtMs) {
   return list[0].id;
 }
 
+function validateProviderEnv(providerEnv, strictAll) {
+  const map = providerEnv || {};
+  const keys = Object.keys(map);
+  const missing = keys.filter((k) => !String(map[k] || '').trim());
+
+  if (strictAll) {
+    return {
+      ok: missing.length === 0,
+      missing
+    };
+  }
+
+  const anyPresent = keys.some((k) => String(map[k] || '').trim());
+  return {
+    ok: anyPresent,
+    missing: anyPresent ? [] : keys.slice()
+  };
+}
+
 module.exports = {
   parseArgs,
   readTelegramYaml,
   randomSecret,
-  resolveLatestDeployId
+  resolveLatestDeployId,
+  validateProviderEnv
 };

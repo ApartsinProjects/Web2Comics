@@ -2,7 +2,7 @@
 const path = require('path');
 const { loadEnvFiles } = require('../src/env');
 const { RenderApiClient } = require('./render-api');
-const { parseArgs, readTelegramYaml, randomSecret, resolveLatestDeployId } = require('./lib');
+const { parseArgs, readTelegramYaml, randomSecret, resolveLatestDeployId, validateProviderEnv } = require('./lib');
 
 async function setTelegramWebhook(token, secret, publicBaseUrl) {
   const url = `${String(publicBaseUrl || '').replace(/\/+$/, '')}/telegram/webhook/${secret}`;
@@ -110,6 +110,7 @@ async function main() {
   const args = parseArgs(process.argv.slice(2));
   const tgYaml = readTelegramYaml(repoRoot);
   const testDeployment = parseBool(args['test-deployment'] || process.env.RENDER_TEST_DEPLOYMENT);
+  const requireAllKeys = parseBool(args['require-all-keys'] || process.env.RENDER_REQUIRE_ALL_KEYS) || testDeployment;
 
   const renderApiKey = firstNonEmpty(args['render-api-key'], process.env.RENDER_API_KEY);
   const repoUrl = firstNonEmpty(args['repo-url'], process.env.RENDER_REPO_URL, 'https://github.com/ApartsinProjects/Web2Comics');
@@ -154,7 +155,11 @@ async function main() {
   if (!telegramToken) {
     throw new Error('Missing Telegram bot token. Put it in .telegram.yaml or TELEGRAM_BOT_TOKEN or --telegram-token');
   }
-  if (!Object.values(providerEnv).some((v) => String(v || '').trim())) {
+  const keyCheck = validateProviderEnv(providerEnv, requireAllKeys);
+  if (!keyCheck.ok) {
+    if (requireAllKeys) {
+      throw new Error(`Missing provider keys for strict deployment: ${keyCheck.missing.join(', ')}`);
+    }
     throw new Error('Missing provider keys. At least one provider key is required (e.g. GEMINI_API_KEY).');
   }
 

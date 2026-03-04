@@ -61,6 +61,8 @@ Deploy isolated test stack (separate service/database name):
 npm run render:deploy:auto -- --test-deployment true --branch engine
 ```
 
+When `--test-deployment true` is used, deployment enforces all provider keys are supplied.
+
 What it automates:
 - resolves owner/workspace ID (or uses `--owner-id`)
 - creates or reuses a Render Postgres database (unless `--database-url` is provided)
@@ -80,6 +82,7 @@ Inputs it can read automatically:
 Optional flags:
 - `--service-name web2comics-telegram-render-bot`
 - `--test-deployment true`
+- `--require-all-keys true`
 - `--repo-url https://github.com/ApartsinProjects/Web2Comics`
 - `--branch main`
 - `--owner-id <workspace-id>`

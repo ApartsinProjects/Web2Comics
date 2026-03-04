@@ -2,7 +2,19 @@ const fs = require('fs');
 const path = require('path');
 const { runComicEngine } = require('../../engine/src');
 const { fetchUrlToHtmlSnapshot, buildSnapshotPath } = require('../../engine/src/url-fetch');
-const { classifyMessageInput } = require('../../comicbot/src/message-utils');
+const { classifyMessageInput } = require('./message-utils');
+
+const TINY_PNG_BASE64 =
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/w8AAgMBAp6R9gAAAABJRU5ErkJggg==';
+
+function isFakeGeneratorEnabled() {
+  return String(process.env.RENDER_BOT_FAKE_GENERATOR || '').trim().toLowerCase() === 'true';
+}
+
+function writeTinyPng(filePath) {
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  fs.writeFileSync(filePath, Buffer.from(TINY_PNG_BASE64, 'base64'));
+}
 
 async function prepareInput(text, runtime) {
   const parsed = classifyMessageInput(text);
@@ -42,6 +54,27 @@ async function prepareInput(text, runtime) {
 }
 
 async function generateWithRuntimeConfig(text, runtime, effectiveConfigPath) {
+  if (isFakeGeneratorEnabled()) {
+    const parsed = classifyMessageInput(text);
+    if (parsed.kind === 'empty') throw new Error('Empty message. Send plain text or full URL.');
+    const ts = new Date().toISOString().replace(/[:.]/g, '-');
+    const outPath = path.join(runtime.outDir, `render-fake-${ts}.png`);
+    writeTinyPng(outPath);
+    return {
+      configPath: effectiveConfigPath,
+      inputPath: '',
+      outputPath: outPath,
+      storyboardTitle: 'Render Comic',
+      panelCount: 3,
+      imageBytes: fs.statSync(outPath).size,
+      width: 1,
+      height: 1,
+      elapsedMs: 5,
+      kind: parsed.kind,
+      summary: parsed.kind === 'url' ? parsed.value : `text (${parsed.value.length} chars)`
+    };
+  }
+
   const prep = await prepareInput(text, runtime);
   const debugDir = runtime.debugArtifacts
     ? path.join(runtime.outDir, path.basename(prep.outputPath, '.png') + '-debug')

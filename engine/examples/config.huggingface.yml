@@ -1,0 +1,36 @@
+input:
+  format: auto
+  max_chars: 12000
+
+generation:
+  panel_count: 3
+  objective: summarize
+  output_language: en
+  detail_level: low
+  style_prompt: "clean comic visual style"
+
+providers:
+  text:
+    provider: huggingface
+    model: mistralai/Mistral-7B-Instruct-v0.2
+    api_key_env: HUGGINGFACE_INFERENCE_API_TOKEN
+  image:
+    provider: huggingface
+    model: black-forest-labs/FLUX.1-schnell
+    api_key_env: HUGGINGFACE_INFERENCE_API_TOKEN
+
+runtime:
+  timeout_ms: 120000
+  image_concurrency: 2
+  retries: 0
+
+output:
+  width: 1200
+  panel_height: 620
+  caption_height: 120
+  header_height: 110
+  footer_height: 30
+  padding: 20
+  gap: 14
+  background: "#f8fafc"
+  brand: "Made with Web2Comics Engine"

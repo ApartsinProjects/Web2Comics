@@ -1,0 +1,3 @@
+This is a short plain text story.
+A team shipped a product, fixed critical bugs, and celebrated the launch.
+The next milestone is a global rollout next month.

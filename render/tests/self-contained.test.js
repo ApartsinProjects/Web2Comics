@@ -3,11 +3,12 @@ const path = require('path');
 
 describe('render runtime is self-contained', () => {
   it('does not import comicbot modules from render runtime files', () => {
-    const files = [
-      path.resolve(__dirname, '../src/webhook-bot.js'),
-      path.resolve(__dirname, '../src/set-webhook.js'),
-      path.resolve(__dirname, '../scripts/deploy-render-webhook.js')
-    ];
+    const srcDir = path.resolve(__dirname, '../src');
+    const scriptsDir = path.resolve(__dirname, '../scripts');
+    const files = []
+      .concat(fs.readdirSync(srcDir).map((name) => path.join(srcDir, name)))
+      .concat(fs.readdirSync(scriptsDir).map((name) => path.join(scriptsDir, name)))
+      .filter((p) => p.endsWith('.js'));
 
     files.forEach((filePath) => {
       const source = fs.readFileSync(filePath, 'utf8');
