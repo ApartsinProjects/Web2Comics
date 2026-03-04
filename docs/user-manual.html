@@ -173,6 +173,7 @@
       <header id="overview">
         <h1>Web2Comics User Manual</h1>
         <p class="lead">Complete guide for configuring providers, generating comics, understanding the UI, and obtaining API credentials for supported providers.</p>
+        <p class="lead"><strong>Last updated:</strong> March 2026 (aligned with current extension behavior).</p>
         <div class="note">
           The extension uses <strong>Web2Comics</strong> as the product name across the popup, Options page, and comic viewer side panel.
         </div>
@@ -202,6 +203,7 @@
           <ul>
             <li><strong>Generate comic from selected text (Default)</strong>: starts generation immediately using default settings.</li>
             <li><strong>Open Create Comic with selected text</strong>: opens popup composer prefilled with your selected text so you can adjust options first.</li>
+            <li><strong>Toolbar context menu</strong> also provides quick actions (open composer / open collection) from the extension icon menu.</li>
           </ul>
         </div>
       </section>
@@ -344,7 +346,7 @@
         <h3>Current support</h3>
         <ul>
           <li>Provider scopes in the UI: <strong>OpenAI</strong>, <strong>Google Gemini</strong>, <strong>Cloudflare Workers AI</strong>, <strong>OpenRouter</strong>, and <strong>Hugging Face</strong>.</li>
-          <li>Runtime template consumption (current build): <strong>OpenAI</strong> and <strong>Google Gemini</strong>.</li>
+          <li>Runtime template consumption (current build): provider templates are consumed for all configured providers during storyboard/image generation flows.</li>
           <li>Template types: <strong>Storyboard</strong> and <strong>Image</strong>.</li>
           <li>Prompt Library presets can be applied by use-case group to current provider or all providers.</li>
           <li>You can import prompt-library presets from a JSON array using <code>Import Prompt Library JSON</code>. Imported presets are saved and available in future sessions.</li>
@@ -371,8 +373,8 @@
           <li><strong>Clear Image Cache</strong>: clears cached image data (if used by current build).</li>
           <li><strong>Export All Data</strong>: exports extension storage to JSON.</li>
           <li><strong>Export Debug Logs</strong>: exports local debug logs to JSON.</li>
-          <li><strong>Google Drive Backup (Optional)</strong>: connect OAuth and auto-save generated comics as interactive HTML into Drive folder <code>Web2Comics</code>.</li>
-          <li><strong>Facebook / X Connections (Optional)</strong>: connect via built-in OAuth authorization/consent flow (no manual token entry).</li>
+          <li><strong>Google Drive Backup (Optional)</strong>: connect OAuth and auto-save generated comics as interactive HTML into Drive folder <code>MyComics</code>.</li>
+          <li><strong>Connections (Optional)</strong>: Google Drive, Facebook, and X use built-in OAuth flows; additional share-target connection toggles exist for Instagram and other targets such as LinkedIn, Reddit, and Email.</li>
         </ul>
       </section>
 

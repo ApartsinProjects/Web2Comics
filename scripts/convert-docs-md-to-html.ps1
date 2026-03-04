@@ -1,5 +1,10 @@
+param(
+  [switch]$PreserveBadges
+)
+
 $ErrorActionPreference = 'Stop'
-$repo = 'e:\Projects\Web2Comics'
+$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+$repo = (Resolve-Path (Join-Path $scriptDir '..')).Path
 $docsRoot = Join-Path $repo 'docs'
 $htmlRoot = Join-Path $docsRoot 'HTML'
 
@@ -7,10 +12,16 @@ if (Test-Path $htmlRoot) { Remove-Item -Recurse -Force $htmlRoot }
 New-Item -ItemType Directory -Path $htmlRoot | Out-Null
 
 $mdFiles = Get-ChildItem -Path $docsRoot -Recurse -File -Filter *.md
+$rootHtmlFiles = Get-ChildItem -Path $docsRoot -File -Filter *.html
 $knownMd = @{}
 foreach ($md in $mdFiles) {
   $rel = $md.FullName.Substring($docsRoot.Length + 1) -replace '\\','/'
   $knownMd[$rel.ToLowerInvariant()] = [System.IO.Path]::ChangeExtension($rel, '.html') -replace '\\','/'
+}
+$knownRootHtml = @{}
+foreach ($html in $rootHtmlFiles) {
+  $relHtml = $html.FullName.Substring($docsRoot.Length + 1) -replace '\\','/'
+  $knownRootHtml[$relHtml.ToLowerInvariant()] = $relHtml
 }
 
 function Split-LinkParts([string]$target) {
@@ -61,6 +72,36 @@ function Resolve-DocHtmlTarget([string]$currentRelativeMd, [string]$target) {
   return $rel + $suffix
 }
 
+function Resolve-DocsRootHtmlTarget([string]$currentRelativeMd, [string]$target) {
+  if ([string]::IsNullOrWhiteSpace($target)) { return $null }
+  $trimmed = $target.Trim()
+  if ($trimmed -match '^(https?:|mailto:|tel:|#)') { return $null }
+
+  $parts = Split-LinkParts $trimmed
+  $base = $parts.base
+  $suffix = $parts.suffix
+  $normalized = ($base -replace '\\','/').Trim()
+  if ($normalized -match '^docs/') { $normalized = $normalized.Substring(5) }
+  $normalized = $normalized.TrimStart('/')
+  if (!$normalized.ToLowerInvariant().EndsWith('.html')) { return $null }
+
+  $currentDir = [System.IO.Path]::GetDirectoryName($currentRelativeMd)
+  if ($null -eq $currentDir) { $currentDir = '' }
+  $currentDir = $currentDir -replace '\\','/'
+  if (![string]::IsNullOrWhiteSpace($currentDir)) { $currentDir = $currentDir.Trim('/') + '/' } else { $currentDir = '' }
+
+  $baseUri = [Uri]('https://local/' + $currentDir)
+  $resolved = [Uri]::new($baseUri, $normalized).AbsolutePath.TrimStart('/')
+  $resolvedLower = $resolved.ToLowerInvariant()
+  if (-not $knownRootHtml.ContainsKey($resolvedLower)) { return $null }
+
+  # Generated pages live under docs/HTML/{currentDir}
+  $fromUri = [Uri]('https://local/HTML/' + $currentDir)
+  $toUri = [Uri]('https://local/' + $knownRootHtml[$resolvedLower])
+  $rel = [Uri]::UnescapeDataString($fromUri.MakeRelativeUri($toUri).ToString())
+  return $rel + $suffix
+}
+
 function Rewrite-OutsideFencedCode([string]$text, [scriptblock]$rewriter) {
   $parts = [regex]::Split($text, '(?s)(```.*?```)')
   for ($i = 0; $i -lt $parts.Length; $i++) {
@@ -69,6 +110,13 @@ function Rewrite-OutsideFencedCode([string]$text, [scriptblock]$rewriter) {
     }
   }
   return [string]::Join('', $parts)
+}
+
+function Remove-BadgeLines([string]$text) {
+  # Remove markdown lines that are made only of img.shields.io badges
+  $badgeAtom = '(?:\[!\[[^\]]*\]\(https?://img\.shields\.io/[^)\r\n]+\)\]\([^)]+\)|!\[[^\]]*\]\(https?://img\.shields\.io/[^)\r\n]+\))'
+  $badgeLine = '(?m)^[ \t]*(?:' + $badgeAtom + ')(?:[ \t]+' + $badgeAtom + ')*[ \t]*\r?\n?'
+  return [regex]::Replace($text, $badgeLine, '')
 }
 
 function Convert-LinkTarget([string]$currentRelativeMd, [string]$target) {
@@ -81,6 +129,9 @@ function Convert-LinkTarget([string]$currentRelativeMd, [string]$target) {
   }
 
   $resolved = Resolve-DocHtmlTarget $currentRelativeMd $trimmed
+  if (-not $resolved) {
+    $resolved = Resolve-DocsRootHtmlTarget $currentRelativeMd $trimmed
+  }
   if ($resolved) {
     $rebuilt = $resolved
   } else {
@@ -100,6 +151,10 @@ foreach ($file in $mdFiles) {
   $raw = Get-Content -Raw -Path $file.FullName
   $rewritten = Rewrite-OutsideFencedCode $raw {
     param($segment)
+    if (-not $PreserveBadges) {
+      $segment = Remove-BadgeLines $segment
+    }
+
     $linked = [regex]::Replace(
       $segment,
       '\[(?<text>[^\]]+)\]\((?<url>[^)]+)\)',
@@ -114,7 +169,7 @@ foreach ($file in $mdFiles) {
 
     $linked = [regex]::Replace(
       $linked,
-      '(?<!`)`(?<path>[^`\r\n]+?\.md(?:#[^`\r\n]+)?)`(?!`)',
+      '(?<![\[`])`(?<path>[^`\r\n]+?\.md(?:#[^`\r\n]+)?)`(?!`)',
       {
         param($m)
         $path = $m.Groups['path'].Value
@@ -165,15 +220,20 @@ foreach ($file in $mdFiles) {
   <div class="wrap">
     <nav class="topbar">
       <a href="${homePrefix}../index.html">Docs Home</a>
+      <a href="${homePrefix}../user-manual.html">User Manual</a>
       <a href="https://github.com/ApartsinProjects/Web2Comics" target="_blank" rel="noopener noreferrer">GitHub Repo</a>
       <a href="https://github.com/ApartsinProjects/Web2Comics#readme" target="_blank" rel="noopener noreferrer">Project README</a>
+      <a href="https://www.apartsin.com" target="_blank" rel="noopener noreferrer">Creator Site</a>
       <a href="${homePrefix}../privacy.html">Privacy</a>
       <a href="${homePrefix}../support.html">Support</a>
     </nav>
     <article>
 $fragment
     </article>
-    <div class="footer">Generated from <code>$relativeMd</code></div>
+    <div class="footer">
+      Generated from <code>$relativeMd</code> •
+      Creator: <a href="https://www.apartsin.com" target="_blank" rel="noopener noreferrer">www.apartsin.com</a>
+    </div>
   </div>
 </body>
 </html>

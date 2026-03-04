@@ -4,7 +4,6 @@
 ![Platform](https://img.shields.io/badge/platform-chrome%20extension-blue)
 ![Release](https://img.shields.io/badge/release-v1.0.3-success)
 ![License](https://img.shields.io/badge/%C2%A9%202026-Alexander%20Apartsin-red)
-[![GitHub Repo](https://img.shields.io/badge/GitHub-Repository-181717?logo=github)](https://github.com/ApartsinProjects/Web2Comics)
 [![Docs](https://img.shields.io/badge/Docs-GitHub%20Pages-0ea5e9?logo=githubpages&logoColor=white)](https://apartsinprojects.github.io/Web2Comics/)
 
 <p align="center">
@@ -18,11 +17,6 @@ Web2Comics is a Chrome extension that:
 - shows the result in a comic viewer side panel
 - saves history and exports a single composite comic image
 - supports right-click selected-text flows (instant generate or open composer prefilled)
-
-## Documentation
-
-- **Docs Home (GitHub Pages):** https://apartsinprojects.github.io/Web2Comics/
-- **Docs Index (Markdown source):** [docs/README.md](docs/README.md)
 
 ## Install (Release ZIP)
 
@@ -214,7 +208,7 @@ HUGGINGFACE_INFERENCE_API_TOKEN=...
 
 ## Documentation
 
-- User manual: `docs/user-manual.html`
+- User manual: [docs/user-manual.html](docs/user-manual.html)
 - Additional specs: [`docs/INSTALL.md`](docs/INSTALL.md)
 - Privacy policy: [docs/privacy.html](docs/privacy.html)
 

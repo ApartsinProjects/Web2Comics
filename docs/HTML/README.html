@@ -25,8 +25,10 @@
   <div class="wrap">
     <nav class="topbar">
       <a href="../index.html">Docs Home</a>
+      <a href="../user-manual.html">User Manual</a>
       <a href="https://github.com/ApartsinProjects/Web2Comics" target="_blank" rel="noopener noreferrer">GitHub Repo</a>
       <a href="https://github.com/ApartsinProjects/Web2Comics#readme" target="_blank" rel="noopener noreferrer">Project README</a>
+      <a href="https://www.apartsin.com" target="_blank" rel="noopener noreferrer">Creator Site</a>
       <a href="../privacy.html">Privacy</a>
       <a href="../support.html">Support</a>
     </nav>
@@ -38,7 +40,7 @@
 <li><code>index.html</code> : GitHub Pages landing page for docs, policy, and support links.</li>
 <li><a href="ROOT_README.html"><code>ROOT_README.md</code></a> : release-oriented README snapshot used by packaging checks.</li>
 <li><a href="INSTALL.html"><code>INSTALL.md</code></a> : installation + first-run guide.</li>
-<li><code>user-manual.html</code> : end-user manual (popup, side panel, options, workflows).</li>
+<li><a href="../user-manual.html"><code>user-manual.html</code></a> : end-user manual (popup, side panel, options, workflows).</li>
 <li><a href="RELEASE_NOTES.html"><code>RELEASE_NOTES.md</code></a> : versioned release history.</li>
 </ul>
 <h2 id="product-and-strategy-docs">Product and Strategy Docs</h2>
@@ -71,9 +73,25 @@
 <li>Some docs are strategic/planning artifacts and do not imply implementation status.</li>
 <li>Keep docs synchronized with current UI labels and flows (<code>Comicify!</code>, <code>My Collection</code>, <code>Create Comic -&gt; Generate</code> default path).</li>
 </ul>
+<h2 id="build-html-from-markdown">Build HTML from Markdown</h2>
+<ul>
+<li>Default build (rewrites <code>.md</code> links to <code>.html</code>, keeps root <code>.html</code> links working, drops shield badges from generated HTML):
+<ul>
+<li><code>npm run docs:build</code></li>
+</ul>
+</li>
+<li>Keep badge lines in generated HTML:
+<ul>
+<li><code>npm run docs:build:keep-badges</code></li>
+</ul>
+</li>
+</ul>
 
     </article>
-    <div class="footer">Generated from <code>README.md</code></div>
+    <div class="footer">
+      Generated from <code>README.md</code> •
+      Creator: <a href="https://www.apartsin.com" target="_blank" rel="noopener noreferrer">www.apartsin.com</a>
+    </div>
   </div>
 </body>
 </html>

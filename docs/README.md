@@ -6,7 +6,7 @@ Project documentation and user-facing reference pages for Web2Comics.
 - `index.html` : GitHub Pages landing page for docs, policy, and support links.
 - `ROOT_README.md` : release-oriented README snapshot used by packaging checks.
 - `INSTALL.md` : installation + first-run guide.
-- `user-manual.html` : end-user manual (popup, side panel, options, workflows).
+- [`user-manual.html`](./user-manual.html) : end-user manual (popup, side panel, options, workflows).
 - `RELEASE_NOTES.md` : versioned release history.
 
 ## Product and Strategy Docs
@@ -33,3 +33,9 @@ Project documentation and user-facing reference pages for Web2Comics.
 ## Notes
 - Some docs are strategic/planning artifacts and do not imply implementation status.
 - Keep docs synchronized with current UI labels and flows (`Comicify!`, `My Collection`, `Create Comic -> Generate` default path).
+
+## Build HTML from Markdown
+- Default build (rewrites `.md` links to `.html`, keeps root `.html` links working, drops shield badges from generated HTML):
+  - `npm run docs:build`
+- Keep badge lines in generated HTML:
+  - `npm run docs:build:keep-badges`
