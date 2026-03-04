@@ -50,11 +50,11 @@ Note: `Code -> Download ZIP` downloads the full source repository. Use the relea
 ## Supported Providers
 
 Current provider support:
-- OpenAI
-- Google Gemini
-- Cloudflare Workers AI (text + image)
-- OpenRouter (model/account dependent)
-- Hugging Face Inference API
+- [OpenAI API](https://platform.openai.com/docs/overview)
+- [Google Gemini API](https://ai.google.dev/gemini-api/docs)
+- [Cloudflare Workers AI](https://developers.cloudflare.com/workers-ai/) (text + image)
+- [OpenRouter API](https://openrouter.ai/docs) (model/account dependent)
+- [Hugging Face Inference API](https://huggingface.co/docs/api-inference/index)
 
 Web2Comics also supports automatic fallback to other configured providers when a selected provider fails due to quota/budget issues.
 

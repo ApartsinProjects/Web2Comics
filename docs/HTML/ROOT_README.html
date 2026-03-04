@@ -25,6 +25,7 @@
   <div class="wrap">
     <nav class="topbar">
       <a href="../index.html">Docs Home</a>
+      <a href="https://github.com/ApartsinProjects/Web2Comics" target="_blank" rel="noopener noreferrer">GitHub Repo</a>
       <a href="https://github.com/ApartsinProjects/Web2Comics#readme" target="_blank" rel="noopener noreferrer">Project README</a>
       <a href="../privacy.html">Privacy</a>
       <a href="../support.html">Support</a>
@@ -80,11 +81,11 @@
 <h2 id="supported-providers">Supported Providers</h2>
 <p>Current provider support:</p>
 <ul>
-<li>OpenAI</li>
-<li>Google Gemini</li>
-<li>Cloudflare Workers AI (text + image)</li>
-<li>OpenRouter (model/account dependent)</li>
-<li>Hugging Face Inference API</li>
+<li><a href="https://platform.openai.com/docs/overview">OpenAI API</a></li>
+<li><a href="https://ai.google.dev/gemini-api/docs">Google Gemini API</a></li>
+<li><a href="https://developers.cloudflare.com/workers-ai/">Cloudflare Workers AI</a> (text + image)</li>
+<li><a href="https://openrouter.ai/docs">OpenRouter API</a> (model/account dependent)</li>
+<li><a href="https://huggingface.co/docs/api-inference/index">Hugging Face Inference API</a></li>
 </ul>
 <p>Web2Comics also supports automatic fallback to other configured providers when a selected provider fails due to quota/budget issues.</p>
 <h2 id="example-use-cases">Example Use Cases</h2>
@@ -127,7 +128,7 @@
 </ul>
 <p>Why: this reduces token/image usage and improves chances of success on free-tier limits.</p>
 <p>If Gemini free tier is unavailable for your account/region, configure another provider (Cloudflare, OpenRouter, Hugging Face, OpenAI). Web2Comics can fall back automatically to other configured providers on quota/budget failures.</p>
-<p>Need a Gemini key for the free tier? See <code>docs/Gemini_key.md</code>.</p>
+<p>Need a Gemini key for the free tier? See <a href="Gemini_key.html"><code>docs/Gemini_key.md</code></a>.</p>
 <h2 id="provider-keys-tokens">Provider Keys / Tokens</h2>
 <p>Configure providers in:</p>
 <ul>
@@ -141,7 +142,7 @@
 <p>For step-by-step key/token instructions, see:</p>
 <ul>
 <li><code>docs/user-manual.html</code> (appendix)</li>
-<li><code>docs/Gemini_key.md</code> (quick Gemini API key setup for free tier access)</li>
+<li><a href="Gemini_key.html"><code>docs/Gemini_key.md</code></a> (quick Gemini API key setup for free tier access)</li>
 </ul>
 <h2 id="requirements-compatibility">Requirements / Compatibility</h2>
 <ul>
@@ -186,7 +187,7 @@
 <li><code>tests/</code> - unit/integration/E2E tests</li>
 <li><code>scripts/</code> - probing/testing helper scripts</li>
 </ul>
-<p>See per-folder <code>README.md</code> files for more detail.</p>
+<p>See per-folder <a href="README.html"><code>README.md</code></a> files for more detail.</p>
 <h2 id="local-development">Local Development</h2>
 <p>Install dependencies:</p>
 <pre><code class="language-powershell">npm install
@@ -250,7 +251,7 @@ HUGGINGFACE_INFERENCE_API_TOKEN=...
 <h2 id="documentation">Documentation</h2>
 <ul>
 <li>User manual: <code>docs/user-manual.html</code></li>
-<li>Additional specs: <code>docs/initial_specs.md</code>, <code>docs/INSTALL.md</code></li>
+<li>Additional specs: <a href="initial_specs.html"><code>docs/initial_specs.md</code></a>, <a href="INSTALL.html"><code>docs/INSTALL.md</code></a></li>
 </ul>
 
     </article>

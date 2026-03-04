@@ -7,8 +7,71 @@ if (Test-Path $htmlRoot) { Remove-Item -Recurse -Force $htmlRoot }
 New-Item -ItemType Directory -Path $htmlRoot | Out-Null
 
 $mdFiles = Get-ChildItem -Path $docsRoot -Recurse -File -Filter *.md
+$knownMd = @{}
+foreach ($md in $mdFiles) {
+  $rel = $md.FullName.Substring($docsRoot.Length + 1) -replace '\\','/'
+  $knownMd[$rel.ToLowerInvariant()] = [System.IO.Path]::ChangeExtension($rel, '.html') -replace '\\','/'
+}
 
-function Convert-LinkTarget([string]$target) {
+function Split-LinkParts([string]$target) {
+  $base = $target
+  $suffix = ''
+  $hashIdx = $target.IndexOf('#')
+  $qIdx = $target.IndexOf('?')
+  $cut = -1
+  if ($hashIdx -ge 0 -and $qIdx -ge 0) { $cut = [Math]::Min($hashIdx, $qIdx) }
+  elseif ($hashIdx -ge 0) { $cut = $hashIdx }
+  elseif ($qIdx -ge 0) { $cut = $qIdx }
+  if ($cut -ge 0) {
+    $base = $target.Substring(0, $cut)
+    $suffix = $target.Substring($cut)
+  }
+  return @{ base = $base; suffix = $suffix }
+}
+
+function Resolve-DocHtmlTarget([string]$currentRelativeMd, [string]$target) {
+  if ([string]::IsNullOrWhiteSpace($target)) { return $null }
+  $trimmed = $target.Trim()
+  if ($trimmed -match '^(https?:|mailto:|tel:|#)') { return $null }
+
+  $parts = Split-LinkParts $trimmed
+  $base = $parts.base
+  $suffix = $parts.suffix
+  $normalized = ($base -replace '\\','/').Trim()
+  if ($normalized -match '^docs/') { $normalized = $normalized.Substring(5) }
+  $normalized = $normalized.TrimStart('/')
+
+  if (!$normalized.ToLowerInvariant().EndsWith('.md')) { return $null }
+
+  $currentDir = [System.IO.Path]::GetDirectoryName($currentRelativeMd)
+  if ($null -eq $currentDir) { $currentDir = '' }
+  $currentDir = $currentDir -replace '\\','/'
+  if (![string]::IsNullOrWhiteSpace($currentDir)) { $currentDir = $currentDir.Trim('/') + '/' } else { $currentDir = '' }
+
+  $baseUri = [Uri]('https://local/' + $currentDir)
+  $resolved = [Uri]::new($baseUri, $normalized).AbsolutePath.TrimStart('/')
+  $resolvedLower = $resolved.ToLowerInvariant()
+  if ($resolvedLower -eq $currentRelativeMd.ToLowerInvariant()) { return $null }
+  if (-not $knownMd.ContainsKey($resolvedLower)) { return $null }
+
+  $targetHtml = $knownMd[$resolvedLower]
+  $fromUri = [Uri]('https://local/' + $currentDir)
+  $toUri = [Uri]('https://local/' + $targetHtml)
+  $rel = [Uri]::UnescapeDataString($fromUri.MakeRelativeUri($toUri).ToString())
+  return $rel + $suffix
+}
+
+function Rewrite-OutsideFencedCode([string]$text, [scriptblock]$rewriter) {
+  $parts = [regex]::Split($text, '(?s)(```.*?```)')
+  for ($i = 0; $i -lt $parts.Length; $i++) {
+    if (($i % 2) -eq 0) {
+      $parts[$i] = & $rewriter $parts[$i]
+    }
+  }
+  return [string]::Join('', $parts)
+}
+
+function Convert-LinkTarget([string]$currentRelativeMd, [string]$target) {
   if ([string]::IsNullOrWhiteSpace($target)) { return $target }
   $wrapped = $false
   $trimmed = $target.Trim()
@@ -17,28 +80,12 @@ function Convert-LinkTarget([string]$target) {
     $trimmed = $trimmed.Substring(1, $trimmed.Length - 2)
   }
 
-  $base = $trimmed
-  $suffix = ''
-  $hashIdx = $trimmed.IndexOf('#')
-  $qIdx = $trimmed.IndexOf('?')
-  $cut = -1
-  if ($hashIdx -ge 0 -and $qIdx -ge 0) { $cut = [Math]::Min($hashIdx, $qIdx) }
-  elseif ($hashIdx -ge 0) { $cut = $hashIdx }
-  elseif ($qIdx -ge 0) { $cut = $qIdx }
-  if ($cut -ge 0) {
-    $base = $trimmed.Substring(0, $cut)
-    $suffix = $trimmed.Substring($cut)
+  $resolved = Resolve-DocHtmlTarget $currentRelativeMd $trimmed
+  if ($resolved) {
+    $rebuilt = $resolved
+  } else {
+    $rebuilt = $trimmed
   }
-
-  if ($base -match '^(https?:|mailto:|tel:|#)') { return $target }
-
-  $normalized = $base -replace '\\','/'
-  if ($normalized -match '^docs/') { $normalized = $normalized.Substring(5) }
-  if ($normalized.ToLower().EndsWith('.md')) {
-    $normalized = $normalized.Substring(0, $normalized.Length - 3) + '.html'
-  }
-
-  $rebuilt = $normalized + $suffix
   if ($wrapped) { return '<' + $rebuilt + '>' }
   return $rebuilt
 }
@@ -51,17 +98,34 @@ foreach ($file in $mdFiles) {
   if (!(Test-Path $outDir)) { New-Item -ItemType Directory -Path $outDir | Out-Null }
 
   $raw = Get-Content -Raw -Path $file.FullName
-  $rewritten = [regex]::Replace(
-    $raw,
-    '\[(?<text>[^\]]+)\]\((?<url>[^)]+)\)',
-    {
-      param($m)
-      $text = $m.Groups['text'].Value
-      $url = $m.Groups['url'].Value
-      $newUrl = Convert-LinkTarget $url
-      return '[' + $text + '](' + $newUrl + ')'
-    }
-  )
+  $rewritten = Rewrite-OutsideFencedCode $raw {
+    param($segment)
+    $linked = [regex]::Replace(
+      $segment,
+      '\[(?<text>[^\]]+)\]\((?<url>[^)]+)\)',
+      {
+        param($m)
+        $text = $m.Groups['text'].Value
+        $url = $m.Groups['url'].Value
+        $newUrl = Convert-LinkTarget $relativeMd $url
+        return '[' + $text + '](' + $newUrl + ')'
+      }
+    )
+
+    $linked = [regex]::Replace(
+      $linked,
+      '(?<!`)`(?<path>[^`\r\n]+?\.md(?:#[^`\r\n]+)?)`(?!`)',
+      {
+        param($m)
+        $path = $m.Groups['path'].Value
+        $resolvedInline = Resolve-DocHtmlTarget $relativeMd $path
+        if (-not $resolvedInline) { return $m.Value }
+        return '[`' + $path + '`](' + $resolvedInline + ')'
+      }
+    )
+
+    return $linked
+  }
 
   $tempPath = Join-Path $env:TEMP ('web2comics-md-' + [guid]::NewGuid().ToString() + '.md')
   Set-Content -Path $tempPath -Value $rewritten -Encoding UTF8
@@ -101,6 +165,7 @@ foreach ($file in $mdFiles) {
   <div class="wrap">
     <nav class="topbar">
       <a href="${homePrefix}../index.html">Docs Home</a>
+      <a href="https://github.com/ApartsinProjects/Web2Comics" target="_blank" rel="noopener noreferrer">GitHub Repo</a>
       <a href="https://github.com/ApartsinProjects/Web2Comics#readme" target="_blank" rel="noopener noreferrer">Project README</a>
       <a href="${homePrefix}../privacy.html">Privacy</a>
       <a href="${homePrefix}../support.html">Support</a>

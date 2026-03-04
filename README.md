@@ -51,11 +51,11 @@ Note: `Code -> Download ZIP` downloads the full source repository. Use the relea
 ## Supported Providers
 
 Current provider support:
-- OpenAI
-- Google Gemini
-- Cloudflare Workers AI (text + image)
-- OpenRouter (model/account dependent)
-- Hugging Face Inference API
+- [OpenAI API](https://platform.openai.com/docs/overview)
+- [Google Gemini API](https://ai.google.dev/gemini-api/docs)
+- [Cloudflare Workers AI](https://developers.cloudflare.com/workers-ai/) (text + image)
+- [OpenRouter API](https://openrouter.ai/docs) (model/account dependent)
+- [Hugging Face Inference API](https://huggingface.co/docs/api-inference/index)
 
 Web2Comics also supports automatic fallback to other configured providers when a selected provider fails due to quota/budget issues.
 
@@ -95,7 +95,7 @@ Why: this reduces token/image usage and improves chances of success on free-tier
 
 If Gemini free tier is unavailable for your account/region, configure another provider (Cloudflare, OpenRouter, Hugging Face, OpenAI). Web2Comics can fall back automatically to other configured providers on quota/budget failures.
 
-Need a Gemini key for the free tier? See `docs/Gemini_key.md`.
+Need a Gemini key for the free tier? See [`docs/Gemini_key.md`](docs/Gemini_key.md).
 
 ## Provider Keys / Tokens
 
@@ -108,7 +108,7 @@ The extension includes:
 
 For step-by-step key/token instructions, see:
 - `docs/user-manual.html` (appendix)
-- `docs/Gemini_key.md` (quick Gemini API key setup for free tier access)
+- [`docs/Gemini_key.md`](docs/Gemini_key.md) (quick Gemini API key setup for free tier access)
 
 ## Requirements / Compatibility
 
@@ -152,7 +152,7 @@ Optional selected-text right-click flow:
 - `tests/` - unit/integration/E2E tests
 - `scripts/` - probing/testing helper scripts
 
-See per-folder `README.md` files for more detail.
+See per-folder README files for more detail (for example [`docs/README.md`](docs/README.md), [`tests/README.md`](tests/README.md), and [`scripts/README.md`](scripts/README.md)).
 
 ## Local Development
 
@@ -209,7 +209,7 @@ HUGGINGFACE_INFERENCE_API_TOKEN=...
 ## Documentation
 
 - User manual: `docs/user-manual.html`
-- Additional specs: `docs/initial_specs.md`, `docs/INSTALL.md`
+- Additional specs: [`docs/initial_specs.md`](docs/initial_specs.md), [`docs/INSTALL.md`](docs/INSTALL.md)
 - Privacy policy: [docs/privacy.html](docs/privacy.html)
 
 Copyright (c) 2026 Alexander Apartsin. All rights reserved.
