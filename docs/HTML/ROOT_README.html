@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ROOT_README - Web2Comics Docs</title>
+  <style>
+    :root { --bg:#f7f4ed; --panel:#fff; --ink:#1d2a3f; --muted:#5c6b82; --line:#ddd6ca; --link:#155eef; }
+    * { box-sizing: border-box; }
+    body { margin:0; font-family:"Segoe UI",Tahoma,Arial,sans-serif; color:var(--ink); background:var(--bg); line-height:1.6; }
+    .wrap { max-width:980px; margin:0 auto; padding:18px; }
+    .topbar { display:flex; flex-wrap:wrap; gap:10px; align-items:center; margin-bottom:14px; padding:10px 12px; border:1px solid var(--line); background:#fff; border-radius:10px; }
+    .topbar a { color:var(--link); text-decoration:none; font-weight:600; }
+    article { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:20px; overflow-wrap:anywhere; }
+    h1,h2,h3 { line-height:1.25; }
+    pre { background:#0f172a; color:#e2e8f0; padding:12px; border-radius:8px; overflow:auto; }
+    code { font-family:Consolas,"Courier New",monospace; font-size:0.92em; }
+    a { color:var(--link); }
+    table { border-collapse:collapse; width:100%; display:block; overflow-x:auto; }
+    th,td { border:1px solid #cdd5e1; padding:6px 8px; text-align:left; vertical-align:top; }
+    .footer { margin-top:12px; color:var(--muted); font-size:0.92rem; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <nav class="topbar">
+      <a href="../index.html">Docs Home</a>
+      <a href="https://github.com/ApartsinProjects/Web2Comics#readme" target="_blank" rel="noopener noreferrer">Project README</a>
+      <a href="../privacy.html">Privacy</a>
+      <a href="../support.html">Support</a>
+    </nav>
+    <article>
+<h1 id="web2comics-ai-powered-chrome-extension-that-turns-any-web-page-into-a-comic-strip-summary">Web2Comics: AI-Powered Chrome Extension That Turns Any Web Page Into a Comic-Strip Summary</h1>
+<p><img src="https://img.shields.io/badge/status-experimental-orange" alt="Status" />
+<img src="https://img.shields.io/badge/platform-chrome%20extension-blue" alt="Platform" />
+<img src="https://img.shields.io/badge/release-v1.0.3-success" alt="Release" />
+<img src="https://img.shields.io/badge/providers-Gemini%20%7C%20OpenAI%20%7C%20OpenRouter%20%7C%20HF%20%7C%20Cloudflare-6f42c1" alt="AI Providers" /></p>
+<p align="center">
+  <img src="docs/visual-abstract-gemini.png" alt="Web2Comics visual abstract" width="760">
+</p>
+<p>Web2Comics is a Chrome extension that:</p>
+<ul>
+<li>extracts content from the current page</li>
+<li>generates a storyboard (panels + captions)</li>
+<li>generates panel images</li>
+<li>shows the result in a comic viewer side panel</li>
+<li>saves history and exports a single composite comic image</li>
+<li>supports right-click selected-text flows (instant generate or open composer prefilled)</li>
+</ul>
+<h2 id="install-release-zip">Install (Release ZIP)</h2>
+<p>Release links:</p>
+<ul>
+<li><a href="https://github.com/ApartsinProjects/Web2Comics/releases">Releases page</a></li>
+<li><a href="https://github.com/ApartsinProjects/Web2Comics/releases/download/v1.0.3/Web2Comics-v1.0.3-extension.zip">Current release (<code>v1.0.3</code>) ZIP</a></li>
+</ul>
+<ol>
+<li>Open the repository <code>Releases</code> page on GitHub (link above).</li>
+<li>Download the latest release asset ZIP (for example <code>Web2Comics-v1.0.3-extension.zip</code>).</li>
+<li>Extract the ZIP to a folder (for example <code>C:\Web2Comics</code>).</li>
+<li>Open Chrome and go to <code>chrome://extensions</code>.</li>
+<li>Turn on <code>Developer mode</code> (top-right).</li>
+<li>Click <code>Load unpacked</code>.</li>
+<li>Select the extracted folder that contains <code>manifest.json</code> (for example <code>Web2Comics-v1.0.3</code>).</li>
+<li>In <code>chrome://extensions</code>, confirm the <code>Web2Comics</code> card is enabled (toggle ON).</li>
+<li>Open the Chrome Extensions menu (puzzle icon), find <code>Web2Comics</code>, and click the pin icon to show it in the toolbar.</li>
+<li>Open the extension and configure a <a href="Gemini_key.html"><code>Google Gemini</code> API key (free tier)</a> in <code>Options -&gt; Providers</code> (recommended first-run setup).</li>
+<li>Open any article, click <code>Create Comic</code>, and generate a 3-panel summary.</li>
+</ol>
+<p>Note: <code>Code -&gt; Download ZIP</code> downloads the full source repository. Use the release asset ZIP for installation.</p>
+<h2 id="what-you-can-do">What You Can Do</h2>
+<ul>
+<li>Generate comics from articles, docs, blog posts, and reference pages</li>
+<li>Choose providers/models for text and image generation</li>
+<li>Use preset or custom visual styles</li>
+<li>Track live progress (elapsed time + ETA)</li>
+<li>Review generated comics in <code>My Collection</code></li>
+<li>Export a single PNG comic sheet with captions and source URL</li>
+<li>Share to connected targets (Facebook, X, Instagram, LinkedIn, Reddit, Email)</li>
+</ul>
+<h2 id="supported-providers">Supported Providers</h2>
+<p>Current provider support:</p>
+<ul>
+<li>OpenAI</li>
+<li>Google Gemini</li>
+<li>Cloudflare Workers AI (text + image)</li>
+<li>OpenRouter (model/account dependent)</li>
+<li>Hugging Face Inference API</li>
+</ul>
+<p>Web2Comics also supports automatic fallback to other configured providers when a selected provider fails due to quota/budget issues.</p>
+<h2 id="example-use-cases">Example Use Cases</h2>
+<ol>
+<li>News article -&gt; quick comic summary</li>
+</ol>
+<ul>
+<li>Open <code>cnn.com</code> (or another news site)</li>
+<li>Click the Web2Comics extension icon</li>
+<li>Click <code>Create Comic</code></li>
+<li>Select a style and provider</li>
+<li>Generate a short comic summary of the article</li>
+</ul>
+<ol start="2">
+<li>Technical docs -&gt; visual walkthrough</li>
+</ol>
+<ul>
+<li>Open docs (MDN, Python docs, Node docs)</li>
+<li>Generate a 3-panel comic to explain the page</li>
+<li>Use <code>Download</code> to save and share the comic image</li>
+</ul>
+<ol start="3">
+<li>Compare providers</li>
+</ol>
+<ul>
+<li>Configure multiple providers in <code>Options</code></li>
+<li>Test different model combinations</li>
+<li>Use model test buttons in <code>Options -&gt; Providers</code></li>
+</ul>
+<h2 id="example">Example</h2>
+<p align="center">
+  <img src="samples/screen.png" alt="Web2Comics example output" width="720">
+</p>
+<h2 id="first-time-setup-recommended-free-tier-start">First-Time Setup (Recommended Free-Tier Start)</h2>
+<p>Web2Comics defaults are set for first-run success on free tiers:</p>
+<ul>
+<li>Provider: <code>Google Gemini</code> (text + image)</li>
+<li>Panel count: <code>3</code></li>
+<li>Detail level: <code>low</code></li>
+</ul>
+<p>Why: this reduces token/image usage and improves chances of success on free-tier limits.</p>
+<p>If Gemini free tier is unavailable for your account/region, configure another provider (Cloudflare, OpenRouter, Hugging Face, OpenAI). Web2Comics can fall back automatically to other configured providers on quota/budget failures.</p>
+<p>Need a Gemini key for the free tier? See <code>docs/Gemini_key.md</code>.</p>
+<h2 id="provider-keys-tokens">Provider Keys / Tokens</h2>
+<p>Configure providers in:</p>
+<ul>
+<li><code>Options -&gt; Providers</code></li>
+</ul>
+<p>The extension includes:</p>
+<ul>
+<li><code>Validate</code> buttons for each provider</li>
+<li><code>Test Text Model</code> / <code>Test Image Model</code> buttons (where supported)</li>
+</ul>
+<p>For step-by-step key/token instructions, see:</p>
+<ul>
+<li><code>docs/user-manual.html</code> (appendix)</li>
+<li><code>docs/Gemini_key.md</code> (quick Gemini API key setup for free tier access)</li>
+</ul>
+<h2 id="requirements-compatibility">Requirements / Compatibility</h2>
+<ul>
+<li>Chrome / Chromium-based browser with Manifest V3 extension support</li>
+<li>Chrome Side Panel support (used for the comic viewer)</li>
+<li>Internet access to your selected AI provider APIs</li>
+<li>At least one configured provider credential (<code>Options -&gt; Providers</code>)</li>
+</ul>
+<h2 id="privacy-data-handling">Privacy / Data Handling</h2>
+<ul>
+<li>Web2Comics runs locally in your browser extension (no project-hosted backend server).</li>
+<li>To generate comics, the extension sends extracted page text, prompts, and generation requests to the AI provider(s) you configure.</li>
+<li>API keys/tokens are stored in your browser extension storage on your machine.</li>
+<li>Generated comics/history are stored locally unless you export/share them.</li>
+<li>Review provider terms/privacy policies (OpenAI, Google Gemini, Cloudflare, OpenRouter, Hugging Face) before use on sensitive content.</li>
+</ul>
+<h2 id="how-to-use">How To Use</h2>
+<ol>
+<li>Open a web page.</li>
+<li>Click the Web2Comics extension icon.</li>
+<li>Click <code>Create Comic</code>.</li>
+<li>Choose provider/style (advanced settings optional).</li>
+<li>If no providers are configured yet, use <code>Configure Model Providers</code> in the popup (or the Options page opened on install), then return and click <code>Generate</code>.</li>
+<li>Watch live progress in popup/sidepanel.</li>
+<li>Review the comic in the side panel.</li>
+<li>Click <code>Download</code> to export a single comic sheet PNG.</li>
+</ol>
+<p>Optional selected-text right-click flow:</p>
+<ol>
+<li>Highlight text on any page.</li>
+<li>Right-click.</li>
+<li>Choose <code>Generate comic from selected text (Default)</code> for instant generation, or <code>Open Create Comic with selected text</code> to review/customize before generating.</li>
+</ol>
+<h2 id="project-structure-quick-overview">Project Structure (Quick Overview)</h2>
+<ul>
+<li><code>background/</code> - service worker, provider orchestration, generation pipeline</li>
+<li><code>content/</code> - page content extraction script</li>
+<li><code>popup/</code> - extension popup UI (launcher + generator wizard + progress)</li>
+<li><code>options/</code> - settings UI (providers, prompts, storage, tests)</li>
+<li><code>sidepanel/</code> - comic viewer, history browser, export</li>
+<li><code>docs/</code> - user manual and docs</li>
+<li><code>tests/</code> - unit/integration/E2E tests</li>
+<li><code>scripts/</code> - probing/testing helper scripts</li>
+</ul>
+<p>See per-folder <code>README.md</code> files for more detail.</p>
+<h2 id="local-development">Local Development</h2>
+<p>Install dependencies:</p>
+<pre><code class="language-powershell">npm install
+</code></pre>
+<p>Useful commands:</p>
+<pre><code class="language-powershell">npm test
+npx vitest run
+npx playwright test
+npm run probe:providers:extension
+</code></pre>
+<h2 id="real-provider-e2e-testing-optional">Real Provider E2E Testing (Optional)</h2>
+<p>Local secrets can be stored in:</p>
+<ul>
+<li><code>.env.e2e.local</code> (git-ignored)</li>
+</ul>
+<p>Examples:</p>
+<pre><code class="language-env">OPENAI_API_KEY=...
+GEMINI_API_KEY=...
+CLOUDFLARE_ACCOUNT_ID=...
+CLOUDFLARE_API_TOKEN=...
+OPENROUTER_API_KEY=...
+HUGGINGFACE_INFERENCE_API_TOKEN=...
+</code></pre>
+<h2 id="troubleshooting">Troubleshooting</h2>
+<ul>
+<li>Extension icon not visible in toolbar:
+<ul>
+<li>Open the Chrome Extensions (puzzle) menu and pin <code>Web2Comics</code></li>
+<li>Confirm the extension is enabled in <code>chrome://extensions</code></li>
+</ul>
+</li>
+<li>Provider not visible in popup:
+<ul>
+<li>Configure credentials in <code>Options -&gt; Providers</code></li>
+<li>Click <code>Validate</code></li>
+</ul>
+</li>
+<li>OpenAI key validates but model test fails:
+<ul>
+<li>The key may belong to a different OpenAI project or have different model access/billing</li>
+<li>Re-paste the key and use <code>Test Text Model</code> / <code>Test Image Model</code></li>
+</ul>
+</li>
+<li>Gemini free tier says quota/limit <code>0</code>:
+<ul>
+<li>Check AI Studio project eligibility/region and active limits</li>
+</ul>
+</li>
+<li>Generation fails on one provider:
+<ul>
+<li>Configure multiple providers so automatic budget fallback can recover</li>
+</ul>
+</li>
+<li>Progress errors:
+<ul>
+<li>Enable <code>Debug flag</code> in <code>Options -&gt; General</code></li>
+<li>Export logs from <code>Options -&gt; Storage</code></li>
+</ul>
+</li>
+</ul>
+<h2 id="documentation">Documentation</h2>
+<ul>
+<li>User manual: <code>docs/user-manual.html</code></li>
+<li>Additional specs: <code>docs/initial_specs.md</code>, <code>docs/INSTALL.md</code></li>
+</ul>
+
+    </article>
+    <div class="footer">Generated from <code>ROOT_README.md</code></div>
+  </div>
+</body>
+</html>

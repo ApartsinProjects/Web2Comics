@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OptionPanel_v1.1 - Web2Comics Docs</title>
+  <style>
+    :root { --bg:#f7f4ed; --panel:#fff; --ink:#1d2a3f; --muted:#5c6b82; --line:#ddd6ca; --link:#155eef; }
+    * { box-sizing: border-box; }
+    body { margin:0; font-family:"Segoe UI",Tahoma,Arial,sans-serif; color:var(--ink); background:var(--bg); line-height:1.6; }
+    .wrap { max-width:980px; margin:0 auto; padding:18px; }
+    .topbar { display:flex; flex-wrap:wrap; gap:10px; align-items:center; margin-bottom:14px; padding:10px 12px; border:1px solid var(--line); background:#fff; border-radius:10px; }
+    .topbar a { color:var(--link); text-decoration:none; font-weight:600; }
+    article { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:20px; overflow-wrap:anywhere; }
+    h1,h2,h3 { line-height:1.25; }
+    pre { background:#0f172a; color:#e2e8f0; padding:12px; border-radius:8px; overflow:auto; }
+    code { font-family:Consolas,"Courier New",monospace; font-size:0.92em; }
+    a { color:var(--link); }
+    table { border-collapse:collapse; width:100%; display:block; overflow-x:auto; }
+    th,td { border:1px solid #cdd5e1; padding:6px 8px; text-align:left; vertical-align:top; }
+    .footer { margin-top:12px; color:var(--muted); font-size:0.92rem; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <nav class="topbar">
+      <a href="../../index.html">Docs Home</a>
+      <a href="https://github.com/ApartsinProjects/Web2Comics#readme" target="_blank" rel="noopener noreferrer">Project README</a>
+      <a href="../../privacy.html">Privacy</a>
+      <a href="../../support.html">Support</a>
+    </nav>
+    <article>
+<h1 id="change-request-document">Change Request Document</h1>
+<p><strong>Project:</strong> web2Comics<br />
+<strong>Document Type:</strong> Functional Change Request<br />
+<strong>Version:</strong> 1.2 (clarified after review)</p>
+<hr />
+<h2 id="objective">1. Objective</h2>
+<p>Enhance provider configuration, model selection clarity, credential
+management, image parameter control, and prompt customization
+capabilities.<br />
+Improve overall UI/UX to ensure a modern, slick, accessible, and highly
+usable interface.</p>
+<h3 id="clarified-assumptions-approved">1.1 Clarified Assumptions (Approved)</h3>
+<ul>
+<li>This document governs the Settings / Options experience and does not count
+toward the &quot;three primary views&quot; constraint from the UX restructuring
+change request.</li>
+<li>Provider visibility in generation UI should require required credentials to
+be present and provider validation to pass.</li>
+<li>Prompt template customization is a phased feature:
+<ul>
+<li>Phase 1: foundations and provider-specific support where feasible</li>
+<li>Phase 2: full multi-provider template management and richer validation</li>
+</ul>
+</li>
+<li>Cloudflare Workers AI is considered capable of both text and image
+generation in the current architecture.</li>
+<li>&quot;Secure credential storage&quot; refers to secure local extension storage
+handling appropriate to Chrome extensions (not a guarantee of custom
+encryption-at-rest implementation in Phase 1).</li>
+</ul>
+<hr />
+<h2 id="scope">2. Scope</h2>
+<p>This change request applies to:</p>
+<ul>
+<li>AI Provider configuration interface\</li>
+<li>Model selection UI components\</li>
+<li>Credential management section\</li>
+<li>Image generation parameter controls\</li>
+<li>Prompt template configuration pane\</li>
+<li>Global UI/UX behavior and styling</li>
+</ul>
+<hr />
+<h2 id="functional-changes">3. Functional Changes</h2>
+<h3 id="provider-configuration-enhancements">3.1 Provider Configuration Enhancements</h3>
+<h4 id="free-tier-availability-indicator">3.1.1 Free Tier Availability Indicator</h4>
+<p><strong>Requirement:</strong><br />
+For each AI provider:</p>
+<ul>
+<li>Display a visible indicator showing whether a free tier is
+available.</li>
+<li>Clearly label: &quot;Free Tier Available: Yes/No&quot;</li>
+<li>Optionally display brief quota notes.</li>
+</ul>
+<hr />
+<h4 id="preferred-model-selection-free-tier-models">3.1.2 Preferred Model Selection (Free-Tier Models)</h4>
+<p><strong>Requirement:</strong></p>
+<ul>
+<li>Free-tier models must:
+<ul>
+<li>Appear at the top of model dropdown lists.</li>
+<li>Be visually distinguished using green styling.</li>
+<li>Include a &quot;Free Tier&quot; or &quot;Free / Limited&quot; badge.</li>
+</ul>
+</li>
+<li>Paid-only models must not use green styling.</li>
+</ul>
+<p><strong>Acceptance Criteria:</strong> - Free-tier models are consistently
+prioritized. - Styling is accessible and contrast-compliant.</p>
+<hr />
+<h4 id="credential-fields-completeness">3.1.3 Credential Fields Completeness</h4>
+<p><strong>Requirement:</strong></p>
+<p>For each provider:</p>
+<ul>
+<li>Dynamically render required fields:
+<ul>
+<li>API Key\</li>
+<li>Access Token\</li>
+<li>Account ID\</li>
+<li>Project ID\</li>
+<li>Organization ID\</li>
+</ul>
+</li>
+<li>Validate required fields before saving.</li>
+<li>Prevent submission with incomplete credentials.</li>
+</ul>
+<p>Implementation may render only the fields relevant to each provider (rather
+than all field types for every provider).</p>
+<hr />
+<h4 id="get-credentials-link">3.1.4 &quot;Get Credentials&quot; Link</h4>
+<p><strong>Requirement:</strong></p>
+<ul>
+<li>Add provider-specific &quot;Get Credentials&quot; link.</li>
+<li>Open in new tab.</li>
+<li>Positioned directly under credential inputs.</li>
+</ul>
+<hr />
+<h4 id="image-generation-parameter-controls">3.1.5 Image Generation Parameter Controls</h4>
+<p><strong>Requirement:</strong></p>
+<p>Expose configurable parameters for image models:</p>
+<ul>
+<li>Image dimensions (custom or presets)</li>
+<li>Quality level</li>
+<li>Style / detail level</li>
+<li>Seed (optional)</li>
+<li>Number of images</li>
+<li>Model-specific advanced options (conditional rendering)</li>
+</ul>
+<p><strong>Acceptance Criteria:</strong> - Dynamic rendering based on selected model. -
+Sensible defaults provided. - Invalid combinations prevented.</p>
+<hr />
+<h2 id="prompt-template-configuration-pane">4. Prompt Template Configuration Pane</h2>
+<h3 id="dedicated-prompt-settings-panel">4.1 Dedicated Prompt Settings Panel</h3>
+<p>Add a separate &quot;Prompt Templates&quot; settings section.</p>
+<p>Phase 1 may ship the panel in a limited/provider-scoped form (e.g., OpenAI /
+Gemini first), with broader provider support added in Phase 2.</p>
+<hr />
+<h3 id="structured-prompt-editing">4.2 Structured Prompt Editing</h3>
+<p>Templates must be:</p>
+<ul>
+<li>Separated by pipeline stage:
+<ul>
+<li>Page summarization</li>
+<li>Scene extraction</li>
+<li>Image generation</li>
+<li>Caption generation</li>
+</ul>
+</li>
+<li>Displayed in multi-line editors.</li>
+<li>Fully user-editable.</li>
+</ul>
+<hr />
+<h3 id="placeholder-support">4.3 Placeholder Support</h3>
+<ul>
+<li>Support structured placeholders (e.g., {{page_text}}, {{style}}).</li>
+<li>Display available variables.</li>
+<li>Validate syntax.</li>
+</ul>
+<hr />
+<h3 id="reset-control-features">4.4 Reset &amp; Control Features</h3>
+<ul>
+<li>&quot;Reset to Default&quot; per template.</li>
+<li>&quot;Restore All Defaults&quot;.</li>
+<li>Optional JSON export/import.</li>
+</ul>
+<hr />
+<h2 id="uiux-design-requirements">5. UI/UX Design Requirements</h2>
+<p>The interface must follow modern UI/UX best practices to ensure it is:</p>
+<ul>
+<li>Visually clean and minimal</li>
+<li>Consistent in spacing and typography</li>
+<li>Responsive across screen sizes</li>
+<li>Accessible and keyboard-navigable</li>
+<li>Fast and intuitive</li>
+</ul>
+<h3 id="modern-design-patterns">5.1 Modern Design Patterns</h3>
+<p>Implement:</p>
+<ul>
+<li>Card-based layout for providers</li>
+<li>Clear visual hierarchy</li>
+<li>Consistent spacing system (8pt grid or similar)</li>
+<li>Rounded components with subtle shadows</li>
+<li>Smooth micro-interactions and transitions</li>
+<li>Context-aware tooltips</li>
+<li>Inline validation feedback</li>
+<li>Toggle-based advanced settings</li>
+</ul>
+<hr />
+<h3 id="usability-enhancements">5.2 Usability Enhancements</h3>
+<ul>
+<li>Progressive disclosure for advanced parameters\</li>
+<li>Sticky action buttons (Save / Test / Reset)\</li>
+<li>Real-time configuration preview where applicable\</li>
+<li>Clear error and success states\</li>
+<li>Minimal cognitive load</li>
+</ul>
+<hr />
+<h3 id="accessibility-requirements">5.3 Accessibility Requirements</h3>
+<ul>
+<li>WCAG-compliant color contrast\</li>
+<li>Keyboard navigation support\</li>
+<li>Proper ARIA labeling\</li>
+<li>Screen-reader compatibility\</li>
+<li>Avoid reliance on color alone (badges + labels)</li>
+</ul>
+<hr />
+<h3 id="visual-clarity-for-free-models">5.4 Visual Clarity for Free Models</h3>
+<ul>
+<li>Use green badge + icon for free models\</li>
+<li>Include tooltip explaining limitations\</li>
+<li>Allow filtering by:
+<ul>
+<li>Free tier only\</li>
+<li>Text models\</li>
+<li>Image models</li>
+</ul>
+</li>
+</ul>
+<hr />
+<h2 id="non-functional-requirements">6. Non-Functional Requirements</h2>
+<ul>
+<li>No performance degradation.\</li>
+<li>Secure credential storage using Chrome extension local storage best
+practices (Phase 1).\</li>
+<li>Fast model switching without full page reload.\</li>
+<li>Modular UI components for maintainability.</li>
+</ul>
+<hr />
+<h2 id="acceptance-criteria-summary">7. Acceptance Criteria Summary</h2>
+<p>Area                  Acceptance Condition</p>
+<hr />
+<p>Free Tier Indicator   Clearly visible per provider
+Model Highlighting    Free-tier models prioritized and styled
+Credentials           Dynamic fields + validation
+Credential Link       Provider-specific link present
+Image Parameters      Fully configurable
+Prompt Templates      Editable structured templates
+UX Design             Modern, accessible, responsive
+Accessibility         WCAG compliant
+Usability             Progressive, intuitive, low friction</p>
+<hr />
+<h2 id="implementation-priority">8. Implementation Priority</h2>
+<ol>
+<li>Free-tier prioritization and clarity\</li>
+<li>Credential completeness and links\</li>
+<li>Image parameter configurability\</li>
+<li>Prompt template editor\</li>
+<li>UI/UX modernization and accessibility refinements</li>
+</ol>
+<h3 id="phase-guidance">8.1 Phase Guidance</h3>
+<ul>
+<li>Phase 1: provider validation state enforcement, credential completeness UX,
+free-tier clarity, image parameter controls, incremental prompt template
+support.</li>
+<li>Phase 2: richer prompt template system, broader provider-specific dynamic
+credential schemas, advanced tooling and imports/exports.</li>
+</ul>
+<hr />
+<p><strong>End of Change Request Document</strong></p>
+
+    </article>
+    <div class="footer">Generated from <code>ChangeRequests/OptionPanel_v1.1.md</code></div>
+  </div>
+</body>
+</html>

@@ -1,0 +1,2269 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>initial_specs - Web2Comics Docs</title>
+  <style>
+    :root { --bg:#f7f4ed; --panel:#fff; --ink:#1d2a3f; --muted:#5c6b82; --line:#ddd6ca; --link:#155eef; }
+    * { box-sizing: border-box; }
+    body { margin:0; font-family:"Segoe UI",Tahoma,Arial,sans-serif; color:var(--ink); background:var(--bg); line-height:1.6; }
+    .wrap { max-width:980px; margin:0 auto; padding:18px; }
+    .topbar { display:flex; flex-wrap:wrap; gap:10px; align-items:center; margin-bottom:14px; padding:10px 12px; border:1px solid var(--line); background:#fff; border-radius:10px; }
+    .topbar a { color:var(--link); text-decoration:none; font-weight:600; }
+    article { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:20px; overflow-wrap:anywhere; }
+    h1,h2,h3 { line-height:1.25; }
+    pre { background:#0f172a; color:#e2e8f0; padding:12px; border-radius:8px; overflow:auto; }
+    code { font-family:Consolas,"Courier New",monospace; font-size:0.92em; }
+    a { color:var(--link); }
+    table { border-collapse:collapse; width:100%; display:block; overflow-x:auto; }
+    th,td { border:1px solid #cdd5e1; padding:6px 8px; text-align:left; vertical-align:top; }
+    .footer { margin-top:12px; color:var(--muted); font-size:0.92rem; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <nav class="topbar">
+      <a href="../index.html">Docs Home</a>
+      <a href="https://github.com/ApartsinProjects/Web2Comics#readme" target="_blank" rel="noopener noreferrer">Project README</a>
+      <a href="../privacy.html">Privacy</a>
+      <a href="../support.html">Support</a>
+    </nav>
+    <article>
+<h1 id="software-requirements-specification-srs">Software Requirements Specification (SRS)</h1>
+<h2 id="product-chrome-extension-web-page-comic-strip-summary">Product: Chrome Extension — Web Page → Comic Strip Summary</h2>
+<table>
+<thead>
+<tr>
+<th>Document Information</th>
+<th>Details</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Version</strong></td>
+<td>1.0</td>
+</tr>
+<tr>
+<td><strong>Status</strong></td>
+<td>Draft</td>
+</tr>
+<tr>
+<td><strong>Platform</strong></td>
+<td>Google Chrome Extension (Manifest V3)</td>
+</tr>
+<tr>
+<td><strong>Document Type</strong></td>
+<td>Software Requirements Specification</td>
+</tr>
+<tr>
+<td><strong>Last Updated</strong></td>
+<td>2026-02-24</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="table-of-contents">Table of Contents</h2>
+<ol>
+<li><a href="#1-purpose">Purpose</a></li>
+<li><a href="#2-scope">Scope</a></li>
+<li><a href="#3-definitions">Definitions</a></li>
+<li><a href="#4-references">References</a></li>
+<li><a href="#5-users-personas-and-primary-use-cases">Users, Personas, and Primary Use Cases</a></li>
+<li><a href="#6-product-overview-and-operating-environment">Product Overview and Operating Environment</a></li>
+<li><a href="#7-functional-requirements">Functional Requirements</a></li>
+<li><a href="#8-non-functional-requirements">Non-Functional Requirements</a></li>
+<li><a href="#9-data-models">Data Models</a></li>
+<li><a href="#10-configuration-requirements">Configuration Requirements</a></li>
+<li><a href="#11-free--low-cost-model-set">Free / Low-Cost Model Set</a></li>
+<li><a href="#12-error-handling--user-feedback">Error Handling &amp; User Feedback</a></li>
+<li><a href="#13-permissions">Permissions</a></li>
+<li><a href="#14-acceptance-criteria-v1">Acceptance Criteria</a></li>
+<li><a href="#15-recommended-implementation-notes">Recommended Implementation Notes</a></li>
+</ol>
+<hr />
+<h2 id="purpose">1. Purpose</h2>
+<h3 id="product-purpose">1.1 Product Purpose</h3>
+<p>Provide a Chrome extension that summarizes the current web page and renders the summary as a <strong>comic strip</strong> (a sequence of images with short captions). The extension enables users to convert any web page into an engaging visual narrative.</p>
+<h3 id="objectives">1.2 Objectives</h3>
+<ul>
+<li>Extract readable content from any web page</li>
+<li>Generate structured narrative summaries organized as comic panels</li>
+<li>Produce per-panel image prompts with accompanying captions</li>
+<li>Render comic strips progressively as panels are generated</li>
+<li>Support configurable text-generation and image-generation providers</li>
+<li>Prioritize Google-first options and free/low-cost alternatives</li>
+</ul>
+<h3 id="target-audience">1.3 Target Audience</h3>
+<ul>
+<li>Casual readers seeking quick visual summaries of web content</li>
+<li>Power users who want detailed control over generation parameters</li>
+<li>Privacy-conscious users requiring transparency about data handling</li>
+</ul>
+<hr />
+<h2 id="scope">2. Scope</h2>
+<h3 id="in-scope-features">2.1 In-Scope Features</h3>
+<table>
+<thead>
+<tr>
+<th>Feature ID</th>
+<th>Feature Description</th>
+<th>Priority</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>F001</td>
+<td>Extract readable page content (user-selected or full page)</td>
+<td>Must Have</td>
+</tr>
+<tr>
+<td>F002</td>
+<td>Generate structured narrative summary (panel-by-panel)</td>
+<td>Must Have</td>
+</tr>
+<tr>
+<td>F003</td>
+<td>Generate per-panel image prompts with short captions</td>
+<td>Must Have</td>
+</tr>
+<tr>
+<td>F004</td>
+<td>Call image-generation provider to produce panels</td>
+<td>Must Have</td>
+</tr>
+<tr>
+<td>F005</td>
+<td>Display comic strip UI with progressive panel rendering</td>
+<td>Must Have</td>
+</tr>
+<tr>
+<td>F006</td>
+<td>Model/provider configuration UI with presets</td>
+<td>Must Have</td>
+</tr>
+<tr>
+<td>F007</td>
+<td>Support for free/low-cost model options</td>
+<td>Should Have</td>
+</tr>
+<tr>
+<td>F008</td>
+<td>Character consistency mode across panels</td>
+<td>Should Have</td>
+</tr>
+<tr>
+<td>F009</td>
+<td>Export comic strip (PNG/PDF)</td>
+<td>Could Have</td>
+</tr>
+<tr>
+<td>F010</td>
+<td>Local history storage of generated comics</td>
+<td>Should Have</td>
+</tr>
+</tbody>
+</table>
+<h3 id="out-of-scope-features-v1">2.2 Out-of-Scope Features (v1)</h3>
+<table>
+<thead>
+<tr>
+<th>Feature</th>
+<th>Reason for Exclusion</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Video/comic animation</td>
+<td>Beyond v1 scope</td>
+</tr>
+<tr>
+<td>Offline local model execution</td>
+<td>Requires significant infrastructure</td>
+</tr>
+<tr>
+<td>Automatic paywall bypass</td>
+<td>Legal and ethical concerns</td>
+</tr>
+<tr>
+<td>Publishing to non-Chrome marketplaces</td>
+<td>Focus on Chrome Web Store</td>
+</tr>
+</tbody>
+</table>
+<h3 id="version-constraints">2.3 Version Constraints</h3>
+<ul>
+<li><strong>Initial Release</strong>: Version 1.0</li>
+<li><strong>Platform Requirement</strong>: Google Chrome (latest stable)</li>
+<li><strong>Manifest Version</strong>: V3 (Manifest V3)</li>
+</ul>
+<hr />
+<h2 id="definitions">3. Definitions</h2>
+<h3 id="core-terms">3.1 Core Terms</h3>
+<table>
+<thead>
+<tr>
+<th>Term</th>
+<th>Definition</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Panel</strong></td>
+<td>A single comic frame consisting of one image and its accompanying caption</td>
+</tr>
+<tr>
+<td><strong>Prompt Recipe</strong></td>
+<td>A set of parameters controlling style, detail level, character consistency, and constraints for image generation</td>
+</tr>
+<tr>
+<td><strong>Provider</strong></td>
+<td>A model endpoint source (e.g., Gemini API, Cloudflare Workers AI) that provides text summarization or image generation capabilities</td>
+</tr>
+<tr>
+<td><strong>Progressive Rendering</strong></td>
+<td>A UI pattern where panels appear sequentially as each generation task completes, rather than waiting for all panels</td>
+</tr>
+<tr>
+<td><strong>Storyboard</strong></td>
+<td>A structured JSON document containing the complete plan for a comic strip including all panels, captions, and prompts</td>
+</tr>
+<tr>
+<td><strong>Manifest V3</strong></td>
+<td>The latest Chrome extension manifest version with enhanced security and privacy features</td>
+</tr>
+<tr>
+<td><strong>Service Worker</strong></td>
+<td>A background script in MV3 extensions that handles events and can be terminated when idle</td>
+</tr>
+</tbody>
+</table>
+<h3 id="technical-terms">3.2 Technical Terms</h3>
+<table>
+<thead>
+<tr>
+<th>Term</th>
+<th>Definition</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Extracted Text</strong></td>
+<td>The raw text content obtained from a web page after cleaning and processing</td>
+</tr>
+<tr>
+<td><strong>Character Descriptor</strong></td>
+<td>Structured metadata describing a character's appearance for consistency across panels</td>
+</tr>
+<tr>
+<td><strong>Negative Prompt</strong></td>
+<td>Text input specifying elements to exclude from generated images</td>
+</tr>
+<tr>
+<td><strong>Rate Limiting</strong></td>
+<td>Technical controls that restrict the number of API requests within a time window</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="references">4. References</h2>
+<h3 id="normative-references">4.1 Normative References</h3>
+<table>
+<thead>
+<tr>
+<th>Reference ID</th>
+<th>Title</th>
+<th>URL</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>[REF-001]</td>
+<td>Chrome Extensions - Manifest V3</td>
+<td><a href="https://developer.chrome.com/docs/extensions/develop/migrate/what-is-mv3">https://developer.chrome.com/docs/extensions/develop/migrate/what-is-mv3</a></td>
+</tr>
+<tr>
+<td>[REF-002]</td>
+<td>Chrome Extensions Samples - Summarization API</td>
+<td><a href="https://developer.chrome.com/docs/extensions/samples">https://developer.chrome.com/docs/extensions/samples</a></td>
+</tr>
+<tr>
+<td>[REF-003]</td>
+<td>Gemini API Pricing</td>
+<td><a href="https://ai.google.dev/gemini-api/docs/pricing">https://ai.google.dev/gemini-api/docs/pricing</a></td>
+</tr>
+<tr>
+<td>[REF-004]</td>
+<td>Gemini API Rate Limits</td>
+<td><a href="https://ai.google.dev/gemini-api/docs/rate-limits">https://ai.google.dev/gemini-api/docs/rate-limits</a></td>
+</tr>
+<tr>
+<td>[REF-005]</td>
+<td>Cloudflare Workers AI Pricing</td>
+<td><a href="https://developers.cloudflare.com/workers-ai/platform/pricing/">https://developers.cloudflare.com/workers-ai/platform/pricing/</a></td>
+</tr>
+<tr>
+<td>[REF-006]</td>
+<td>Chrome Extensions - What's New</td>
+<td><a href="https://developer.chrome.com/docs/extensions/whats-new">https://developer.chrome.com/docs/extensions/whats-new</a></td>
+</tr>
+</tbody>
+</table>
+<h3 id="informative-references">4.2 Informative References</h3>
+<table>
+<thead>
+<tr>
+<th>Reference ID</th>
+<th>Title</th>
+<th>URL</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>[REF-007]</td>
+<td>Chrome Web Store Policies</td>
+<td><a href="https://developer.chrome.com/docs/webstore/policies">https://developer.chrome.com/docs/webstore/policies</a></td>
+</tr>
+<tr>
+<td>[REF-008]</td>
+<td>Chrome Storage API</td>
+<td><a href="https://developer.chrome.com/docs/extensions/reference/api/storage">https://developer.chrome.com/docs/extensions/reference/api/storage</a></td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="users-personas-and-primary-use-cases">5. Users, Personas, and Primary Use Cases</h2>
+<h3 id="user-personas">5.1 User Personas</h3>
+<h4 id="persona-1-casual-reader">Persona 1: Casual Reader</h4>
+<table>
+<thead>
+<tr>
+<th>Attribute</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Name</strong></td>
+<td>Casual Reader</td>
+</tr>
+<tr>
+<td><strong>Technical Skill</strong></td>
+<td>Low to Medium</td>
+</tr>
+<tr>
+<td><strong>Goals</strong></td>
+<td>Get quick visual summaries of articles with minimal configuration</td>
+</tr>
+<tr>
+<td><strong>Pain Points</strong></td>
+<td>Complex setup, technical jargon, time-consuming processes</td>
+</tr>
+<tr>
+<td><strong>Success Criteria</strong></td>
+<td>One-click comic generation with acceptable quality</td>
+</tr>
+</tbody>
+</table>
+<h4 id="persona-2-power-user">Persona 2: Power User</h4>
+<table>
+<thead>
+<tr>
+<th>Attribute</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Name</strong></td>
+<td>Power User</td>
+</tr>
+<tr>
+<td><strong>Technical Skill</strong></td>
+<td>High</td>
+</tr>
+<tr>
+<td><strong>Goals</strong></td>
+<td>Fine-tune style, panel count, providers, and prompts</td>
+</tr>
+<tr>
+<td><strong>Pain Points</strong></td>
+<td>Limited customization, lack of advanced options</td>
+</tr>
+<tr>
+<td><strong>Success Criteria</strong></td>
+<td>Full control over generation pipeline</td>
+</tr>
+</tbody>
+</table>
+<h4 id="persona-3-privacy-conscious-user">Persona 3: Privacy-Conscious User</h4>
+<table>
+<thead>
+<tr>
+<th>Attribute</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Name</strong></td>
+<td>Privacy-Conscious User</td>
+</tr>
+<tr>
+<td><strong>Technical Skill</strong></td>
+<td>Medium</td>
+</tr>
+<tr>
+<td><strong>Goals</strong></td>
+<td>Understand what data is sent, have control over external calls</td>
+</tr>
+<tr>
+<td><strong>Pain Points</strong></td>
+<td>Unclear data handling, mandatory external requests</td>
+</tr>
+<tr>
+<td><strong>Success Criteria</strong></td>
+<td>Transparent data flow, local-only options when available</td>
+</tr>
+</tbody>
+</table>
+<h3 id="primary-use-cases">5.2 Primary Use Cases</h3>
+<h4 id="uc1-generate-6-panel-comic-summary">UC1: Generate 6-Panel Comic Summary</h4>
+<table>
+<thead>
+<tr>
+<th>Use Case ID</th>
+<th>UC1</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Description</strong></td>
+<td>Summarize current page into default 6-panel comic strip</td>
+</tr>
+<tr>
+<td><strong>Actor</strong></td>
+<td>Casual Reader</td>
+</tr>
+<tr>
+<td><strong>Preconditions</strong></td>
+<td>Extension installed, API key configured (or preset selected)</td>
+</tr>
+<tr>
+<td><strong>Basic Flow</strong></td>
+<td>1. Navigate to article page<br>2. Click extension icon<br>3. Review extracted text preview<br>4. Click &quot;Generate&quot;<br>5. View progressive comic strip</td>
+</tr>
+<tr>
+<td><strong>Postconditions</strong></td>
+<td>Comic strip displayed with all 6 panels</td>
+</tr>
+</tbody>
+</table>
+<h4 id="uc2-summarize-selected-text-only">UC2: Summarize Selected Text Only</h4>
+<table>
+<thead>
+<tr>
+<th>Use Case ID</th>
+<th>UC2</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Description</strong></td>
+<td>Generate comic from user-highlighted text instead of full page</td>
+</tr>
+<tr>
+<td><strong>Actor</strong></td>
+<td>Casual Reader, Power User</td>
+</tr>
+<tr>
+<td><strong>Preconditions</strong></td>
+<td>Text selected on page before invoking extension</td>
+</tr>
+<tr>
+<td><strong>Basic Flow</strong></td>
+<td>1. Select text on page<br>2. Click extension icon<br>3. Extension detects selection<br>4. Confirm &quot;Selected text only&quot; mode<br>5. Generate comic</td>
+</tr>
+<tr>
+<td><strong>Postconditions</strong></td>
+<td>Comic based solely on selected content</td>
+</tr>
+</tbody>
+</table>
+<h4 id="uc3-switch-to-free-provider">UC3: Switch to Free Provider</h4>
+<table>
+<thead>
+<tr>
+<th>Use Case ID</th>
+<th>UC3</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Description</strong></td>
+<td>Switch provider preset to &quot;Google Free Tier&quot; or &quot;Cloudflare Workers AI&quot;</td>
+</tr>
+<tr>
+<td><strong>Actor</strong></td>
+<td>Privacy-Conscious User, Cost-Conscious User</td>
+</tr>
+<tr>
+<td><strong>Preconditions</strong></td>
+<td>None</td>
+</tr>
+<tr>
+<td><strong>Basic Flow</strong></td>
+<td>1. Open extension settings<br>2. Navigate to Providers<br>3. Select &quot;Google Gemini (Free tier)&quot; or &quot;Cloudflare Workers AI&quot;<br>4. Save settings<br>5. Generate comic with new provider</td>
+</tr>
+<tr>
+<td><strong>Postconditions</strong></td>
+<td>Comic generated using selected free provider</td>
+</tr>
+</tbody>
+</table>
+<h4 id="uc4-adjust-style-and-regenerate">UC4: Adjust Style and Regenerate</h4>
+<table>
+<thead>
+<tr>
+<th>Use Case ID</th>
+<th>UC4</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Description</strong></td>
+<td>Change comic style (e.g., noir, minimalist, manga) and regenerate</td>
+</tr>
+<tr>
+<td><strong>Actor</strong></td>
+<td>Power User</td>
+</tr>
+<tr>
+<td><strong>Preconditions</strong></td>
+<td>Previous comic generated</td>
+</tr>
+<tr>
+<td><strong>Basic Flow</strong></td>
+<td>1. Open comic viewer<br>2. Click &quot;Settings&quot;<br>3. Select new style preset<br>4. Click &quot;Regenerate&quot;<br>5. View updated comic</td>
+</tr>
+<tr>
+<td><strong>Postconditions</strong></td>
+<td>New comic generated with selected style</td>
+</tr>
+</tbody>
+</table>
+<h4 id="uc5-cancel-mid-generation">UC5: Cancel Mid-Generation</h4>
+<table>
+<thead>
+<tr>
+<th>Use Case ID</th>
+<th>UC5</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Description</strong></td>
+<td>Cancel comic generation midway through panel creation</td>
+</tr>
+<tr>
+<td><strong>Actor</strong></td>
+<td>Any User</td>
+</tr>
+<tr>
+<td><strong>Preconditions</strong></td>
+<td>Generation in progress</td>
+</tr>
+<tr>
+<td><strong>Basic Flow</strong></td>
+<td>1. Generation started<br>2. Click &quot;Cancel&quot; button<br>3. Confirm cancellation<br>4. View partial results (completed panels)</td>
+</tr>
+<tr>
+<td><strong>Postconditions</strong></td>
+<td>Partial comic displayed with completed panels only</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="product-overview-and-operating-environment">6. Product Overview and Operating Environment</h2>
+<h3 id="extension-architecture">6.1 Extension Architecture</h3>
+<pre><code>┌─────────────────────────────────────────────────────────────┐
+│                    Chrome Extension (MV3)                    │
+├─────────────────────────────────────────────────────────────┤
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────┐  │
+│  │   Popup     │  │  Side Panel │  │  Options Page       │  │
+│  │   (UI)      │  │   (Viewer)  │  │  (Configuration)    │  │
+│  └─────────────┘  └─────────────┘  └─────────────────────┘  │
+├─────────────────────────────────────────────────────────────┤
+│                      Service Worker                          │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────┐  │
+│  │  Content    │  │  Provider   │  │  Storage            │  │
+│  │  Extraction │  │  Manager    │  │  Manager            │  │
+│  └─────────────┘  └─────────────┘  └─────────────────────┘  │
+├─────────────────────────────────────────────────────────────┤
+│                    External APIs                             │
+│  ┌───────────┐  ┌───────────────┐  ┌────────────────────┐   │
+│  │  Gemini   │  │ Cloudflare AI │  │ Chrome Summarizer │   │
+│  │  API      │  │   Workers     │  │    API (exp.)      │   │
+│  └───────────┘  └───────────────┘  └────────────────────┘   │
+└─────────────────────────────────────────────────────────────┘
+</code></pre>
+<h3 id="ui-surfaces">6.2 UI Surfaces</h3>
+<table>
+<thead>
+<tr>
+<th>Surface</th>
+<th>Purpose</th>
+<th>Launch Method</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Popup</strong></td>
+<td>Quick actions, status overview</td>
+<td>Click extension icon</td>
+</tr>
+<tr>
+<td><strong>Side Panel</strong></td>
+<td>Full comic viewer with controls</td>
+<td>Click &quot;Open Viewer&quot; in popup</td>
+</tr>
+<tr>
+<td><strong>Options Page</strong></td>
+<td>Full settings and configuration</td>
+<td>Right-click icon → Options</td>
+</tr>
+</tbody>
+</table>
+<h3 id="supported-environments">6.3 Supported Environments</h3>
+<table>
+<thead>
+<tr>
+<th>Environment</th>
+<th>Support Level</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Google Chrome (latest stable)</td>
+<td>Full Support</td>
+</tr>
+<tr>
+<td>Chromium-based browsers</td>
+<td>Best Effort</td>
+</tr>
+<tr>
+<td>Standard HTML pages</td>
+<td>Full Support</td>
+</tr>
+<tr>
+<td>Single-Page Applications (SPA)</td>
+<td>Basic Support</td>
+</tr>
+</tbody>
+</table>
+<h3 id="data-flow">6.4 Data Flow</h3>
+<pre><code>[Web Page] → [Content Extraction] → [Text Preview] → [LLM Storyboard]
+                                                                      ↓
+                                                            [Image Prompts]
+                                                                      ↓
+                                                            [Image Generation]
+                                                                      ↓
+                                                            [Comic Viewer]
+</code></pre>
+<hr />
+<h2 id="functional-requirements">7. Functional Requirements</h2>
+<h3 id="installation-onboarding">7.1 Installation &amp; Onboarding</h3>
+<table>
+<thead>
+<tr>
+<th>Req ID</th>
+<th>Requirement</th>
+<th>Priority</th>
+<th>Traceability</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>FR-1</td>
+<td>The extension shall install from Chrome Web Store and run under Manifest V3</td>
+<td>Must Have</td>
+<td>[REF-001]</td>
+</tr>
+<tr>
+<td>FR-2</td>
+<td>On first run, the extension shall show a short onboarding wizard with content scope default, provider preset selection, and data handling acknowledgment</td>
+<td>Must Have</td>
+<td>UC1, UC3</td>
+</tr>
+<tr>
+<td>FR-3</td>
+<td>The extension shall work without account creation; configuration uses local extension storage</td>
+<td>Must Have</td>
+<td>Privacy-Conscious User</td>
+</tr>
+</tbody>
+</table>
+<h3 id="content-acquisition-page-clean-text">7.2 Content Acquisition (Page → Clean Text)</h3>
+<table>
+<thead>
+<tr>
+<th>Req ID</th>
+<th>Requirement</th>
+<th>Priority</th>
+<th>Traceability</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>FR-4</td>
+<td>The extension shall support two input modes: Mode A (user selection) and Mode B (readable article extraction)</td>
+<td>Must Have</td>
+<td>UC2</td>
+</tr>
+<tr>
+<td>FR-5</td>
+<td>The extension shall present a preview of the extracted text (editable) before sending to any model</td>
+<td>Must Have</td>
+<td>NFR-S2</td>
+</tr>
+<tr>
+<td>FR-6</td>
+<td>The extension shall enforce a maximum input size and apply deterministic truncation strategy with user notification</td>
+<td>Must Have</td>
+<td>NFR-P2</td>
+</tr>
+</tbody>
+</table>
+<h3 id="summarization-storyboard-generation-text-panels-plan">7.3 Summarization &amp; Storyboard Generation (Text → Panels Plan)</h3>
+<table>
+<thead>
+<tr>
+<th>Req ID</th>
+<th>Requirement</th>
+<th>Priority</th>
+<th>Traceability</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>FR-7</td>
+<td>The extension shall generate a Storyboard JSON containing title, panels array with beat_summary, caption, image_prompt, negative_prompt, characters, scene_metadata, style_profile, and safety_tags</td>
+<td>Must Have</td>
+<td>Section 9</td>
+</tr>
+<tr>
+<td>FR-8</td>
+<td>The extension shall allow user-defined panel count (default 6; range 3-12), detail level (Low/Medium/High), style template (preset list + custom), caption length, and optional custom style/theme description</td>
+<td>Must Have</td>
+<td>UC4</td>
+</tr>
+<tr>
+<td>FR-8a</td>
+<td>The extension shall allow users to enter a custom style/theme description (e.g., &quot;vintage 1950s comic&quot;, &quot;steampunk illustration&quot;) that is used in image generation prompts</td>
+<td>Should Have</td>
+<td>UC4</td>
+</tr>
+<tr>
+<td>FR-9</td>
+<td>The extension shall support &quot;character consistency mode&quot; where Panel 1 defines characters and subsequent panels reference descriptors</td>
+<td>Should Have</td>
+<td>F007</td>
+</tr>
+</tbody>
+</table>
+<h3 id="image-generation-prompts-images">7.4 Image Generation (Prompts → Images)</h3>
+<table>
+<thead>
+<tr>
+<th>Req ID</th>
+<th>Requirement</th>
+<th>Priority</th>
+<th>Traceability</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>FR-10</td>
+<td>The extension shall generate images sequentially or with bounded parallelism (configurable, default 2 concurrent)</td>
+<td>Should Have</td>
+<td>NFR-P3</td>
+</tr>
+<tr>
+<td>FR-11</td>
+<td>The extension shall show progressive results: placeholder skeletons appear immediately, each panel updates when ready, captions show immediately</td>
+<td>Must Have</td>
+<td>F005</td>
+</tr>
+<tr>
+<td>FR-12</td>
+<td>The extension shall support &quot;retry panel&quot; and &quot;regenerate panel prompt&quot; flows</td>
+<td>Must Have</td>
+<td>UC5</td>
+</tr>
+</tbody>
+</table>
+<h3 id="modelprovider-configuration">7.5 Model/Provider Configuration</h3>
+<table>
+<thead>
+<tr>
+<th>Req ID</th>
+<th>Requirement</th>
+<th>Priority</th>
+<th>Traceability</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>FR-13</td>
+<td>The extension shall provide a &quot;Providers&quot; settings screen with provider type selection, model name, and authentication configuration</td>
+<td>Must Have</td>
+<td>Section 10</td>
+</tr>
+<tr>
+<td>FR-14</td>
+<td>The extension shall support Gemini API key configuration with clear display of free usage limits and rate limiting</td>
+<td>Must Have</td>
+<td>[REF-003], [REF-004]</td>
+</tr>
+<tr>
+<td>FR-15</td>
+<td>The extension shall ship with built-in presets: &quot;Google Gemini (Free tier)&quot;, &quot;Cloudflare Workers AI (free daily neurons)&quot;, &quot;Chrome Built-in Summarization API (experimental)&quot;</td>
+<td>Must Have</td>
+<td>Section 11</td>
+</tr>
+<tr>
+<td>FR-16</td>
+<td>For each preset, the extension shall show cost expectations, quota/rate-limit notes, and data transmission details</td>
+<td>Must Have</td>
+<td>NFR-U1</td>
+</tr>
+</tbody>
+</table>
+<h3 id="comic-viewer-ux">7.6 Comic Viewer UX</h3>
+<table>
+<thead>
+<tr>
+<th>Req ID</th>
+<th>Requirement</th>
+<th>Priority</th>
+<th>Traceability</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>FR-17</td>
+<td>The comic viewer shall support vertical strip layout (default), panel-by-panel view, and download/export (PNG per panel + combined strip)</td>
+<td>Should Have</td>
+<td>F009</td>
+</tr>
+<tr>
+<td>FR-18</td>
+<td>The viewer shall include &quot;Re-run with same settings&quot;, &quot;Edit storyboard&quot;, &quot;Edit prompts&quot;, and &quot;Cancel generation&quot; controls</td>
+<td>Must Have</td>
+<td>UC4, UC5</td>
+</tr>
+</tbody>
+</table>
+<h3 id="history-storage">7.7 History &amp; Storage</h3>
+<table>
+<thead>
+<tr>
+<th>Req ID</th>
+<th>Requirement</th>
+<th>Priority</th>
+<th>Traceability</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>FR-19</td>
+<td>The extension shall maintain local history of generated comics with URL, title, timestamp, settings snapshot, storyboard JSON, and panel images</td>
+<td>Should Have</td>
+<td>F010</td>
+</tr>
+<tr>
+<td>FR-20</td>
+<td>The user shall be able to delete individual comics or clear all data</td>
+<td>Should Have</td>
+<td>Privacy-Conscious User</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="non-functional-requirements">8. Non-Functional Requirements</h2>
+<h3 id="usability">8.1 Usability</h3>
+<table>
+<thead>
+<tr>
+<th>Req ID</th>
+<th>Requirement</th>
+<th>Target Metric</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>NFR-U1</td>
+<td>Settings must be usable by non-technical users via presets</td>
+<td>100% of settings accessible via preset dropdowns</td>
+</tr>
+<tr>
+<td>NFR-U2</td>
+<td>Any required credential entry must include inline validation</td>
+<td>API key validation within 500ms of entry</td>
+</tr>
+<tr>
+<td>NFR-U3</td>
+<td>Progressive rendering must show panel placeholders within 200ms after start</td>
+<td>Placeholder visible &lt; 200ms</td>
+</tr>
+</tbody>
+</table>
+<h3 id="performance">8.2 Performance</h3>
+<table>
+<thead>
+<tr>
+<th>Req ID</th>
+<th>Requirement</th>
+<th>Target Metric</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>NFR-P1</td>
+<td>Text extraction + preview must complete within 1 second for typical articles</td>
+<td>P95 &lt; 1000ms</td>
+</tr>
+<tr>
+<td>NFR-P2</td>
+<td>Summarization/storyboard generation must run asynchronously with visible progress</td>
+<td>Progress indicator updates every 500ms</td>
+</tr>
+<tr>
+<td>NFR-P3</td>
+<td>Image generation must allow cancellation and must not block Chrome UI thread</td>
+<td>UI remains responsive (60fps) during generation</td>
+</tr>
+</tbody>
+</table>
+<h3 id="reliability">8.3 Reliability</h3>
+<table>
+<thead>
+<tr>
+<th>Req ID</th>
+<th>Requirement</th>
+<th>Target Metric</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>NFR-R1</td>
+<td>Handle transient provider failures with exponential backoff and per-panel retry</td>
+<td>3 retries with exponential backoff (1s, 2s, 4s)</td>
+</tr>
+<tr>
+<td>NFR-R2</td>
+<td>Service worker lifecycle constraints must be handled with job persistence and resumability</td>
+<td>Jobs survive service worker termination</td>
+</tr>
+</tbody>
+</table>
+<h3 id="privacy-security">8.4 Privacy &amp; Security</h3>
+<table>
+<thead>
+<tr>
+<th>Req ID</th>
+<th>Requirement</th>
+<th>Target Metric</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>NFR-S1</td>
+<td>Default mode must not send data until user presses &quot;Generate&quot;</td>
+<td>Zero network calls before user action</td>
+</tr>
+<tr>
+<td>NFR-S2</td>
+<td>Show &quot;data sent&quot; preview and allow editing/redacting before sending</td>
+<td>Text preview editable before submission</td>
+</tr>
+<tr>
+<td>NFR-S3</td>
+<td>Store API keys only in Chrome extension storage; never log keys</td>
+<td>Keys stored in chrome.storage.encrypted only</td>
+</tr>
+<tr>
+<td>NFR-S4</td>
+<td>Provide &quot;local-only mode&quot; using Chrome's built-in summarization API when available</td>
+<td>Experimental feature toggle in settings</td>
+</tr>
+</tbody>
+</table>
+<h3 id="compliance">8.5 Compliance</h3>
+<table>
+<thead>
+<tr>
+<th>Req ID</th>
+<th>Requirement</th>
+<th>Target Metric</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>NFR-C1</td>
+<td>Must comply with Chrome Web Store policies</td>
+<td>Pass Chrome Web Store review</td>
+</tr>
+<tr>
+<td>NFR-C2</td>
+<td>Must respect provider ToS and safety filters</td>
+<td>Block disallowed content generation</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="data-models">9. Data Models</h2>
+<h3 id="storyboard-json-schema">9.1 Storyboard JSON Schema</h3>
+<pre><code class="language-json">{
+  &quot;$schema&quot;: &quot;http://json-schema.org/draft-07/schema#&quot;,
+  &quot;title&quot;: &quot;Comic Strip Storyboard&quot;,
+  &quot;version&quot;: &quot;1.0&quot;,
+  &quot;type&quot;: &quot;object&quot;,
+  &quot;required&quot;: [&quot;schema_version&quot;, &quot;source&quot;, &quot;settings&quot;, &quot;panels&quot;, &quot;status&quot;],
+  &quot;properties&quot;: {
+    &quot;schema_version&quot;: {
+      &quot;type&quot;: &quot;string&quot;,
+      &quot;const&quot;: &quot;1.0&quot;,
+      &quot;description&quot;: &quot;Schema version for compatibility&quot;
+    },
+    &quot;source&quot;: {
+      &quot;type&quot;: &quot;object&quot;,
+      &quot;required&quot;: [&quot;url&quot;, &quot;extracted_at&quot;],
+      &quot;properties&quot;: {
+        &quot;url&quot;: {
+          &quot;type&quot;: &quot;string&quot;,
+          &quot;format&quot;: &quot;uri&quot;,
+          &quot;description&quot;: &quot;Source page URL&quot;
+        },
+        &quot;title&quot;: {
+          &quot;type&quot;: &quot;string&quot;,
+          &quot;description&quot;: &quot;Source page title&quot;
+        },
+        &quot;extracted_at&quot;: {
+          &quot;type&quot;: &quot;string&quot;,
+          &quot;format&quot;: &quot;date-time&quot;,
+          &quot;description&quot;: &quot;Content extraction timestamp&quot;
+        },
+        &quot;content_hash&quot;: {
+          &quot;type&quot;: &quot;string&quot;,
+          &quot;description&quot;: &quot;Hash of extracted content for verification&quot;
+        }
+      }
+    },
+    &quot;settings&quot;: {
+      &quot;type&quot;: &quot;object&quot;,
+      &quot;required&quot;: [&quot;panel_count&quot;, &quot;detail_level&quot;, &quot;style_id&quot;, &quot;provider_text&quot;, &quot;provider_image&quot;],
+      &quot;properties&quot;: {
+        &quot;panel_count&quot;: {
+          &quot;type&quot;: &quot;integer&quot;,
+          &quot;minimum&quot;: 3,
+          &quot;maximum&quot;: 12,
+          &quot;default&quot;: 6
+        },
+        &quot;detail_level&quot;: {
+          &quot;type&quot;: &quot;string&quot;,
+          &quot;enum&quot;: [&quot;low&quot;, &quot;medium&quot;, &quot;high&quot;],
+          &quot;default&quot;: &quot;medium&quot;
+        },
+        &quot;style_id&quot;: {
+          &quot;type&quot;: &quot;string&quot;,
+          &quot;description&quot;: &quot;Style preset identifier&quot;
+        },
+        &quot;caption_len&quot;: {
+          &quot;type&quot;: &quot;string&quot;,
+          &quot;enum&quot;: [&quot;short&quot;, &quot;medium&quot;, &quot;long&quot;],
+          &quot;default&quot;: &quot;short&quot;
+        },
+        &quot;provider_text&quot;: {
+          &quot;type&quot;: &quot;string&quot;,
+          &quot;description&quot;: &quot;Text generation provider identifier&quot;
+        },
+        &quot;provider_image&quot;: {
+          &quot;type&quot;: &quot;string&quot;,
+          &quot;description&quot;: &quot;Image generation provider identifier&quot;
+        },
+        &quot;character_consistency&quot;: {
+          &quot;type&quot;: &quot;boolean&quot;,
+          &quot;default&quot;: false,
+          &quot;description&quot;: &quot;Enable character consistency mode&quot;
+        }
+      }
+    },
+    &quot;panels&quot;: {
+      &quot;type&quot;: &quot;array&quot;,
+      &quot;minItems&quot;: 3,
+      &quot;maxItems&quot;: 12,
+      &quot;items&quot;: {
+        &quot;$ref&quot;: &quot;#/definitions/panel&quot;
+      }
+    },
+    &quot;style_profile&quot;: {
+      &quot;type&quot;: &quot;object&quot;,
+      &quot;properties&quot;: {
+        &quot;art_style&quot;: {
+          &quot;type&quot;: &quot;string&quot;,
+          &quot;description&quot;: &quot;Art style (e.g., noir, minimalist, manga)&quot;
+        },
+        &quot;color_palette&quot;: {
+          &quot;type&quot;: &quot;string&quot;,
+          &quot;description&quot;: &quot;Color palette preference&quot;
+        },
+        &quot;mood&quot;: {
+          &quot;type&quot;: &quot;string&quot;,
+          &quot;description&quot;: &quot;Overall mood/tone&quot;
+        }
+      }
+    },
+    &quot;safety_tags&quot;: {
+      &quot;type&quot;: &quot;array&quot;,
+      &quot;items&quot;: {
+        &quot;type&quot;: &quot;string&quot;
+      },
+      &quot;description&quot;: &quot;Blocklist categories for content filtering&quot;
+    },
+    &quot;status&quot;: {
+      &quot;type&quot;: &quot;object&quot;,
+      &quot;properties&quot;: {
+        &quot;overall&quot;: {
+          &quot;type&quot;: &quot;string&quot;,
+          &quot;enum&quot;: [&quot;pending&quot;, &quot;generating_text&quot;, &quot;generating_images&quot;, &quot;completed&quot;, &quot;failed&quot;, &quot;canceled&quot;]
+        },
+        &quot;text_completed&quot;: {
+          &quot;type&quot;: &quot;boolean&quot;
+        },
+        &quot;images_completed&quot;: {
+          &quot;type&quot;: &quot;integer&quot;
+        },
+        &quot;total_panels&quot;: {
+          &quot;type&quot;: &quot;integer&quot;
+        },
+        &quot;started_at&quot;: {
+          &quot;type&quot;: &quot;string&quot;,
+          &quot;format&quot;: &quot;date-time&quot;
+        },
+        &quot;completed_at&quot;: {
+          &quot;type&quot;: &quot;string&quot;,
+          &quot;format&quot;: &quot;date-time&quot;
+        }
+      }
+    }
+  },
+  &quot;definitions&quot;: {
+    &quot;panel&quot;: {
+      &quot;type&quot;: &quot;object&quot;,
+      &quot;required&quot;: [&quot;panel_id&quot;, &quot;beat_summary&quot;, &quot;caption&quot;, &quot;image_prompt&quot;],
+      &quot;properties&quot;: {
+        &quot;panel_id&quot;: {
+          &quot;type&quot;: &quot;string&quot;,
+          &quot;pattern&quot;: &quot;^panel_[0-9]+$&quot;
+        },
+        &quot;beat_summary&quot;: {
+          &quot;type&quot;: &quot;string&quot;,
+          &quot;minLength&quot;: 10,
+          &quot;maxLength&quot;: 300,
+          &quot;description&quot;: &quot;1-3 sentences describing the scene&quot;
+        },
+        &quot;caption&quot;: {
+          &quot;type&quot;: &quot;string&quot;,
+          &quot;minLength&quot;: 5,
+          &quot;maxLength&quot;: 100,
+          &quot;description&quot;: &quot;Short caption displayed below the image&quot;
+        },
+        &quot;image_prompt&quot;: {
+          &quot;type&quot;: &quot;string&quot;,
+          &quot;minLength&quot;: 10,
+          &quot;maxLength&quot;: 1000,
+          &quot;description&quot;: &quot;Detailed prompt for image generation&quot;
+        },
+        &quot;negative_prompt&quot;: {
+          &quot;type&quot;: &quot;string&quot;,
+          &quot;maxLength&quot;: 500,
+          &quot;description&quot;: &quot;Elements to exclude from the image&quot;
+        },
+        &quot;characters&quot;: {
+          &quot;type&quot;: &quot;array&quot;,
+          &quot;items&quot;: {
+            &quot;$ref&quot;: &quot;#/definitions/character&quot;
+          },
+          &quot;description&quot;: &quot;Character descriptors for consistency&quot;
+        },
+        &quot;composition&quot;: {
+          &quot;type&quot;: &quot;object&quot;,
+          &quot;properties&quot;: {
+            &quot;shot_type&quot;: {
+              &quot;type&quot;: &quot;string&quot;,
+              &quot;enum&quot;: [&quot;close-up&quot;, &quot;medium&quot;, &quot;wide&quot;, &quot;extreme-wide&quot;, &quot;over-shoulder&quot;, &quot;POV&quot;]
+            },
+            &quot;angle&quot;: {
+              &quot;type&quot;: &quot;string&quot;,
+              &quot;enum&quot;: [&quot;eye-level&quot;, &quot;low-angle&quot;, &quot;high-angle&quot;, &quot;bird's-eye&quot;, &quot;worm's-eye&quot;]
+            }
+          }
+        },
+        &quot;artifacts&quot;: {
+          &quot;type&quot;: &quot;object&quot;,
+          &quot;properties&quot;: {
+            &quot;image_blob_ref&quot;: {
+              &quot;type&quot;: &quot;string&quot;,
+              &quot;description&quot;: &quot;Reference to stored image blob&quot;
+            },
+            &quot;provider_metadata&quot;: {
+              &quot;type&quot;: &quot;object&quot;,
+              &quot;description&quot;: &quot;Provider-specific metadata (timing, model version, etc.)&quot;
+            }
+          }
+        }
+      }
+    },
+    &quot;character&quot;: {
+      &quot;type&quot;: &quot;object&quot;,
+      &quot;required&quot;: [&quot;character_id&quot;, &quot;name&quot;, &quot;description&quot;],
+      &quot;properties&quot;: {
+        &quot;character_id&quot;: {
+          &quot;type&quot;: &quot;string&quot;
+        },
+        &quot;name&quot;: {
+          &quot;type&quot;: &quot;string&quot;
+        },
+        &quot;description&quot;: {
+          &quot;type&quot;: &quot;string&quot;,
+          &quot;description&quot;: &quot;Visual description for consistency&quot;
+        },
+        &quot;first_appearance_panel&quot;: {
+          &quot;type&quot;: &quot;string&quot;,
+          &quot;pattern&quot;: &quot;^panel_[0-9]+$&quot;
+        }
+      }
+    }
+  }
+}
+</code></pre>
+<h3 id="provider-configuration-schema">9.2 Provider Configuration Schema</h3>
+<pre><code class="language-json">{
+  &quot;$schema&quot;: &quot;http://json-schema.org/draft-07/schema#&quot;,
+  &quot;title&quot;: &quot;Provider Configuration&quot;,
+  &quot;type&quot;: &quot;object&quot;,
+  &quot;properties&quot;: {
+    &quot;providers&quot;: {
+      &quot;type&quot;: &quot;array&quot;,
+      &quot;items&quot;: {
+        &quot;$ref&quot;: &quot;#/definitions/provider&quot;
+      }
+    },
+    &quot;active_text_provider&quot;: {
+      &quot;type&quot;: &quot;string&quot;,
+      &quot;description&quot;: &quot;ID of active text generation provider&quot;
+    },
+    &quot;active_image_provider&quot;: {
+      &quot;type&quot;: &quot;string&quot;,
+      &quot;description&quot;: &quot;ID of active image generation provider&quot;
+    }
+  },
+  &quot;definitions&quot;: {
+    &quot;provider&quot;: {
+      &quot;type&quot;: &quot;object&quot;,
+      &quot;required&quot;: [&quot;id&quot;, &quot;name&quot;, &quot;type&quot;, &quot;capabilities&quot;],
+      &quot;properties&quot;: {
+        &quot;id&quot;: {
+          &quot;type&quot;: &quot;string&quot;,
+          &quot;pattern&quot;: &quot;^[a-z0-9-_]+$&quot;
+        },
+        &quot;name&quot;: {
+          &quot;type&quot;: &quot;string&quot;
+        },
+        &quot;type&quot;: {
+          &quot;type&quot;: &quot;string&quot;,
+          &quot;enum&quot;: [&quot;gemini&quot;, &quot;cloudflare-workers-ai&quot;, &quot;openai-compatible&quot;, &quot;chrome-summarizer&quot;]
+        },
+        &quot;capabilities&quot;: {
+          &quot;type&quot;: &quot;object&quot;,
+          &quot;required&quot;: [&quot;supports_images&quot;, &quot;max_prompt_length&quot;],
+          &quot;properties&quot;: {
+            &quot;supports_images&quot;: {
+              &quot;type&quot;: &quot;boolean&quot;
+            },
+            &quot;max_prompt_length&quot;: {
+              &quot;type&quot;: &quot;integer&quot;
+            },
+            &quot;rate_limit_behavior&quot;: {
+              &quot;type&quot;: &quot;string&quot;,
+              &quot;enum&quot;: [&quot;strict&quot;, &quot;graceful&quot;, &quot;none&quot;]
+            },
+            &quot;cost_tag&quot;: {
+              &quot;type&quot;: &quot;string&quot;,
+              &quot;enum&quot;: [&quot;free&quot;, &quot;limited&quot;, &quot;paid&quot;]
+            }
+          }
+        },
+        &quot;config&quot;: {
+          &quot;type&quot;: &quot;object&quot;,
+          &quot;description&quot;: &quot;Provider-specific configuration&quot;,
+          &quot;properties&quot;: {
+            &quot;api_key&quot;: {
+              &quot;type&quot;: &quot;string&quot;,
+              &quot;description&quot;: &quot;Encrypted API key storage reference&quot;
+            },
+            &quot;model_name&quot;: {
+              &quot;type&quot;: &quot;string&quot;
+            },
+            &quot;endpoint_url&quot;: {
+              &quot;type&quot;: &quot;string&quot;,
+              &quot;format&quot;: &quot;uri&quot;
+            }
+          }
+        }
+      }
+    }
+  }
+}
+</code></pre>
+<h3 id="comic-history-entry-schema">9.3 Comic History Entry Schema</h3>
+<pre><code class="language-json">{
+  &quot;$schema&quot;: &quot;http://json-schema.org/draft-07/schema#&quot;,
+  &quot;title&quot;: &quot;Comic History Entry&quot;,
+  &quot;type&quot;: &quot;object&quot;,
+  &quot;required&quot;: [&quot;id&quot;, &quot;source&quot;, &quot;generated_at&quot;, &quot;storyboard&quot;],
+  &quot;properties&quot;: {
+    &quot;id&quot;: {
+      &quot;type&quot;: &quot;string&quot;,
+      &quot;format&quot;: &quot;uuid&quot;
+    },
+    &quot;source&quot;: {
+      &quot;type&quot;: &quot;object&quot;,
+      &quot;properties&quot;: {
+        &quot;url&quot;: {
+          &quot;type&quot;: &quot;string&quot;,
+          &quot;format&quot;: &quot;uri&quot;
+        },
+        &quot;title&quot;: {
+          &quot;type&quot;: &quot;string&quot;
+        }
+      }
+    },
+    &quot;generated_at&quot;: {
+      &quot;type&quot;: &quot;string&quot;,
+      &quot;format&quot;: &quot;date-time&quot;
+    },
+    &quot;settings_snapshot&quot;: {
+      &quot;type&quot;: &quot;object&quot;,
+      &quot;description&quot;: &quot;Copy of settings used for generation&quot;
+    },
+    &quot;storyboard&quot;: {
+      &quot;$ref&quot;: &quot;storyboard.json&quot;
+    },
+    &quot;thumbnail&quot;: {
+      &quot;type&quot;: &quot;string&quot;,
+      &quot;description&quot;: &quot;Base64 thumbnail or blob reference&quot;
+    }
+  }
+}
+</code></pre>
+<hr />
+<h2 id="configuration-requirements">10. Configuration Requirements</h2>
+<h3 id="settings-screens">10.1 Settings Screens</h3>
+<h4 id="quick-settings-popup">10.1.1 Quick Settings (Popup)</h4>
+<table>
+<thead>
+<tr>
+<th>Control</th>
+<th>Type</th>
+<th>Default</th>
+<th>Range</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Panel Count</td>
+<td>Slider/Dropdown</td>
+<td>6</td>
+<td>3-12</td>
+</tr>
+<tr>
+<td>Detail Level</td>
+<td>Dropdown</td>
+<td>Medium</td>
+<td>Low/Medium/High</td>
+</tr>
+<tr>
+<td>Style Preset</td>
+<td>Dropdown</td>
+<td>Default</td>
+<td>(preset list)</td>
+</tr>
+<tr>
+<td>Provider Preset</td>
+<td>Dropdown</td>
+<td>Gemini Free</td>
+<td>(provider list)</td>
+</tr>
+<tr>
+<td>Generate Button</td>
+<td>Button</td>
+<td>-</td>
+<td>-</td>
+</tr>
+</tbody>
+</table>
+<h4 id="advanced-settings">10.1.2 Advanced Settings</h4>
+<table>
+<thead>
+<tr>
+<th>Section</th>
+<th>Controls</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Providers Page</td>
+<td>Add/Edit/Remove providers, Configure credentials</td>
+</tr>
+<tr>
+<td>Credential Vault</td>
+<td>API keys/tokens (encrypted storage)</td>
+</tr>
+<tr>
+<td>Quotas Display</td>
+<td>Rate limit errors, cooldown timer, usage stats</td>
+</tr>
+<tr>
+<td>Storage Management</td>
+<td>Cache size, eviction policy configuration</td>
+</tr>
+</tbody>
+</table>
+<h3 id="provider-abstraction-interface">10.2 Provider Abstraction Interface</h3>
+<pre><code class="language-typescript">interface ITextProvider {
+  readonly capabilities: ProviderCapabilities;
+  initialize(config: ProviderConfig): Promise&lt;void&gt;;
+  summarize(text: string, options: SummarizationOptions): Promise&lt;Storyboard&gt;;
+  validateCredentials(): Promise&lt;boolean&gt;;
+}
+
+interface IImageProvider {
+  readonly capabilities: ProviderCapabilities;
+  initialize(config: ProviderConfig): Promise&lt;void&gt;;
+  generateImage(prompt: string, options: ImageOptions): Promise&lt;ImageResult&gt;;
+  generateImageBatch(prompts: string[], options: ImageOptions): Promise&lt;ImageResult[]&gt;;
+  validateCredentials(): Promise&lt;boolean&gt;;
+}
+
+interface ProviderCapabilities {
+  supportsImages: boolean;
+  maxPromptLength: number;
+  rateLimitBehavior: 'strict' | 'graceful' | 'none';
+  costTag: 'free' | 'limited' | 'paid';
+}
+
+interface ProviderConfig {
+  apiKey?: string;
+  modelName?: string;
+  endpointUrl?: string;
+  customHeaders?: Record&lt;string, string&gt;;
+}
+</code></pre>
+<h3 id="requirements-for-provider-implementation">10.3 Requirements for Provider Implementation</h3>
+<table>
+<thead>
+<tr>
+<th>Req ID</th>
+<th>Requirement</th>
+<th>Priority</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>REQ-CFG1</td>
+<td>All providers must implement uniform interface: summarize() and generateImage()</td>
+<td>Must Have</td>
+</tr>
+<tr>
+<td>REQ-CFG2</td>
+<td>Providers must declare capabilities including supports_images, max_prompt_length, rate_limit_behavior, and cost_tag</td>
+<td>Must Have</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="free-low-cost-model-set-v1-baseline">11. Free / Low-Cost Model Set (v1 Baseline)</h2>
+<h3 id="provider-presets">11.1 Provider Presets</h3>
+<h4 id="google-gemini-api">11.1.1 Google Gemini API</h4>
+<table>
+<thead>
+<tr>
+<th>Property</th>
+<th>Value</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Provider ID</strong></td>
+<td><code>gemini-free</code></td>
+</tr>
+<tr>
+<td><strong>Type</strong></td>
+<td>gemini</td>
+</tr>
+<tr>
+<td><strong>Capabilities</strong></td>
+<td>Text + Images (where supported)</td>
+</tr>
+<tr>
+<td><strong>Cost</strong></td>
+<td>Free tier available (see [REF-003])</td>
+</tr>
+<tr>
+<td><strong>Rate Limits</strong></td>
+<td>15 RPM (free tier), visible to user (see [REF-004])</td>
+</tr>
+<tr>
+<td><strong>Data Transmission</strong></td>
+<td>Text and prompts sent to Google servers</td>
+</tr>
+<tr>
+<td><strong>Configuration Required</strong></td>
+<td>Gemini API Key</td>
+</tr>
+</tbody>
+</table>
+<h4 id="cloudflare-workers-ai">11.1.2 Cloudflare Workers AI</h4>
+<table>
+<thead>
+<tr>
+<th>Property</th>
+<th>Value</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Provider ID</strong></td>
+<td><code>cloudflare-free</code></td>
+</tr>
+<tr>
+<td><strong>Type</strong></td>
+<td>cloudflare-workers-ai</td>
+</tr>
+<tr>
+<td><strong>Capabilities</strong></td>
+<td>Text generation (image via external)</td>
+</tr>
+<tr>
+<td><strong>Cost</strong></td>
+<td>Free daily allocation (neurons/day) (see [REF-005])</td>
+</tr>
+<tr>
+<td><strong>Rate Limits</strong></td>
+<td>Daily neuron limit, visible to user</td>
+</tr>
+<tr>
+<td><strong>Data Transmission</strong></td>
+<td>Text sent to Cloudflare Workers</td>
+</tr>
+<tr>
+<td><strong>Configuration Required</strong></td>
+<td>Cloudflare API Token (optional for free tier)</td>
+</tr>
+</tbody>
+</table>
+<h4 id="chrome-built-in-summarization-api">11.1.3 Chrome Built-in Summarization API</h4>
+<table>
+<thead>
+<tr>
+<th>Property</th>
+<th>Value</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Provider ID</strong></td>
+<td><code>chrome-summarizer</code></td>
+</tr>
+<tr>
+<td><strong>Type</strong></td>
+<td>chrome-summarizer</td>
+</tr>
+<tr>
+<td><strong>Capabilities</strong></td>
+<td>Text-only summarization (no images)</td>
+</tr>
+<tr>
+<td><strong>Cost</strong></td>
+<td>Free (browser-native)</td>
+</tr>
+<tr>
+<td><strong>Rate Limits</strong></td>
+<td>None (local processing)</td>
+</tr>
+<tr>
+<td><strong>Data Transmission</strong></td>
+<td>None (local-only)</td>
+</tr>
+<tr>
+<td><strong>Configuration Required</strong></td>
+<td>None</td>
+</tr>
+<tr>
+<td><strong>Note</strong></td>
+<td>Experimental feature, requires Chrome built-in support</td>
+</tr>
+</tbody>
+</table>
+<h3 id="preset-comparison-matrix">11.2 Preset Comparison Matrix</h3>
+<table>
+<thead>
+<tr>
+<th>Preset</th>
+<th>Text Gen</th>
+<th>Image Gen</th>
+<th>Free</th>
+<th>Requires API Key</th>
+<th>Local Processing</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Gemini Free</td>
+<td>✓</td>
+<td>✓*</td>
+<td>✓</td>
+<td>Yes</td>
+<td>No</td>
+</tr>
+<tr>
+<td>Cloudflare Workers AI</td>
+<td>✓</td>
+<td>✗</td>
+<td>✓</td>
+<td>Optional</td>
+<td>No</td>
+</tr>
+<tr>
+<td>Chrome Summarizer (exp.)</td>
+<td>✓</td>
+<td>✗</td>
+<td>✓</td>
+<td>No</td>
+<td>✓</td>
+</tr>
+</tbody>
+</table>
+<p>*Image generation via Gemini depends on model capabilities and may require paid tier.</p>
+<hr />
+<h2 id="error-handling-user-feedback">12. Error Handling &amp; User Feedback</h2>
+<h3 id="error-categories">12.1 Error Categories</h3>
+<table>
+<thead>
+<tr>
+<th>Error Category</th>
+<th>Description</th>
+<th>User Feedback</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>E001</td>
+<td>Extraction Error</td>
+<td>&quot;Unable to extract content from this page. Try selecting text manually.&quot;</td>
+</tr>
+<tr>
+<td>E002</td>
+<td>Summarization Error</td>
+<td>&quot;Failed to generate storyboard. [Provider error message]. Try again or switch provider.&quot;</td>
+</tr>
+<tr>
+<td>E003</td>
+<td>Image Generation Error (per panel)</td>
+<td>&quot;Panel [N] failed: [error]. Click to retry or regenerate prompt.&quot;</td>
+</tr>
+<tr>
+<td>E004</td>
+<td>Rate Limit Exceeded</td>
+<td>&quot;Rate limit reached. Next available: [timestamp]. You can switch providers or wait.&quot;</td>
+</tr>
+<tr>
+<td>E005</td>
+<td>Invalid Credentials</td>
+<td>&quot;API key invalid. Please check your settings.&quot;</td>
+</tr>
+<tr>
+<td>E006</td>
+<td>Network Error</td>
+<td>&quot;Connection failed. Check internet and try again.&quot;</td>
+</tr>
+</tbody>
+</table>
+<h3 id="error-recovery-flow">12.2 Error Recovery Flow</h3>
+<pre><code>┌──────────────┐
+│  Error       │
+│  Occurs      │
+└──────┬───────┘
+       │
+       ▼
+┌──────────────┐     ┌─────────────┐     ┌──────────────────┐
+│  Retry       │────►│  Success?   │─No─►│  Exponential     │
+│  (1st attempt)     └─────────────┘     │  Backoff + Retry │
+└──────────────┘                         └──────────────────┘
+       │                                         │
+       │Yes                                       │No (after 3)
+       ▼                                         ▼
+┌──────────────┐                         ┌──────────────────┐
+│  Continue    │                         │  User Notified   │
+│  or Complete │                         │  + Options       │
+└──────────────┘                         └──────────────────┘
+</code></pre>
+<h3 id="user-action-options-on-error">12.3 User Action Options on Error</h3>
+<ul>
+<li><strong>Cancel current job</strong>: Stop all pending operations</li>
+<li><strong>Retry failed panel</strong>: Re-attempt specific panel generation</li>
+<li><strong>Regenerate prompt</strong>: Ask LLM to rewrite prompt for failed panel</li>
+<li><strong>Switch provider</strong>: Change to different provider and retry</li>
+<li><strong>Edit manually</strong>: User modifies prompt/storyboard directly</li>
+</ul>
+<hr />
+<h2 id="permissions">13. Permissions</h2>
+<h3 id="required-permissions">13.1 Required Permissions</h3>
+<table>
+<thead>
+<tr>
+<th>Permission</th>
+<th>Justification</th>
+<th>Manifest Key</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>activeTab</code></td>
+<td>Access current tab for content extraction</td>
+<td><code>permissions</code></td>
+</tr>
+<tr>
+<td><code>storage</code></td>
+<td>Store settings, history, cached data</td>
+<td><code>permissions</code></td>
+</tr>
+<tr>
+<td><code>scripting</code></td>
+<td>Execute scripts to extract page content</td>
+<td><code>permissions</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="optional-permissions">13.2 Optional Permissions</h3>
+<table>
+<thead>
+<tr>
+<th>Permission</th>
+<th>Justification</th>
+<th>Manifest Key</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>sidePanel</code></td>
+<td>Enable side panel comic viewer</td>
+<td><code>permissions</code></td>
+</tr>
+<tr>
+<td><code>downloads</code></td>
+<td>Enable comic export functionality</td>
+<td><code>permissions</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="host-permissions">13.3 Host Permissions</h3>
+<table>
+<thead>
+<tr>
+<th>Host Pattern</th>
+<th>Justification</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>&lt;all_urls&gt;</code> or specific sites</td>
+<td>Access page content for extraction</td>
+</tr>
+</tbody>
+</table>
+<h3 id="permission-minimization-strategy">13.4 Permission Minimization Strategy</h3>
+<ul>
+<li>Request minimum permissions necessary for core functionality</li>
+<li>Use <code>activeTab</code> instead of <code>&lt;all_urls&gt;</code> where possible</li>
+<li>Provide clear explanations during installation</li>
+<li>Follow Chrome Web Store policies (see [REF-007])</li>
+</ul>
+<hr />
+<h2 id="acceptance-criteria-v1">14. Acceptance Criteria (v1)</h2>
+<h3 id="functional-acceptance-criteria">14.1 Functional Acceptance Criteria</h3>
+<table>
+<thead>
+<tr>
+<th>AC ID</th>
+<th>Criterion</th>
+<th>Test Method</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>AC-1</td>
+<td>From any article page, user can generate a 6-panel comic within one flow</td>
+<td>Manual test on 5+ article pages</td>
+</tr>
+<tr>
+<td>AC-2</td>
+<td>User can switch between Gemini and Cloudflare Workers AI presets</td>
+<td>Manual provider switch test</td>
+</tr>
+<tr>
+<td>AC-3</td>
+<td>Progress UI shows overall status, per-panel status, placeholders, and incremental updates</td>
+<td>UI inspection during generation</td>
+</tr>
+<tr>
+<td>AC-4</td>
+<td>User can edit prompts, regenerate single panel, and cancel generation</td>
+<td>Manual interaction test</td>
+</tr>
+<tr>
+<td>AC-5</td>
+<td>User sees and can edit exact text before sending</td>
+<td>Text preview editable test</td>
+</tr>
+<tr>
+<td>AC-6</td>
+<td>Character consistency mode maintains appearance across panels</td>
+<td>Generate 6-panel comic with characters</td>
+</tr>
+<tr>
+<td>AC-7</td>
+<td>History stores and retrieves previous comics</td>
+<td>Generate, close, reopen, check history</td>
+</tr>
+</tbody>
+</table>
+<h3 id="non-functional-acceptance-criteria">14.2 Non-Functional Acceptance Criteria</h3>
+<table>
+<thead>
+<tr>
+<th>AC ID</th>
+<th>Criterion</th>
+<th>Target</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>AC-8</td>
+<td>Text extraction completes within 1 second</td>
+<td>P95 &lt; 1000ms on 50 articles</td>
+</tr>
+<tr>
+<td>AC-9</td>
+<td>Panel placeholders appear within 200ms of generation start</td>
+<td>&lt; 200ms latency</td>
+</tr>
+<tr>
+<td>AC-10</td>
+<td>UI remains responsive during image generation</td>
+<td>60fps maintained</td>
+</tr>
+<tr>
+<td>AC-11</td>
+<td>Extension passes Chrome Web Store review</td>
+<td>All policies satisfied</td>
+</tr>
+</tbody>
+</table>
+<h3 id="visual-checkpoints">14.3 Visual Checkpoints</h3>
+<table>
+<thead>
+<tr>
+<th>Checkpoint</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>VC-1</td>
+<td>Onboarding wizard displays correctly on first run</td>
+</tr>
+<tr>
+<td>VC-2</td>
+<td>Text preview shows extracted content with edit capability</td>
+</tr>
+<tr>
+<td>VC-3</td>
+<td>Comic viewer displays vertical strip with all panels</td>
+</tr>
+<tr>
+<td>VC-4</td>
+<td>Progressive rendering shows placeholder → image transition</td>
+</tr>
+<tr>
+<td>VC-5</td>
+<td>Settings page shows all provider options with cost indicators</td>
+</tr>
+<tr>
+<td>VC-6</td>
+<td>Error states display clear messages with recovery options</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="recommended-implementation-notes">15. Recommended Implementation Notes</h2>
+<h3 id="mv3-service-worker-considerations">15.1 MV3 Service Worker Considerations</h3>
+<table>
+<thead>
+<tr>
+<th>Consideration</th>
+<th>Recommendation</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Service worker termination</td>
+<td>Persist job state to chrome.storage; resume on wake</td>
+</tr>
+<tr>
+<td>Background processing</td>
+<td>Use chrome.alarms for long-running generation tasks</td>
+</tr>
+<tr>
+<td>Message passing</td>
+<td>Implement robust message handling for popup ↔ service worker communication</td>
+</tr>
+</tbody>
+</table>
+<h3 id="rate-limit-handling">15.2 Rate Limit Handling</h3>
+<table>
+<thead>
+<tr>
+<th>Provider</th>
+<th>Rate Limit Strategy</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Gemini</td>
+<td>Display remaining quota; queue requests; show cooldown timer</td>
+</tr>
+<tr>
+<td>Cloudflare</td>
+<td>Track daily neuron usage; warn before limit; fallback to text-only</td>
+</tr>
+</tbody>
+</table>
+<h3 id="image-generation-pipeline">15.3 Image Generation Pipeline</h3>
+<pre><code>┌─────────────┐    ┌──────────────┐    ┌─────────────┐    ┌────────────┐
+│  Storyboard │───►│  Prompt      │───►│  Provider   │───►│  Image     │
+│  JSON       │    │  Enrichment │    │  API Call   │    │  Storage   │
+└─────────────┘    └──────────────┘    └─────────────┘    └────────────┘
+</code></pre>
+<h3 id="storage-strategy">15.4 Storage Strategy</h3>
+<table>
+<thead>
+<tr>
+<th>Data Type</th>
+<th>Storage Location</th>
+<th>Retention</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Settings</td>
+<td>chrome.storage.local</td>
+<td>Permanent</td>
+</tr>
+<tr>
+<td>API Keys</td>
+<td>chrome.storage.encrypted</td>
+<td>Permanent</td>
+</tr>
+<tr>
+<td>Comic History</td>
+<td>chrome.storage.local</td>
+<td>Configurable (default 30 days)</td>
+</tr>
+<tr>
+<td>Generated Images</td>
+<td>IndexedDB</td>
+<td>LRU eviction</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="appendix-a-traceability-matrix">Appendix A: Traceability Matrix</h2>
+<table>
+<thead>
+<tr>
+<th>Requirement ID</th>
+<th>Source</th>
+<th>Type</th>
+<th>Priority</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>FR-1</td>
+<td>[REF-001]</td>
+<td>Functional</td>
+<td>Must Have</td>
+</tr>
+<tr>
+<td>FR-2</td>
+<td>UC1, UC3</td>
+<td>Functional</td>
+<td>Must Have</td>
+</tr>
+<tr>
+<td>FR-3</td>
+<td>Privacy-Conscious User</td>
+<td>Functional</td>
+<td>Must Have</td>
+</tr>
+<tr>
+<td>FR-4</td>
+<td>UC2</td>
+<td>Functional</td>
+<td>Must Have</td>
+</tr>
+<tr>
+<td>FR-5</td>
+<td>NFR-S2</td>
+<td>Functional</td>
+<td>Must Have</td>
+</tr>
+<tr>
+<td>FR-6</td>
+<td>NFR-P2</td>
+<td>Functional</td>
+<td>Must Have</td>
+</tr>
+<tr>
+<td>FR-7</td>
+<td>Section 9</td>
+<td>Functional</td>
+<td>Must Have</td>
+</tr>
+<tr>
+<td>FR-8</td>
+<td>UC4</td>
+<td>Functional</td>
+<td>Must Have</td>
+</tr>
+<tr>
+<td>FR-9</td>
+<td>F007</td>
+<td>Functional</td>
+<td>Should Have</td>
+</tr>
+<tr>
+<td>FR-10</td>
+<td>NFR-P3</td>
+<td>Functional</td>
+<td>Should Have</td>
+</tr>
+<tr>
+<td>FR-11</td>
+<td>F005</td>
+<td>Functional</td>
+<td>Must Have</td>
+</tr>
+<tr>
+<td>FR-12</td>
+<td>UC5</td>
+<td>Functional</td>
+<td>Must Have</td>
+</tr>
+<tr>
+<td>FR-13</td>
+<td>Section 10</td>
+<td>Functional</td>
+<td>Must Have</td>
+</tr>
+<tr>
+<td>FR-14</td>
+<td>[REF-003], [REF-004]</td>
+<td>Functional</td>
+<td>Must Have</td>
+</tr>
+<tr>
+<td>FR-15</td>
+<td>Section 11</td>
+<td>Functional</td>
+<td>Must Have</td>
+</tr>
+<tr>
+<td>FR-16</td>
+<td>NFR-U1</td>
+<td>Functional</td>
+<td>Must Have</td>
+</tr>
+<tr>
+<td>FR-17</td>
+<td>F009</td>
+<td>Functional</td>
+<td>Should Have</td>
+</tr>
+<tr>
+<td>FR-18</td>
+<td>UC4, UC5</td>
+<td>Functional</td>
+<td>Must Have</td>
+</tr>
+<tr>
+<td>FR-19</td>
+<td>F010</td>
+<td>Functional</td>
+<td>Should Have</td>
+</tr>
+<tr>
+<td>FR-20</td>
+<td>Privacy-Conscious User</td>
+<td>Functional</td>
+<td>Should Have</td>
+</tr>
+<tr>
+<td>NFR-U1</td>
+<td>Personas</td>
+<td>Non-Functional</td>
+<td>Must Have</td>
+</tr>
+<tr>
+<td>NFR-U2</td>
+<td>Personas</td>
+<td>Non-Functional</td>
+<td>Must Have</td>
+</tr>
+<tr>
+<td>NFR-U3</td>
+<td>Section 7.4</td>
+<td>Non-Functional</td>
+<td>Must Have</td>
+</tr>
+<tr>
+<td>NFR-P1</td>
+<td>Section 8.2</td>
+<td>Non-Functional</td>
+<td>Must Have</td>
+</tr>
+<tr>
+<td>NFR-P2</td>
+<td>Section 8.2</td>
+<td>Non-Functional</td>
+<td>Must Have</td>
+</tr>
+<tr>
+<td>NFR-P3</td>
+<td>Section 8.2</td>
+<td>Non-Functional</td>
+<td>Must Have</td>
+</tr>
+<tr>
+<td>NFR-R1</td>
+<td>[REF-006]</td>
+<td>Non-Functional</td>
+<td>Must Have</td>
+</tr>
+<tr>
+<td>NFR-R2</td>
+<td>[REF-006]</td>
+<td>Non-Functional</td>
+<td>Must Have</td>
+</tr>
+<tr>
+<td>NFR-S1</td>
+<td>Section 8.4</td>
+<td>Non-Functional</td>
+<td>Must Have</td>
+</tr>
+<tr>
+<td>NFR-S2</td>
+<td>Section 8.4</td>
+<td>Non-Functional</td>
+<td>Must Have</td>
+</tr>
+<tr>
+<td>NFR-S3</td>
+<td>Section 8.4</td>
+<td>Non-Functional</td>
+<td>Must Have</td>
+</tr>
+<tr>
+<td>NFR-S4</td>
+<td>[REF-002]</td>
+<td>Non-Functional</td>
+<td>Must Have</td>
+</tr>
+<tr>
+<td>NFR-C1</td>
+<td>Section 8.5</td>
+<td>Non-Functional</td>
+<td>Must Have</td>
+</tr>
+<tr>
+<td>NFR-C2</td>
+<td>Section 8.5</td>
+<td>Non-Functional</td>
+<td>Must Have</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="appendix-b-glossary">Appendix B: Glossary</h2>
+<table>
+<thead>
+<tr>
+<th>Term</th>
+<th>Definition</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>API Key</strong></td>
+<td>Authentication token for accessing provider services</td>
+</tr>
+<tr>
+<td><strong>Chrome Storage</strong></td>
+<td>Chrome extension's built-in storage API</td>
+</tr>
+<tr>
+<td><strong>Extraction</strong></td>
+<td>Process of obtaining clean text from HTML</td>
+</tr>
+<tr>
+<td><strong>Manifest V3</strong></td>
+<td>Chrome extension manifest version 3</td>
+</tr>
+<tr>
+<td><strong>Provider</strong></td>
+<td>External AI service provider</td>
+</tr>
+<tr>
+<td><strong>Service Worker</strong></td>
+<td>Background script in MV3 extensions</td>
+</tr>
+<tr>
+<td><strong>Storyboard</strong></td>
+<td>Structured plan for comic strip generation</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<p><em>Document Version: 1.0</em><br />
+<em>Last Updated: 2026-02-24</em><br />
+<em>Status: Draft for Review</em></p>
+
+    </article>
+    <div class="footer">Generated from <code>initial_specs.md</code></div>
+  </div>
+</body>
+</html>

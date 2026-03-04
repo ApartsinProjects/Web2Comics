@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>INSTALL - Web2Comics Docs</title>
+  <style>
+    :root { --bg:#f7f4ed; --panel:#fff; --ink:#1d2a3f; --muted:#5c6b82; --line:#ddd6ca; --link:#155eef; }
+    * { box-sizing: border-box; }
+    body { margin:0; font-family:"Segoe UI",Tahoma,Arial,sans-serif; color:var(--ink); background:var(--bg); line-height:1.6; }
+    .wrap { max-width:980px; margin:0 auto; padding:18px; }
+    .topbar { display:flex; flex-wrap:wrap; gap:10px; align-items:center; margin-bottom:14px; padding:10px 12px; border:1px solid var(--line); background:#fff; border-radius:10px; }
+    .topbar a { color:var(--link); text-decoration:none; font-weight:600; }
+    article { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:20px; overflow-wrap:anywhere; }
+    h1,h2,h3 { line-height:1.25; }
+    pre { background:#0f172a; color:#e2e8f0; padding:12px; border-radius:8px; overflow:auto; }
+    code { font-family:Consolas,"Courier New",monospace; font-size:0.92em; }
+    a { color:var(--link); }
+    table { border-collapse:collapse; width:100%; display:block; overflow-x:auto; }
+    th,td { border:1px solid #cdd5e1; padding:6px 8px; text-align:left; vertical-align:top; }
+    .footer { margin-top:12px; color:var(--muted); font-size:0.92rem; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <nav class="topbar">
+      <a href="../index.html">Docs Home</a>
+      <a href="https://github.com/ApartsinProjects/Web2Comics#readme" target="_blank" rel="noopener noreferrer">Project README</a>
+      <a href="../privacy.html">Privacy</a>
+      <a href="../support.html">Support</a>
+    </nav>
+    <article>
+<h1 id="web2comics-installation-guide">Web2Comics - Installation Guide</h1>
+<p>Simple step-by-step instructions to install and use the Web2Comics Chrome extension.</p>
+<hr />
+<h2 id="quick-start-5-minutes">Quick Start (5 minutes)</h2>
+<h3 id="step-1-load-extension-in-chrome">Step 1: Load Extension in Chrome</h3>
+<ol>
+<li><p><strong>Open Chrome</strong> and go to:</p>
+<pre><code>chrome://extensions/
+</code></pre>
+</li>
+<li><p><strong>Enable Developer mode</strong> (top-right corner)</p>
+<ul>
+<li>Toggle the switch ON</li>
+</ul>
+</li>
+<li><p><strong>Click &quot;Load unpacked&quot;</strong></p>
+<pre><code>[+ Load unpacked]
+</code></pre>
+</li>
+<li><p><strong>Select the extracted Web2Comics release folder</strong></p>
+<ul>
+<li>Navigate to the extracted folder (for example <code>Web2Comics-v1.0.3</code>)</li>
+<li>Select the folder that contains <code>manifest.json</code></li>
+<li>Click &quot;Select Folder&quot; or &quot;Open&quot;</li>
+</ul>
+</li>
+<li><p><strong>Confirm the extension is enabled</strong></p>
+<ul>
+<li>In <code>chrome://extensions</code>, make sure the <code>Web2Comics</code> card toggle is ON</li>
+</ul>
+</li>
+<li><p><strong>Done!</strong> The extension should now appear in your extensions list</p>
+</li>
+</ol>
+<hr />
+<h3 id="step-2-show-the-extension-icon-in-the-toolbar-enable-pin">Step 2: Show the Extension Icon in the Toolbar (Enable + Pin)</h3>
+<ol>
+<li>Click the puzzle piece (Extensions) icon in Chrome's toolbar</li>
+<li>Find <strong>Web2Comics</strong></li>
+<li>If it does not appear, confirm it is enabled in <code>chrome://extensions</code></li>
+<li>Click the <strong>pin</strong> icon next to <strong>Web2Comics</strong> to keep it visible in the toolbar</li>
+<li>Click the Web2Comics toolbar icon to open the popup</li>
+</ol>
+<hr />
+<h3 id="step-3-configure-api-keys-tokens-important">Step 3: Configure API Keys / Tokens (Important!)</h3>
+<p>The extension needs AI providers to generate comics. You must configure at least one:</p>
+<h4 id="option-a-google-gemini-recommended">Option A: Google Gemini (Recommended)</h4>
+<ol>
+<li><p><strong>Get a free API key:</strong></p>
+<ul>
+<li>Go to <a href="https://aistudio.google.com/app/apikey">https://aistudio.google.com/app/apikey</a></li>
+<li>Sign in with Google</li>
+<li>Click &quot;Create API key&quot;</li>
+<li>Copy the key</li>
+</ul>
+</li>
+<li><p><strong>Configure in extension:</strong></p>
+<ul>
+<li>Click the extension icon</li>
+<li>Click the gear/settings icon</li>
+<li>Go to <strong>Providers</strong> tab</li>
+<li>Paste your Gemini API key</li>
+<li>Click &quot;Validate&quot;</li>
+<li>Click &quot;Save Providers&quot;</li>
+</ul>
+</li>
+</ol>
+<h4 id="option-b-openai-gpt-dall-e">Option B: OpenAI (GPT + DALL-E)</h4>
+<ol>
+<li><p><strong>Get an API key:</strong></p>
+<ul>
+<li>Go to <a href="https://platform.openai.com/api-keys">https://platform.openai.com/api-keys</a></li>
+<li>Sign in/Sign up</li>
+<li>Create a new secret key</li>
+<li>Copy the key (starts with <code>sk-</code>)</li>
+</ul>
+</li>
+<li><p><strong>Configure:</strong></p>
+<ul>
+<li>Same as above, but enter OpenAI key</li>
+<li>Select your preferred models (GPT-4o, DALL-E 3)</li>
+</ul>
+</li>
+</ol>
+<h4 id="option-c-cloudflare-workers-ai-account-id-api-token">Option C: Cloudflare Workers AI (Account ID + API Token)</h4>
+<ol>
+<li><p><strong>Get your Cloudflare Account ID</strong></p>
+<ul>
+<li>Open Cloudflare dashboard</li>
+<li>Copy your Account ID from the account overview</li>
+</ul>
+</li>
+<li><p><strong>Create an API token</strong></p>
+<ul>
+<li>Create a token with Workers AI / AI inference access for your account</li>
+</ul>
+</li>
+<li><p><strong>Configure in extension:</strong></p>
+<ul>
+<li>Open <strong>Options -&gt; Providers</strong></li>
+<li>Enter Cloudflare Account ID and API Token</li>
+<li>Click <code>Validate</code></li>
+<li>Click <code>Save Providers</code></li>
+</ul>
+</li>
+<li><p><strong>Note</strong></p>
+<ul>
+<li>Cloudflare Workers AI supports both text and image generation in this extension</li>
+<li>Exact model availability may vary by account and region</li>
+</ul>
+</li>
+</ol>
+<hr />
+<h2 id="using-the-extension">Using the Extension</h2>
+<h3 id="generate-your-first-comic">Generate Your First Comic</h3>
+<ol>
+<li><strong>Navigate to any article</strong> (news, blog, etc.)</li>
+<li><strong>Click the Web2Comics extension icon</strong> in the toolbar</li>
+<li>Click <strong>Create Comic</strong> in the launcher and use defaults for a fast first run, or expand options to customize.</li>
+<li><strong>Click &quot;Generate Comic&quot;</strong></li>
+<li>Wait for generation (progress shown)</li>
+<li><strong>Click &quot;Open Comic Viewer&quot;</strong> to see your comic!</li>
+</ol>
+<h3 id="tips">Tips</h3>
+<ul>
+<li><strong>Selected text mode</strong>: Select specific text on page before clicking extension</li>
+<li><strong>Style presets</strong>: Try &quot;Noir&quot; for dramatic black &amp; white, &quot;Manga&quot; for anime style</li>
+<li><strong>Panel count</strong>: More panels = more detail but slower generation</li>
+</ul>
+<hr />
+<h2 id="troubleshooting">Troubleshooting</h2>
+<h3 id="extension-wont-load">Extension won't load</h3>
+<pre><code>Solution: Make sure Developer mode is ON in chrome://extensions/
+</code></pre>
+<h3 id="extension-icon-not-visible-in-toolbar">Extension icon not visible in toolbar</h3>
+<pre><code>Solutions:
+- Open the Extensions (puzzle) menu and pin Web2Comics
+- Confirm Web2Comics is enabled in chrome://extensions
+</code></pre>
+<h3 id="api-key-not-configured-error">&quot;API key not configured&quot; error</h3>
+<pre><code>Solution: Configure your API key in Options &gt; Providers
+</code></pre>
+<h3 id="content-extraction-fails">Content extraction fails</h3>
+<pre><code>Solutions:
+- Try selecting text manually on the page
+- Refresh the page
+- Check if page requires login
+</code></pre>
+<h3 id="images-not-generating">Images not generating</h3>
+<pre><code>Check:
+1. API key is configured
+2. You haven't exceeded rate limits
+3. Network is working
+4. Using a provider that supports images (Gemini, OpenAI, Cloudflare, OpenRouter, or Hugging Face depending on your account/model access)
+</code></pre>
+<h3 id="service-worker-errors">Service worker errors</h3>
+<pre><code>This is normal - MV3 service workers stop when idle.
+They wake up automatically when needed.
+Check chrome://extensions &gt; Service worker for logs.
+</code></pre>
+<hr />
+<h2 id="uninstalling">Uninstalling</h2>
+<ol>
+<li>Go to <code>chrome://extensions/</code></li>
+<li>Find &quot;Web2Comics&quot;</li>
+<li>Click &quot;Remove&quot;</li>
+<li>Confirm</li>
+</ol>
+<hr />
+<h2 id="whats-included">What's Included</h2>
+<pre><code>Web2Comics-v1.0.3/
+├── manifest.json           # Extension config
+├── popup/                 # Main popup UI
+├── sidepanel/            # Comic viewer
+├── options/              # Settings page
+├── background/           # Service worker
+├── content/              # Page extraction
+├── providers/            # AI providers
+├── shared/               # Shared code
+├── icons/                # Extension icons
+├── docs/
+│   └── user-manual.html  # User manual / help file
+└── docs/INSTALL.md       # This file
+</code></pre>
+<hr />
+<h2 id="need-help">Need Help?</h2>
+<ul>
+<li><strong>GitHub Issues:</strong> Report bugs at <a href="https://github.com/ApartsinProjects/Web2Comics/issues">https://github.com/ApartsinProjects/Web2Comics/issues</a></li>
+<li><strong>Documentation:</strong> See <code>docs/user-manual.html</code> for setup and usage details</li>
+</ul>
+<hr />
+<p><em>Version 1.0.3 | Last Updated: 2026-03-03</em></p>
+
+    </article>
+    <div class="footer">Generated from <code>INSTALL.md</code></div>
+  </div>
+</body>
+</html>

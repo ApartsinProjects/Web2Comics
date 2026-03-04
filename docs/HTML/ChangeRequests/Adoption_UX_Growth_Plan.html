@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Adoption_UX_Growth_Plan - Web2Comics Docs</title>
+  <style>
+    :root { --bg:#f7f4ed; --panel:#fff; --ink:#1d2a3f; --muted:#5c6b82; --line:#ddd6ca; --link:#155eef; }
+    * { box-sizing: border-box; }
+    body { margin:0; font-family:"Segoe UI",Tahoma,Arial,sans-serif; color:var(--ink); background:var(--bg); line-height:1.6; }
+    .wrap { max-width:980px; margin:0 auto; padding:18px; }
+    .topbar { display:flex; flex-wrap:wrap; gap:10px; align-items:center; margin-bottom:14px; padding:10px 12px; border:1px solid var(--line); background:#fff; border-radius:10px; }
+    .topbar a { color:var(--link); text-decoration:none; font-weight:600; }
+    article { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:20px; overflow-wrap:anywhere; }
+    h1,h2,h3 { line-height:1.25; }
+    pre { background:#0f172a; color:#e2e8f0; padding:12px; border-radius:8px; overflow:auto; }
+    code { font-family:Consolas,"Courier New",monospace; font-size:0.92em; }
+    a { color:var(--link); }
+    table { border-collapse:collapse; width:100%; display:block; overflow-x:auto; }
+    th,td { border:1px solid #cdd5e1; padding:6px 8px; text-align:left; vertical-align:top; }
+    .footer { margin-top:12px; color:var(--muted); font-size:0.92rem; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <nav class="topbar">
+      <a href="../../index.html">Docs Home</a>
+      <a href="https://github.com/ApartsinProjects/Web2Comics#readme" target="_blank" rel="noopener noreferrer">Project README</a>
+      <a href="../../privacy.html">Privacy</a>
+      <a href="../../support.html">Support</a>
+    </nav>
+    <article>
+<h1 id="adoption-ux-growth-plan">Adoption UX Growth Plan</h1>
+<p>Date: 2026-02-27
+Owner: Product + UX + Engineering</p>
+<h2 id="goal">Goal</h2>
+<p>Increase user adoption by making first success fast, reliable on major sites (especially Wikipedia), and easy to share.</p>
+<h2 id="priority-initiatives-requested">Priority Initiatives (Requested)</h2>
+<ol>
+<li>Make first success under 15 seconds by default.</li>
+</ol>
+<ul>
+<li>Set fast defaults: 3 panels, low detail, Gemini fast-first path, lightweight image settings.</li>
+<li>Success metric: p50 &quot;Create Comic -&gt; first rendered panel&quot; &lt; 15s on supported pages.</li>
+</ul>
+<ol start="2">
+<li>Ship explicit &quot;Wikipedia mode&quot; extraction profile.</li>
+</ol>
+<ul>
+<li>Add site-specific extraction heuristics and UI hinting for Wikipedia page structures.</li>
+<li>Success metric: extraction success &gt; 95% on top Wikipedia pages in test set.</li>
+</ul>
+<ol start="3">
+<li>Replace technical readiness text with task-oriented guidance.</li>
+</ol>
+<ul>
+<li>Use action copy like &quot;Select article section to continue&quot;.</li>
+<li>Success metric: lower &quot;disabled generate&quot; abandonment rate.</li>
+</ul>
+<ol start="4">
+<li>Add one-click &quot;Auto-pick best story section&quot; with confidence score.</li>
+</ol>
+<ul>
+<li>Default auto-pick; show manual block picker only when confidence is low.</li>
+<li>Success metric: manual block selection usage decreases without quality drop.</li>
+</ul>
+<ol start="5">
+<li>Introduce guided first-run with two clicks only.</li>
+</ol>
+<ul>
+<li>Flow target: Create Comic -&gt; Generate.</li>
+<li>Hide advanced controls until first successful generation.</li>
+<li>Success metric: first-run completion rate increase.</li>
+</ul>
+<ol start="6">
+<li>Provide inline &quot;Regenerate panel/caption&quot; controls in viewer.</li>
+</ol>
+<ul>
+<li>Enable per-panel fixes without re-running whole job.</li>
+<li>Success metric: fewer full reruns per completed comic.</li>
+</ul>
+<ol start="7">
+<li>Add quality guardrails before generation.</li>
+</ol>
+<ul>
+<li>Detect overly broad/generic extraction; offer 2-3 focused segment options.</li>
+<li>Success metric: higher caption relevance score on first attempt.</li>
+</ul>
+<ol start="8">
+<li>Create share-first output formats.</li>
+</ol>
+<ul>
+<li>One-click presets for X, LinkedIn, Slides including title/source attribution.</li>
+<li>Success metric: export/share action rate increase.</li>
+</ul>
+<ol start="9">
+<li>Add trust/transparency layer.</li>
+</ol>
+<ul>
+<li>Show &quot;facts used&quot; (entities/dates/numbers) per panel.</li>
+<li>Success metric: increased trust score in user feedback.</li>
+</ul>
+<ol start="10">
+<li>Build growth loop with templates/use-cases.</li>
+</ol>
+<ul>
+<li>Presets: News recap, Wiki explainer, Meeting notes to comic, Learning summary.</li>
+<li>Success metric: higher repeat usage across varied page types.</li>
+</ul>
+<h2 id="immediate-implementation-status">Immediate Implementation Status</h2>
+<ul>
+<li>Implemented now:
+<ul>
+<li>Fast-first defaults aligned in runtime/shared settings.</li>
+<li>Task-oriented readiness messaging in popup.</li>
+</ul>
+</li>
+<li>Planned next:
+<ul>
+<li>Wikipedia extraction mode + confidence scoring + auto-pick.</li>
+<li>Guided first-run simplification and post-success progressive disclosure.</li>
+<li>Viewer inline regeneration + trust/share features.</li>
+</ul>
+</li>
+</ul>
+
+    </article>
+    <div class="footer">Generated from <code>ChangeRequests/Adoption_UX_Growth_Plan.md</code></div>
+  </div>
+</body>
+</html>

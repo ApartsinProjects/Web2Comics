@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>demo-video-script - Web2Comics Docs</title>
+  <style>
+    :root { --bg:#f7f4ed; --panel:#fff; --ink:#1d2a3f; --muted:#5c6b82; --line:#ddd6ca; --link:#155eef; }
+    * { box-sizing: border-box; }
+    body { margin:0; font-family:"Segoe UI",Tahoma,Arial,sans-serif; color:var(--ink); background:var(--bg); line-height:1.6; }
+    .wrap { max-width:980px; margin:0 auto; padding:18px; }
+    .topbar { display:flex; flex-wrap:wrap; gap:10px; align-items:center; margin-bottom:14px; padding:10px 12px; border:1px solid var(--line); background:#fff; border-radius:10px; }
+    .topbar a { color:var(--link); text-decoration:none; font-weight:600; }
+    article { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:20px; overflow-wrap:anywhere; }
+    h1,h2,h3 { line-height:1.25; }
+    pre { background:#0f172a; color:#e2e8f0; padding:12px; border-radius:8px; overflow:auto; }
+    code { font-family:Consolas,"Courier New",monospace; font-size:0.92em; }
+    a { color:var(--link); }
+    table { border-collapse:collapse; width:100%; display:block; overflow-x:auto; }
+    th,td { border:1px solid #cdd5e1; padding:6px 8px; text-align:left; vertical-align:top; }
+    .footer { margin-top:12px; color:var(--muted); font-size:0.92rem; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <nav class="topbar">
+      <a href="../index.html">Docs Home</a>
+      <a href="https://github.com/ApartsinProjects/Web2Comics#readme" target="_blank" rel="noopener noreferrer">Project README</a>
+      <a href="../privacy.html">Privacy</a>
+      <a href="../support.html">Support</a>
+    </nav>
+    <article>
+<h1 id="web2comics-short-demo-video-script">Web2Comics Short Demo Video Script</h1>
+<p>Duration target: 2:30 to 3:00<br />
+Format: screen capture + light zooms + captions<br />
+Audience: new users evaluating the extension quickly</p>
+<h2 id="hook-000-015">1. Hook (0:00-0:15)</h2>
+<p>Screen capture:</p>
+<ul>
+<li>Open a news page (CNN or Wikipedia article).</li>
+<li>Show extension icon click.</li>
+<li>Show <code>Create Comic</code> button.</li>
+</ul>
+<p>Voiceover:</p>
+<ul>
+<li>&quot;Turn any page into a visual comic summary in seconds.&quot;</li>
+<li>&quot;Web2Comics automatically finds the best story and turns it into panels.&quot;</li>
+</ul>
+<p>On-screen text:</p>
+<ul>
+<li>&quot;From webpage to comic in under 15s&quot;</li>
+</ul>
+<h2 id="two-click-flow-015-040">2. Two-click flow (0:15-0:40)</h2>
+<p>Screen capture:</p>
+<ul>
+<li>Click <code>Create Comic</code>.</li>
+<li>Keep defaults visible: 3 panels, fast provider.</li>
+<li>Click <code>Generate Comic</code>.</li>
+<li>Show progress briefly, then first panel appears.</li>
+</ul>
+<p>Voiceover:</p>
+<ul>
+<li>&quot;Default flow is intentionally simple: Create Comic, then Generate.&quot;</li>
+<li>&quot;The extension auto-picks a top story and starts rendering immediately.&quot;</li>
+</ul>
+<p>On-screen text:</p>
+<ul>
+<li>&quot;2 clicks: Create Comic -&gt; Generate&quot;</li>
+</ul>
+<h2 id="story-auto-selection-manual-override-040-105">3. Story auto-selection + manual override (0:40-1:05)</h2>
+<p>Screen capture:</p>
+<ul>
+<li>Show <code>Grounding</code> indicator.</li>
+<li>Open <code>Stories</code> button and list of detected stories with summaries.</li>
+<li>Select a different story and re-generate.</li>
+</ul>
+<p>Voiceover:</p>
+<ul>
+<li>&quot;Web2Comics detects multiple story candidates and auto-selects the strongest one.&quot;</li>
+<li>&quot;You can switch to any other detected story when you want control.&quot;</li>
+</ul>
+<p>On-screen text:</p>
+<ul>
+<li>&quot;Auto-pick + manual story selection&quot;</li>
+</ul>
+<h2 id="generate-from-highlighted-text-105-125">4. Generate from highlighted text (1:05-1:25)</h2>
+<p>Screen capture:</p>
+<ul>
+<li>Highlight a paragraph on the page.</li>
+<li>Open extension.</li>
+<li>Switch source mode to <code>Use highlighted text</code>.</li>
+<li>Generate.</li>
+</ul>
+<p>Voiceover:</p>
+<ul>
+<li>&quot;Need precision? Highlight specific text and generate from exactly that content.&quot;</li>
+</ul>
+<p>On-screen text:</p>
+<ul>
+<li>&quot;Generate from selected text&quot;</li>
+</ul>
+<h2 id="viewer-capabilities-125-155">5. Viewer capabilities (1:25-1:55)</h2>
+<p>Screen capture:</p>
+<ul>
+<li>Open side panel viewer.</li>
+<li>Switch layout presets.</li>
+<li>Show panel controls: regenerate panel/caption, factual/simpler actions.</li>
+<li>Expand compact grounding/facts section.</li>
+</ul>
+<p>Voiceover:</p>
+<ul>
+<li>&quot;After generation, use viewer tools to refine panel quality and layout.&quot;</li>
+<li>&quot;You can regenerate per panel instead of rerunning the full comic.&quot;</li>
+</ul>
+<p>On-screen text:</p>
+<ul>
+<li>&quot;Per-panel edits + multiple layout presets&quot;</li>
+</ul>
+<h2 id="history-and-reuse-155-215">6. History and reuse (1:55-2:15)</h2>
+<p>Screen capture:</p>
+<ul>
+<li>Open history mode.</li>
+<li>Show thumbnail cards.</li>
+<li>Open a prior comic.</li>
+</ul>
+<p>Voiceover:</p>
+<ul>
+<li>&quot;Every comic is saved in history for quick reopen and reuse.&quot;</li>
+</ul>
+<p>On-screen text:</p>
+<ul>
+<li>&quot;History with visual previews&quot;</li>
+</ul>
+<h2 id="share-and-export-215-240">7. Share and export (2:15-2:40)</h2>
+<p>Screen capture:</p>
+<ul>
+<li>Open share menu.</li>
+<li>Show targets (X, LinkedIn, Story, Email).</li>
+<li>Trigger <code>Download</code>.</li>
+<li>Briefly show exported image with attribution line.</li>
+</ul>
+<p>Voiceover:</p>
+<ul>
+<li>&quot;Export or share instantly to social channels and email.&quot;</li>
+<li>&quot;Each output includes source-aware branding for attribution.&quot;</li>
+</ul>
+<p>On-screen text:</p>
+<ul>
+<li>&quot;Share-ready exports&quot;</li>
+</ul>
+<h2 id="closing-cta-240-300">8. Closing CTA (2:40-3:00)</h2>
+<p>Screen capture:</p>
+<ul>
+<li>Back to webpage + generated comic side by side.</li>
+<li>Show extension name and icon.</li>
+</ul>
+<p>Voiceover:</p>
+<ul>
+<li>&quot;Web2Comics helps you summarize, learn, and communicate faster.&quot;</li>
+<li>&quot;Install the extension and create your first comic now.&quot;</li>
+</ul>
+<p>On-screen text:</p>
+<ul>
+<li>&quot;Web2Comics - From content to comic&quot;</li>
+</ul>
+<hr />
+<h2 id="quick-recording-checklist">Quick Recording Checklist</h2>
+<ul>
+<li>Use one CNN page and one Wikipedia page.</li>
+<li>Record at 1440x900 or 1920x1080.</li>
+<li>Keep cursor movements slow and intentional.</li>
+<li>Add chapter title cards between sections (1 second each).</li>
+<li>Use subtitles for all voiceover lines.</li>
+<li>Keep total under 3 minutes.</li>
+</ul>
+<h2 id="optional-b-roll-inserts">Optional B-roll Inserts</h2>
+<ul>
+<li>Story picker close-up.</li>
+<li>Grounding indicator close-up (green/yellow/red).</li>
+<li>Before/after panel regenerate.</li>
+<li>Share menu open animation.</li>
+</ul>
+
+    </article>
+    <div class="footer">Generated from <code>demo-video-script.md</code></div>
+  </div>
+</body>
+</html>

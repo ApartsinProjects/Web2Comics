@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>UserExperienceReview - Web2Comics Docs</title>
+  <style>
+    :root { --bg:#f7f4ed; --panel:#fff; --ink:#1d2a3f; --muted:#5c6b82; --line:#ddd6ca; --link:#155eef; }
+    * { box-sizing: border-box; }
+    body { margin:0; font-family:"Segoe UI",Tahoma,Arial,sans-serif; color:var(--ink); background:var(--bg); line-height:1.6; }
+    .wrap { max-width:980px; margin:0 auto; padding:18px; }
+    .topbar { display:flex; flex-wrap:wrap; gap:10px; align-items:center; margin-bottom:14px; padding:10px 12px; border:1px solid var(--line); background:#fff; border-radius:10px; }
+    .topbar a { color:var(--link); text-decoration:none; font-weight:600; }
+    article { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:20px; overflow-wrap:anywhere; }
+    h1,h2,h3 { line-height:1.25; }
+    pre { background:#0f172a; color:#e2e8f0; padding:12px; border-radius:8px; overflow:auto; }
+    code { font-family:Consolas,"Courier New",monospace; font-size:0.92em; }
+    a { color:var(--link); }
+    table { border-collapse:collapse; width:100%; display:block; overflow-x:auto; }
+    th,td { border:1px solid #cdd5e1; padding:6px 8px; text-align:left; vertical-align:top; }
+    .footer { margin-top:12px; color:var(--muted); font-size:0.92rem; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <nav class="topbar">
+      <a href="../index.html">Docs Home</a>
+      <a href="https://github.com/ApartsinProjects/Web2Comics#readme" target="_blank" rel="noopener noreferrer">Project README</a>
+      <a href="../privacy.html">Privacy</a>
+      <a href="../support.html">Support</a>
+    </nav>
+    <article>
+<h1 id="user-experience-review-two-passes">User Experience Review (Two Passes)</h1>
+<p>Date: 2026-02-28<br />
+Scope: popup, sidepanel, options (connections), first-run path</p>
+<h2 id="pass-1-audit-highest-standard-heuristics">Pass 1: Audit (Highest-Standard Heuristics)</h2>
+<h3 id="clarity-of-next-action">1) Clarity of next action</h3>
+<ul>
+<li>Issue: readiness text mixed multiple system states in one sentence (content + provider + setup), increasing cognitive load.</li>
+<li>Risk: users cannot quickly identify the single action that unblocks generation.</li>
+</ul>
+<h3 id="respect-for-user-intent">2) Respect for user intent</h3>
+<ul>
+<li>Issue: extras could reopen as readiness changed, even after manual close in some conditions.</li>
+<li>Risk: &quot;UI is fighting me&quot; feel.</li>
+</ul>
+<h3 id="action-hierarchy-in-first-run">3) Action hierarchy in first run</h3>
+<ul>
+<li>Issue: when both provider and content were missing, guidance sometimes pushed content first.</li>
+<li>Risk: users spend effort on extraction before enabling the required provider.</li>
+</ul>
+<h3 id="connections-panel-signal-to-noise">4) Connections panel signal-to-noise</h3>
+<ul>
+<li>Issue: Connect + Disconnect were visible at the same time for each service.</li>
+<li>Risk: redundant controls, weaker visual hierarchy.</li>
+</ul>
+<h3 id="testability-and-regression-coverage">5) Testability and regression coverage</h3>
+<ul>
+<li>Issue: existing tests assumed old readiness copy and always-visible disconnect controls.</li>
+<li>Risk: valid UX improvements looked like regressions.</li>
+</ul>
+<h2 id="pass-2-improvements-applied">Pass 2: Improvements Applied</h2>
+<h3 id="a-popup-readiness-guidance-single-task-oriented-message">A) Popup readiness guidance: single, task-oriented message</h3>
+<ul>
+<li>Implemented canonical guidance priority:
+<ol>
+<li>Connect provider</li>
+<li>Finish provider setup</li>
+<li>Pick/select source text</li>
+<li>Ready to generate</li>
+</ol>
+</li>
+<li>Result: one clear next step at any time.</li>
+</ul>
+<h3 id="b-popup-auto-open-behavior-intent-safe">B) Popup auto-open behavior: intent-safe</h3>
+<ul>
+<li>Updated section auto-open policy to avoid forced reopen after manual collapse.</li>
+<li>Kept auto-open limited to meaningful cases (selection fallback and first unmet settings pass).</li>
+</ul>
+<h3 id="c-readiness-action-priority-fixed">C) Readiness action priority fixed</h3>
+<ul>
+<li>&quot;Fix next step&quot; now prioritizes provider connection/setup before content actions when both are unresolved.</li>
+</ul>
+<h3 id="d-connections-ux-simplified">D) Connections UX simplified</h3>
+<ul>
+<li>Added stateful action visibility in Options &gt; Connections:
+<ul>
+<li><code>Not connected</code>: show <code>Connect</code></li>
+<li><code>Connected</code>: show <code>Disconnect</code></li>
+<li><code>OAuth app not configured</code>: disable <code>Connect</code>, hide <code>Disconnect</code></li>
+</ul>
+</li>
+<li>Applied across Google Drive, Facebook, X, Instagram, and Other share target.</li>
+</ul>
+<h3 id="e-tests-updatedexpanded">E) Tests updated/expanded</h3>
+<ul>
+<li>Updated popup readiness copy assertions.</li>
+<li>Updated popup manual-collapse behavior assertion for the new non-forced-open model.</li>
+<li>Added/updated options tests for one-action-at-a-time connection controls and unavailable OAuth state.</li>
+<li>Stabilized sidepanel fallback-link assertion to validate safety without brittle URL-normalization dependence.</li>
+</ul>
+<h2 id="outcome">Outcome</h2>
+<ul>
+<li>First-run flow is now more task-oriented.</li>
+<li>UI is less likely to override explicit user behavior.</li>
+<li>Connections tab has cleaner, state-driven controls.</li>
+<li>Regression coverage reflects the new UX model.</li>
+</ul>
+<h2 id="pass-3-follow-up-ux-hardening-applied">Pass 3: Follow-up UX Hardening (Applied)</h2>
+<h3 id="sidepanel-action-clarity">1) Sidepanel action clarity</h3>
+<ul>
+<li>Renamed compact panel controls from short cryptic labels to clear labels:
+<ul>
+<li><code>Img</code> -&gt; <code>Image</code></li>
+<li><code>Cap</code> -&gt; <code>Caption</code></li>
+<li><code>Fact</code> -&gt; <code>Factual</code></li>
+</ul>
+</li>
+</ul>
+<h3 id="grounding-signal-de-noised">2) Grounding signal de-noised</h3>
+<ul>
+<li>Kept grounding evidence available but reduced visual dominance:
+<ul>
+<li>subtle shell styling</li>
+<li>compact traffic-light indicator (green/yellow/red)</li>
+<li>small count badge</li>
+</ul>
+</li>
+<li>Improved fact relevance by filtering entity chips against panel caption/snippet context before display.</li>
+</ul>
+<h3 id="per-panel-action-menu-reliability">3) Per-panel action menu reliability</h3>
+<ul>
+<li>Improved &quot;More&quot; action popover affordance and z-index layering.</li>
+<li>Added auto-close behavior when selecting a menu action to prevent stuck/hidden popovers.</li>
+</ul>
+<h3 id="readability-and-control-polish">4) Readability and control polish</h3>
+<ul>
+<li>Increased caption readability contrast and spacing.</li>
+<li>Improved pill/button contrast, hit-area, and hover state clarity.</li>
+<li>Refined viewer stat chip legibility.</li>
+</ul>
+<h3 id="test-alignment-and-stability">5) Test alignment and stability</h3>
+<ul>
+<li>Updated integration tests for renamed panel actions and grounding behavior.</li>
+<li>Hardened objective flow test timing for popup generation readiness.</li>
+<li>Updated Playwright extension UI checks to match current layout-preset based sidepanel flow and composer section behavior.</li>
+</ul>
+
+    </article>
+    <div class="footer">Generated from <code>UserExperienceReview.md</code></div>
+  </div>
+</body>
+</html>

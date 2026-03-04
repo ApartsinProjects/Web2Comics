@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Rewrite - Web2Comics Docs</title>
+  <style>
+    :root { --bg:#f7f4ed; --panel:#fff; --ink:#1d2a3f; --muted:#5c6b82; --line:#ddd6ca; --link:#155eef; }
+    * { box-sizing: border-box; }
+    body { margin:0; font-family:"Segoe UI",Tahoma,Arial,sans-serif; color:var(--ink); background:var(--bg); line-height:1.6; }
+    .wrap { max-width:980px; margin:0 auto; padding:18px; }
+    .topbar { display:flex; flex-wrap:wrap; gap:10px; align-items:center; margin-bottom:14px; padding:10px 12px; border:1px solid var(--line); background:#fff; border-radius:10px; }
+    .topbar a { color:var(--link); text-decoration:none; font-weight:600; }
+    article { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:20px; overflow-wrap:anywhere; }
+    h1,h2,h3 { line-height:1.25; }
+    pre { background:#0f172a; color:#e2e8f0; padding:12px; border-radius:8px; overflow:auto; }
+    code { font-family:Consolas,"Courier New",monospace; font-size:0.92em; }
+    a { color:var(--link); }
+    table { border-collapse:collapse; width:100%; display:block; overflow-x:auto; }
+    th,td { border:1px solid #cdd5e1; padding:6px 8px; text-align:left; vertical-align:top; }
+    .footer { margin-top:12px; color:var(--muted); font-size:0.92rem; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <nav class="topbar">
+      <a href="../../index.html">Docs Home</a>
+      <a href="https://github.com/ApartsinProjects/Web2Comics#readme" target="_blank" rel="noopener noreferrer">Project README</a>
+      <a href="../../privacy.html">Privacy</a>
+      <a href="../../support.html">Support</a>
+    </nav>
+    <article>
+<h1 id="change-request-cr">Change Request (CR)</h1>
+<h2 id="title">Title</h2>
+<p>web2Comics Chrome Extension: Image Generation Refusal Handling (Prompt Rewrite / Sanitization / Show Blocked)</p>
+<hr />
+<h2 id="background">1. Background</h2>
+<p>In web2Comics, the extension summarizes a page and generates a comic-strip via image generation prompts. Prompts that include <strong>real political figures</strong> (e.g., Trump) can be refused by the image provider due to content filtering. This can break comic strips (missing panels) unless handled gracefully.</p>
+<hr />
+<h2 id="objective">2. Objective</h2>
+<p>Add a <strong>user-configurable refusal-handling policy</strong> in the Chrome extension <strong>Options/Settings panel</strong> to control what happens when an image generation request is blocked.</p>
+<hr />
+<h2 id="user-stories">3. User Stories</h2>
+<ul>
+<li>As a user, when image generation is blocked, I want the extension to automatically retry with a safer prompt so I still get a comic.</li>
+<li>As a user, I want an option to preserve the storyline but replace real names if needed to avoid blocks.</li>
+<li>As a user, I want an option to do nothing and show “blocked” placeholders for transparency.</li>
+</ul>
+<hr />
+<h2 id="uiux-requirements-chrome-extension-options-panel">4. UI/UX Requirements (Chrome Extension Options Panel)</h2>
+<h3 id="settings-section">4.1 Settings Section</h3>
+<p>Add a section:</p>
+<p><strong>Image Generation → Content Filtering Handling</strong></p>
+<p>Control: <strong>Radio group</strong> (single selection)</p>
+<p>Label: <strong>When image generation is blocked</strong></p>
+<p>Options (3):</p>
+<ol>
+<li><p><strong>Rewrite and try again (keep real figure)</strong></p>
+<ul>
+<li>Description: If the provider blocks the prompt, rewrite it to a neutral editorial style and retry once.</li>
+</ul>
+</li>
+<li><p><strong>Replace people and trigger words, then retry</strong></p>
+<ul>
+<li>Description: Replace real names and sensitive trigger phrases with neutral fictional descriptors, then retry once.</li>
+</ul>
+</li>
+<li><p><strong>Do nothing (show blocked panel)</strong></p>
+<ul>
+<li>Description: Don’t retry; show a blocked placeholder panel in the comic strip.</li>
+</ul>
+</li>
+</ol>
+<p>Default: <strong>Rewrite and try again (keep real figure)</strong></p>
+<hr />
+<h3 id="optional-toggles-recommended">4.2 Optional Toggles (Recommended)</h3>
+<ul>
+<li><strong>Show “Rewritten” badge on retried panels:</strong> toggle (default ON)</li>
+<li><strong>Log original + rewritten prompt locally (for debugging):</strong> toggle (default OFF)</li>
+</ul>
+<p>Notes:</p>
+<ul>
+<li>Retry count is fixed to <strong>1</strong> (no UI needed).</li>
+</ul>
+<hr />
+<h2 id="functional-requirements">5. Functional Requirements</h2>
+<h3 id="refusal-detection">5.1 Refusal Detection</h3>
+<p>When calling the image generation provider, the extension must detect refusal outcomes, including:</p>
+<ul>
+<li>Explicit “blocked/refused” status codes (provider-specific)</li>
+<li>Error messages indicating content policy / safety filter / moderation refusal</li>
+</ul>
+<p>On refusal, the extension must route to the configured handling mode.</p>
+<hr />
+<h3 id="handling-modes">5.2 Handling Modes</h3>
+<h4 id="mode-a-rewrite_and_retry-keep-real-figure">Mode A — <code>rewrite_and_retry</code> (keep real figure)</h4>
+<p>Behavior:</p>
+<ol>
+<li>Take the original prompt.</li>
+<li>Apply the Prompt Rewriting Template (Section 6).</li>
+<li>Retry image generation <strong>once</strong>.</li>
+<li>If retry fails: render blocked placeholder for that panel.</li>
+</ol>
+<p>Notes:</p>
+<ul>
+<li>Preserves the real figure reference.</li>
+<li>Removes persuasive/defamatory framing.</li>
+<li>Avoids “exact likeness” / deepfake phrasing.</li>
+</ul>
+<hr />
+<h4 id="mode-b-replace_people_and_triggers-sanitize-and-retry">Mode B — <code>replace_people_and_triggers</code> (sanitize and retry)</h4>
+<p>Behavior:</p>
+<ol>
+<li>Take the original prompt.</li>
+<li>Replace:
+<ul>
+<li>Real-person names → fictional neutral descriptors (e.g., “a well-known American politician”).</li>
+<li>Trigger terms (e.g., “arrest”, “corruption”, “rigged election”) → neutral context (e.g., “legal setting”, “political event”).</li>
+</ul>
+</li>
+<li>Retry once.</li>
+<li>If retry fails: render blocked placeholder.</li>
+</ol>
+<p>Notes:</p>
+<ul>
+<li>Higher success probability.</li>
+<li>May alter user intent (explicitly documented in UI description).</li>
+</ul>
+<hr />
+<h4 id="mode-c-show_blocked-no-retry">Mode C — <code>show_blocked</code> (no retry)</h4>
+<p>Behavior:</p>
+<ol>
+<li>Do not modify the prompt.</li>
+<li>Do not retry.</li>
+<li>Insert a blocked placeholder image panel with a short caption.</li>
+</ol>
+<p>Placeholder requirements:</p>
+<ul>
+<li>Same aspect ratio as normal panels</li>
+<li>Text: “Panel blocked by image provider policy”</li>
+<li>Provide a “View prompt” link/button if debugging is enabled</li>
+</ul>
+<hr />
+<h2 id="prompt-rewriting-template-mode-a">6. Prompt Rewriting Template (Mode A)</h2>
+<p>Rewrite the image generation prompt to reduce refusal likelihood while preserving:</p>
+<ul>
+<li>The real public figure mentioned</li>
+<li>The core storyline or scene</li>
+<li>The intended artistic style (if specified)</li>
+</ul>
+<p>Apply the following rules:</p>
+<ol>
+<li>Keep tone neutral and documentary-like.</li>
+<li>Remove persuasive, promotional, or election-influencing language.</li>
+<li>Remove defamatory or unverified criminal claims.</li>
+<li>Replace emotionally loaded words with neutral descriptors.</li>
+<li>Frame as editorial/journalistic/historical/artistic context.</li>
+<li>Avoid “exact likeness,” “deepfake,” or similar phrasing.</li>
+<li>If realism is requested, use “editorial photo style” / “news photography style.”</li>
+</ol>
+<p>Return only the rewritten prompt.</p>
+<hr />
+<h2 id="section"></h2>
+<h2 id="runtime-flow-panel-level">8. Runtime Flow (Panel-Level)</h2>
+<p>For each comic panel:</p>
+<ol>
+<li>Generate panel prompt (from web summary + storyboard).</li>
+<li>Call Image API.</li>
+<li>If success → render panel.</li>
+<li>If refused → apply selected mode:
+<ul>
+<li><code>rewrite_and_retry</code> → rewrite → retry → render success or blocked placeholder</li>
+<li><code>replace_people_and_triggers</code> → sanitize → retry → render success or blocked placeholder</li>
+<li><code>show_blocked</code> → render blocked placeholder</li>
+</ul>
+</li>
+</ol>
+<hr />
+<h2 id="acceptance-criteria">9. Acceptance Criteria</h2>
+<table>
+<thead>
+<tr>
+<th>ID</th>
+<th>Setting</th>
+<th>Scenario</th>
+<th>Expected</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>AC1</td>
+<td>rewrite_and_retry</td>
+<td>Prompt with real political figure blocked</td>
+<td>Prompt rewritten, retried once</td>
+</tr>
+<tr>
+<td>AC2</td>
+<td>rewrite_and_retry</td>
+<td>Retry succeeds</td>
+<td>Panel renders; optional “Rewritten” badge shown</td>
+</tr>
+<tr>
+<td>AC3</td>
+<td>rewrite_and_retry</td>
+<td>Retry fails</td>
+<td>Blocked placeholder panel rendered</td>
+</tr>
+<tr>
+<td>AC4</td>
+<td>replace_people_and_triggers</td>
+<td>Prompt blocked</td>
+<td>Names/trigger terms replaced; retried once</td>
+</tr>
+<tr>
+<td>AC5</td>
+<td>show_blocked</td>
+<td>Prompt blocked</td>
+<td>No retry; blocked placeholder rendered</td>
+</tr>
+<tr>
+<td>AC6</td>
+<td>storage.sync</td>
+<td>Change setting</td>
+<td>Setting persists across devices (if sync enabled)</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="notes-edge-cases">10. Notes / Edge Cases</h2>
+<ul>
+<li>If the provider returns a refusal without detailed reason, treat as refusal and follow the selected mode.</li>
+<li>Ensure retries do not loop across refreshes (store per-panel attempt state in memory for the current run).</li>
+<li>If multiple providers are supported, normalize provider responses into: <code>{success | refused | error}</code>.</li>
+</ul>
+
+    </article>
+    <div class="footer">Generated from <code>ChangeRequests/Rewrite.md</code></div>
+  </div>
+</body>
+</html>

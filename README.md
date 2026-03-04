@@ -22,6 +22,7 @@ Web2Comics is a Chrome extension that:
 Release links:
 - [Releases page](https://github.com/ApartsinProjects/Web2Comics/releases)
 - [Current release (`v1.0.3`) ZIP](https://github.com/ApartsinProjects/Web2Comics/releases/download/v1.0.3/Web2Comics-v1.0.3-extension.zip)
+- [Documentation site (GitHub Pages)](https://apartsinprojects.github.io/Web2Comics/)
 
 1. Open the repository `Releases` page on GitHub (link above).
 2. Download the latest release asset ZIP (for example `Web2Comics-v1.0.3-extension.zip`).
@@ -212,3 +213,5 @@ HUGGINGFACE_INFERENCE_API_TOKEN=...
 - Privacy policy: [docs/privacy.html](docs/privacy.html)
 
 Copyright (c) 2026 Alexander Apartsin. All rights reserved.
+
+Creator website: https://www.apartsin.com

@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Gemini_key - Web2Comics Docs</title>
+  <style>
+    :root { --bg:#f7f4ed; --panel:#fff; --ink:#1d2a3f; --muted:#5c6b82; --line:#ddd6ca; --link:#155eef; }
+    * { box-sizing: border-box; }
+    body { margin:0; font-family:"Segoe UI",Tahoma,Arial,sans-serif; color:var(--ink); background:var(--bg); line-height:1.6; }
+    .wrap { max-width:980px; margin:0 auto; padding:18px; }
+    .topbar { display:flex; flex-wrap:wrap; gap:10px; align-items:center; margin-bottom:14px; padding:10px 12px; border:1px solid var(--line); background:#fff; border-radius:10px; }
+    .topbar a { color:var(--link); text-decoration:none; font-weight:600; }
+    article { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:20px; overflow-wrap:anywhere; }
+    h1,h2,h3 { line-height:1.25; }
+    pre { background:#0f172a; color:#e2e8f0; padding:12px; border-radius:8px; overflow:auto; }
+    code { font-family:Consolas,"Courier New",monospace; font-size:0.92em; }
+    a { color:var(--link); }
+    table { border-collapse:collapse; width:100%; display:block; overflow-x:auto; }
+    th,td { border:1px solid #cdd5e1; padding:6px 8px; text-align:left; vertical-align:top; }
+    .footer { margin-top:12px; color:var(--muted); font-size:0.92rem; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <nav class="topbar">
+      <a href="../index.html">Docs Home</a>
+      <a href="https://github.com/ApartsinProjects/Web2Comics#readme" target="_blank" rel="noopener noreferrer">Project README</a>
+      <a href="../privacy.html">Privacy</a>
+      <a href="../support.html">Support</a>
+    </nav>
+    <article>
+<h1 id="gemini-api-key-guide-google-ai-studio-free-tier">Gemini API Key Guide (Google AI Studio, Free Tier)</h1>
+<p>Step-by-step instructions to obtain a Google Gemini API key for Web2Comics using Google AI Studio (Gemini free tier access).</p>
+<h2 id="quick-link">Quick Link</h2>
+<ul>
+<li>Google AI Studio API keys page: <a href="https://aistudio.google.com/app/apikey">https://aistudio.google.com/app/apikey</a></li>
+</ul>
+<h2 id="what-you-need">What You Need</h2>
+<ul>
+<li>A Google account</li>
+<li>Access to Google AI Studio in your region</li>
+<li>Gemini free tier availability for your account/region (AI Studio limits vary)</li>
+</ul>
+<h2 id="do-you-need-to-enable-a-google-api-service-first">Do You Need To Enable a Google API Service First?</h2>
+<p>Usually, <strong>no</strong> for the Gemini free-tier flow in <strong>Google AI Studio</strong>.</p>
+<ul>
+<li>If you can open AI Studio and create a Gemini API key there, you typically do <strong>not</strong> need a separate manual API enable step.</li>
+<li>Google AI Studio handles the common key creation flow for Gemini API access.</li>
+</ul>
+<p>You may need extra setup only if:</p>
+<ul>
+<li>your Google Workspace admin restricts AI Studio access, or</li>
+<li>you are using/importing a specific Google Cloud project with restricted APIs/permissions.</li>
+</ul>
+<h2 id="steps">Steps</h2>
+<ol>
+<li><p>Open Google AI Studio:</p>
+<ul>
+<li><a href="https://aistudio.google.com/">https://aistudio.google.com/</a></li>
+</ul>
+</li>
+<li><p>Sign in with your Google account (if prompted).</p>
+</li>
+<li><p>Open the API Keys page:</p>
+<ul>
+<li><a href="https://aistudio.google.com/app/apikey">https://aistudio.google.com/app/apikey</a></li>
+</ul>
+</li>
+<li><p>Click <code>Create API key</code>.</p>
+<ul>
+<li>If asked, choose or create a Google Cloud project.</li>
+</ul>
+</li>
+<li><p>Copy the generated API key.</p>
+<ul>
+<li>Treat it like a password.</li>
+<li>Do not share it publicly or commit it to Git.</li>
+</ul>
+</li>
+<li><p>Open Web2Comics in Chrome.</p>
+<ul>
+<li>Click the Web2Comics toolbar icon</li>
+<li>Open <code>Options -&gt; Providers</code></li>
+</ul>
+</li>
+<li><p>Paste the key into the Gemini provider field.</p>
+</li>
+<li><p>Click <code>Validate</code>, then click <code>Save Providers</code>.</p>
+</li>
+<li><p>Return to the popup and generate a comic.</p>
+</li>
+</ol>
+<h2 id="troubleshooting">Troubleshooting</h2>
+<ul>
+<li><p>AI Studio page does not open or key creation is unavailable:</p>
+<ul>
+<li>Check region/account eligibility in Google AI Studio</li>
+<li>Try a different Google account</li>
+<li>If you use a managed Google Workspace account, ask your admin to enable <strong>Google AI Studio</strong> access for your org/unit</li>
+</ul>
+</li>
+<li><p>API key page opens, but API calls fail due to project/API access errors:</p>
+<ul>
+<li>Open Google Cloud Console API Library for your project:
+<ul>
+<li><a href="https://console.cloud.google.com/apis/library">https://console.cloud.google.com/apis/library</a></li>
+</ul>
+</li>
+<li>Search for and enable <strong>Generative Language API</strong> (if it is disabled)</li>
+<li>Retry key creation/use from AI Studio</li>
+<li>If your org restricts API usage, ask an admin for project/API access permissions</li>
+</ul>
+</li>
+<li><p>Key validates but generation fails:</p>
+<ul>
+<li>Check quota/usage limits in AI Studio</li>
+<li>Retry with fewer panels (for example <code>3</code>) and lower detail</li>
+</ul>
+</li>
+<li><p>Gemini not visible/usable in Web2Comics:</p>
+<ul>
+<li>Confirm the key was saved in <code>Options -&gt; Providers</code></li>
+<li>Re-open the extension popup after saving</li>
+</ul>
+</li>
+</ul>
+<h2 id="security-notes">Security Notes</h2>
+<ul>
+<li>Keep your Gemini API key private.</li>
+<li>Do not paste your key into screenshots, issue reports, or public chats.</li>
+<li>If a key is exposed, revoke/regenerate it in AI Studio and update Web2Comics.</li>
+</ul>
+
+    </article>
+    <div class="footer">Generated from <code>Gemini_key.md</code></div>
+  </div>
+</body>
+</html>

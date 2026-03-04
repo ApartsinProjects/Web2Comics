@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Monetization_Strategies - Web2Comics Docs</title>
+  <style>
+    :root { --bg:#f7f4ed; --panel:#fff; --ink:#1d2a3f; --muted:#5c6b82; --line:#ddd6ca; --link:#155eef; }
+    * { box-sizing: border-box; }
+    body { margin:0; font-family:"Segoe UI",Tahoma,Arial,sans-serif; color:var(--ink); background:var(--bg); line-height:1.6; }
+    .wrap { max-width:980px; margin:0 auto; padding:18px; }
+    .topbar { display:flex; flex-wrap:wrap; gap:10px; align-items:center; margin-bottom:14px; padding:10px 12px; border:1px solid var(--line); background:#fff; border-radius:10px; }
+    .topbar a { color:var(--link); text-decoration:none; font-weight:600; }
+    article { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:20px; overflow-wrap:anywhere; }
+    h1,h2,h3 { line-height:1.25; }
+    pre { background:#0f172a; color:#e2e8f0; padding:12px; border-radius:8px; overflow:auto; }
+    code { font-family:Consolas,"Courier New",monospace; font-size:0.92em; }
+    a { color:var(--link); }
+    table { border-collapse:collapse; width:100%; display:block; overflow-x:auto; }
+    th,td { border:1px solid #cdd5e1; padding:6px 8px; text-align:left; vertical-align:top; }
+    .footer { margin-top:12px; color:var(--muted); font-size:0.92rem; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <nav class="topbar">
+      <a href="../index.html">Docs Home</a>
+      <a href="https://github.com/ApartsinProjects/Web2Comics#readme" target="_blank" rel="noopener noreferrer">Project README</a>
+      <a href="../privacy.html">Privacy</a>
+      <a href="../support.html">Support</a>
+    </nav>
+    <article>
+<h1 id="web2comics-monetization-strategies">Web2Comics Monetization Strategies</h1>
+<p>This document outlines 10 monetization options for the extension, with practical packaging notes.</p>
+<h2 id="freemium-subscription-core-model">1. Freemium Subscription (Core Model)</h2>
+<ul>
+<li><strong>What</strong>: Free tier with limits, paid monthly/annual plans for higher usage and premium features.</li>
+<li><strong>Packaging</strong>:
+<ul>
+<li>Free: limited monthly generations, basic styles, watermark.</li>
+<li>Pro: higher limits, priority generation, premium styles, no watermark.</li>
+<li>Team: shared workspaces, collaboration, admin controls.</li>
+</ul>
+</li>
+<li><strong>Pros</strong>: Predictable recurring revenue.</li>
+<li><strong>Risks</strong>: Needs clear upgrade value and strong retention.</li>
+</ul>
+<h2 id="usage-based-credits">2. Usage-Based Credits</h2>
+<ul>
+<li><strong>What</strong>: Users buy credits consumed by panel generation, premium models, or high-res exports.</li>
+<li><strong>Packaging</strong>:
+<ul>
+<li>Credit bundles with volume discounts.</li>
+<li>Optional auto-top-up.</li>
+</ul>
+</li>
+<li><strong>Pros</strong>: Aligns costs with expensive inference usage.</li>
+<li><strong>Risks</strong>: Can feel complex without transparent credit meter.</li>
+</ul>
+<h2 id="hybrid-plan-subscription-overage">3. Hybrid Plan (Subscription + Overage)</h2>
+<ul>
+<li><strong>What</strong>: Subscription includes monthly allowance; extra usage billed per credit.</li>
+<li><strong>Packaging</strong>:
+<ul>
+<li>Pro includes X panels/month.</li>
+<li>Overage at fixed credit rate.</li>
+</ul>
+</li>
+<li><strong>Pros</strong>: Good balance of predictable + scalable revenue.</li>
+<li><strong>Risks</strong>: Billing UX must be very clear.</li>
+</ul>
+<h2 id="paid-export-packs">4. Paid Export Packs</h2>
+<ul>
+<li><strong>What</strong>: Charge for advanced export formats and brand-ready templates.</li>
+<li><strong>Packaging</strong>:
+<ul>
+<li>Social pack (X/LinkedIn/Story/Carousel).</li>
+<li>Presentation pack (slides, PDF storyboards).</li>
+</ul>
+</li>
+<li><strong>Pros</strong>: Monetizes creator/business outcomes directly.</li>
+<li><strong>Risks</strong>: Must deliver clear quality difference vs free export.</li>
+</ul>
+<h2 id="premium-style-and-template-marketplace">5. Premium Style and Template Marketplace</h2>
+<ul>
+<li><strong>What</strong>: Sell style bundles and use-case templates (news recap, education, corporate explainer).</li>
+<li><strong>Packaging</strong>:
+<ul>
+<li>One-time purchases or premium library subscription.</li>
+<li>Revenue share for third-party creators (later stage).</li>
+</ul>
+</li>
+<li><strong>Pros</strong>: Expands ARPU without forcing higher base pricing.</li>
+<li><strong>Risks</strong>: Requires quality curation.</li>
+</ul>
+<h2 id="team-and-workspace-plans-b2b-light">6. Team and Workspace Plans (B2B Light)</h2>
+<ul>
+<li><strong>What</strong>: Multi-seat plans for teams using comics for marketing, learning, and internal comms.</li>
+<li><strong>Packaging</strong>:
+<ul>
+<li>Shared history, review/approval, brand kit, usage analytics.</li>
+<li>Seat-based pricing tiers.</li>
+</ul>
+</li>
+<li><strong>Pros</strong>: Higher contract value and lower churn than solo users.</li>
+<li><strong>Risks</strong>: Requires account/workspace infrastructure.</li>
+</ul>
+<h2 id="enterprise-licensing-b2b">7. Enterprise Licensing (B2B)</h2>
+<ul>
+<li><strong>What</strong>: Annual contracts for larger organizations with compliance/security needs.</li>
+<li><strong>Packaging</strong>:
+<ul>
+<li>SSO, audit logs, data controls, private model routing.</li>
+<li>Dedicated support and SLA.</li>
+</ul>
+</li>
+<li><strong>Pros</strong>: High ACV and strategic accounts.</li>
+<li><strong>Risks</strong>: Longer sales cycle and support burden.</li>
+</ul>
+<h2 id="api-developer-monetization">8. API / Developer Monetization</h2>
+<ul>
+<li><strong>What</strong>: Paid API for comic generation and extraction pipeline reuse by other products.</li>
+<li><strong>Packaging</strong>:
+<ul>
+<li>Metered API keys by request/panel.</li>
+<li>Higher tiers for throughput and support.</li>
+</ul>
+</li>
+<li><strong>Pros</strong>: Opens new channel beyond extension UI.</li>
+<li><strong>Risks</strong>: Requires robust platform reliability and docs.</li>
+</ul>
+<h2 id="affiliate-revenue-for-ai-providers-and-tools">9. Affiliate Revenue for AI Providers and Tools</h2>
+<ul>
+<li><strong>What</strong>: Earn referral commissions for model providers or partner tools users activate.</li>
+<li><strong>Packaging</strong>:
+<ul>
+<li>In-product upgrade prompts to partner services.</li>
+<li>Optional “bring your own key” assistance flow.</li>
+</ul>
+</li>
+<li><strong>Pros</strong>: Revenue without direct user charge.</li>
+<li><strong>Risks</strong>: Must avoid trust erosion; keep recommendations neutral.</li>
+</ul>
+<h2 id="white-label-oem-offering">10. White-Label / OEM Offering</h2>
+<ul>
+<li><strong>What</strong>: License branded versions of extension for publishers, educators, or media teams.</li>
+<li><strong>Packaging</strong>:
+<ul>
+<li>Custom branding, template packs, default presets.</li>
+<li>Annual licensing + setup fee.</li>
+</ul>
+</li>
+<li><strong>Pros</strong>: High-margin contracts and distribution leverage.</li>
+<li><strong>Risks</strong>: Customization requests can increase maintenance cost.</li>
+</ul>
+<hr />
+<h2 id="recommended-rollout">Recommended Rollout</h2>
+<ol>
+<li><strong>Phase 1 (0-3 months)</strong>: Freemium subscription + credit top-ups.</li>
+<li><strong>Phase 2 (3-6 months)</strong>: Paid export packs + premium templates.</li>
+<li><strong>Phase 3 (6-12 months)</strong>: Team plans + enterprise licensing + API.</li>
+</ol>
+<h2 id="core-metrics-to-track">Core Metrics to Track</h2>
+<ul>
+<li>Free-to-paid conversion rate.</li>
+<li>Paid retention (month 1/3/6).</li>
+<li>ARPU and margin per paid user.</li>
+<li>Credit burn vs inference cost.</li>
+<li>Share/export rate (proxy for user value).</li>
+<li>Team seat expansion and enterprise win rate.</li>
+</ul>
+
+    </article>
+    <div class="footer">Generated from <code>Monetization_Strategies.md</code></div>
+  </div>
+</body>
+</html>

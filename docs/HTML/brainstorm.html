@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>brainstorm - Web2Comics Docs</title>
+  <style>
+    :root { --bg:#f7f4ed; --panel:#fff; --ink:#1d2a3f; --muted:#5c6b82; --line:#ddd6ca; --link:#155eef; }
+    * { box-sizing: border-box; }
+    body { margin:0; font-family:"Segoe UI",Tahoma,Arial,sans-serif; color:var(--ink); background:var(--bg); line-height:1.6; }
+    .wrap { max-width:980px; margin:0 auto; padding:18px; }
+    .topbar { display:flex; flex-wrap:wrap; gap:10px; align-items:center; margin-bottom:14px; padding:10px 12px; border:1px solid var(--line); background:#fff; border-radius:10px; }
+    .topbar a { color:var(--link); text-decoration:none; font-weight:600; }
+    article { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:20px; overflow-wrap:anywhere; }
+    h1,h2,h3 { line-height:1.25; }
+    pre { background:#0f172a; color:#e2e8f0; padding:12px; border-radius:8px; overflow:auto; }
+    code { font-family:Consolas,"Courier New",monospace; font-size:0.92em; }
+    a { color:var(--link); }
+    table { border-collapse:collapse; width:100%; display:block; overflow-x:auto; }
+    th,td { border:1px solid #cdd5e1; padding:6px 8px; text-align:left; vertical-align:top; }
+    .footer { margin-top:12px; color:var(--muted); font-size:0.92rem; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <nav class="topbar">
+      <a href="../index.html">Docs Home</a>
+      <a href="https://github.com/ApartsinProjects/Web2Comics#readme" target="_blank" rel="noopener noreferrer">Project README</a>
+      <a href="../privacy.html">Privacy</a>
+      <a href="../support.html">Support</a>
+    </nav>
+    <article>
+<h1 id="web2comics-brainstorm-google-pm-x-meta-pm">Web2Comics Brainstorm: Google PM x Meta PM</h1>
+<h2 id="simulated-conversation">Simulated Conversation</h2>
+<p><strong>Google PM:</strong> We need to optimize first-run success. If users do not get value in under 15 seconds, retention drops hard.<br />
+<strong>Meta PM:</strong> Agree. But success is not just generation speed, it is share-worthiness. The output must look post-ready immediately.</p>
+<p><strong>Google PM:</strong> Then default flow should be two clicks only: <code>Create Comic -&gt; Generate</code>, with smart auto-selection of source content.<br />
+<strong>Meta PM:</strong> Yes, and surface confidence before generation so users trust what is being summarized.</p>
+<p><strong>Google PM:</strong> We should add intent presets and tune prompts per intent.<br />
+<strong>Meta PM:</strong> And pair that with lightweight, inline edits so creators can quickly polish before sharing.</p>
+<p><strong>Google PM:</strong> Reliability must be excellent on high-traffic domains and social pages.<br />
+<strong>Meta PM:</strong> Plus explicit transparency: facts used, source attribution, and one-click jump back to source.</p>
+<p><strong>Google PM:</strong> Sharing should be one-tap presets for each platform format.<br />
+<strong>Meta PM:</strong> Add remix loops and saved creator styles to drive repeat usage.</p>
+<p><strong>Google PM:</strong> We should instrument the full funnel deeply.<br />
+<strong>Meta PM:</strong> Yes: creation, edit, share, and return behavior by domain and preset.</p>
+<p><strong>Google PM:</strong> Let us align on top ten and sequence by impact.<br />
+<strong>Meta PM:</strong> Agreed. Let us ship these as focused change requests.</p>
+<h2 id="agreed-top-10-change-requests">Agreed Top 10 Change Requests</h2>
+<ol>
+<li><p><strong>CR-01: Two-click guided first run</strong></p>
+<ul>
+<li>Force onboarding flow to <code>Create Comic -&gt; Generate</code> with advanced options hidden until first successful comic.</li>
+</ul>
+</li>
+<li><p><strong>CR-02: Sub-15s first visible value</strong></p>
+<ul>
+<li>Default to fastest model, 3 panels, lightweight image settings, and stream first panel as soon as available.</li>
+</ul>
+</li>
+<li><p><strong>CR-03: Auto-pick best source block with confidence</strong></p>
+<ul>
+<li>Automatically select best content section; show High/Medium/Low grounding confidence and only show manual picker when confidence is low.</li>
+</ul>
+</li>
+<li><p><strong>CR-04: Intent presets with prompt tuning</strong></p>
+<ul>
+<li>Add presets (<code>News Recap</code>, <code>ELI5</code>, <code>Learn Step-by-Step</code>, <code>Meeting Notes</code>, <code>Timeline</code>, <code>Compare Views</code>) with tuned generation defaults and prompts.</li>
+</ul>
+</li>
+<li><p><strong>CR-05: Domain reliability program (top sites + social)</strong></p>
+<ul>
+<li>Ship robust adapters + fallback extraction for top-tier news, docs, wiki, and social domains; include automatic retries and clear fallback messaging.</li>
+</ul>
+</li>
+<li><p><strong>CR-06: Inline per-panel refinement controls</strong></p>
+<ul>
+<li>Add <code>Regenerate panel</code>, <code>Regenerate caption</code>, <code>Make more factual</code>, <code>Make simpler</code>, without re-running entire comic.</li>
+</ul>
+</li>
+<li><p><strong>CR-07: Trust and attribution layer</strong></p>
+<ul>
+<li>For each panel, show facts/entities/dates/numbers used and source snippet; provide one-click jump to source context.</li>
+</ul>
+</li>
+<li><p><strong>CR-08: Social-first export and sharing presets</strong></p>
+<ul>
+<li>One-tap export/share presets for X, LinkedIn, Facebook, Instagram Story/Reel cover, and Email with title + source attribution card.</li>
+</ul>
+</li>
+<li><p><strong>CR-09: Remix and creator memory loop</strong></p>
+<ul>
+<li>Add <code>Remix this page/comic</code>, save reusable theme/style presets, and support quick re-generation from prior outputs.</li>
+</ul>
+</li>
+<li><p><strong>CR-10: Funnel instrumentation and experiment framework</strong></p>
+<ul>
+<li>Track <code>time-to-first-panel</code>, extraction success by domain, edit rate, share rate, and retention cohorts by preset; run A/B experiments on onboarding and defaults.</li>
+</ul>
+</li>
+</ol>
+
+    </article>
+    <div class="footer">Generated from <code>brainstorm.md</code></div>
+  </div>
+</body>
+</html>

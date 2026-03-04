@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>permissions-audit - Web2Comics Docs</title>
+  <style>
+    :root { --bg:#f7f4ed; --panel:#fff; --ink:#1d2a3f; --muted:#5c6b82; --line:#ddd6ca; --link:#155eef; }
+    * { box-sizing: border-box; }
+    body { margin:0; font-family:"Segoe UI",Tahoma,Arial,sans-serif; color:var(--ink); background:var(--bg); line-height:1.6; }
+    .wrap { max-width:980px; margin:0 auto; padding:18px; }
+    .topbar { display:flex; flex-wrap:wrap; gap:10px; align-items:center; margin-bottom:14px; padding:10px 12px; border:1px solid var(--line); background:#fff; border-radius:10px; }
+    .topbar a { color:var(--link); text-decoration:none; font-weight:600; }
+    article { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:20px; overflow-wrap:anywhere; }
+    h1,h2,h3 { line-height:1.25; }
+    pre { background:#0f172a; color:#e2e8f0; padding:12px; border-radius:8px; overflow:auto; }
+    code { font-family:Consolas,"Courier New",monospace; font-size:0.92em; }
+    a { color:var(--link); }
+    table { border-collapse:collapse; width:100%; display:block; overflow-x:auto; }
+    th,td { border:1px solid #cdd5e1; padding:6px 8px; text-align:left; vertical-align:top; }
+    .footer { margin-top:12px; color:var(--muted); font-size:0.92rem; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <nav class="topbar">
+      <a href="../index.html">Docs Home</a>
+      <a href="https://github.com/ApartsinProjects/Web2Comics#readme" target="_blank" rel="noopener noreferrer">Project README</a>
+      <a href="../privacy.html">Privacy</a>
+      <a href="../support.html">Support</a>
+    </nav>
+    <article>
+<h1 id="permissions-audit-chrome-web-store-readiness">Permissions Audit (Chrome Web Store Readiness)</h1>
+<p>Date: 2026-02-27</p>
+<h2 id="current-required-permissions">Current Required Permissions</h2>
+<ul>
+<li><code>activeTab</code>
+<ul>
+<li>Used to read/send messages to the currently active page only after user action in popup.</li>
+</ul>
+</li>
+<li><code>storage</code>
+<ul>
+<li>Used for settings, provider keys, job state, and history.</li>
+</ul>
+</li>
+<li><code>scripting</code>
+<ul>
+<li>Used to (re)inject <code>content-script.js</code> when the target tab has no ready receiver.</li>
+</ul>
+</li>
+<li><code>sidePanel</code>
+<ul>
+<li>Used to open and control the comic viewer side panel.</li>
+</ul>
+</li>
+<li><code>alarms</code>
+<ul>
+<li>Used in service worker for periodic cleanup tasks.</li>
+</ul>
+</li>
+<li><code>identity</code>
+<ul>
+<li>Used for OAuth flows in optional integrations (Google Drive backup, Facebook connection, X connection).</li>
+</ul>
+</li>
+</ul>
+<h2 id="host-access-scope">Host Access Scope</h2>
+<ul>
+<li><code>host_permissions</code>: <code>http://*/*</code>, <code>https://*/*</code></li>
+<li><code>content_scripts.matches</code>: <code>http://*/*</code>, <code>https://*/*</code></li>
+<li>Additional API host scope: <code>https://www.googleapis.com/*</code> for Google Drive upload APIs.</li>
+</ul>
+<p>Reason: content extraction must work across arbitrary websites, while avoiding non-web schemes such as <code>chrome://</code>, <code>edge://</code>, <code>file://</code>.</p>
+<h2 id="removed-to-reduce-review-friction">Removed to Reduce Review Friction</h2>
+<ul>
+<li><code>unlimitedStorage</code> removed.
+<ul>
+<li>Not required for baseline functionality; storage compaction already exists.</li>
+</ul>
+</li>
+<li><code>web_accessible_resources</code> entry removed.
+<ul>
+<li>Not needed for current runtime behavior and avoids exposing extension assets to arbitrary pages.</li>
+</ul>
+</li>
+</ul>
+<h2 id="reviewer-notes-suggested-for-cws-submission">Reviewer Notes (Suggested for CWS submission)</h2>
+<ul>
+<li>No remote code execution.</li>
+<li>No <code>tabs</code> broad permission (uses <code>activeTab</code>).</li>
+<li>No <code>webRequest</code>, <code>declarativeNetRequest</code>, <code>downloads</code>, or external background servers.</li>
+<li><code>identity</code> is requested only for explicit user-initiated OAuth connects (Google Drive / Facebook / X).</li>
+<li>Data sent only to user-configured AI providers for requested generation.</li>
+</ul>
+
+    </article>
+    <div class="footer">Generated from <code>permissions-audit.md</code></div>
+  </div>
+</body>
+</html>

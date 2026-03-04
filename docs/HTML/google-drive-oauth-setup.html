@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>google-drive-oauth-setup - Web2Comics Docs</title>
+  <style>
+    :root { --bg:#f7f4ed; --panel:#fff; --ink:#1d2a3f; --muted:#5c6b82; --line:#ddd6ca; --link:#155eef; }
+    * { box-sizing: border-box; }
+    body { margin:0; font-family:"Segoe UI",Tahoma,Arial,sans-serif; color:var(--ink); background:var(--bg); line-height:1.6; }
+    .wrap { max-width:980px; margin:0 auto; padding:18px; }
+    .topbar { display:flex; flex-wrap:wrap; gap:10px; align-items:center; margin-bottom:14px; padding:10px 12px; border:1px solid var(--line); background:#fff; border-radius:10px; }
+    .topbar a { color:var(--link); text-decoration:none; font-weight:600; }
+    article { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:20px; overflow-wrap:anywhere; }
+    h1,h2,h3 { line-height:1.25; }
+    pre { background:#0f172a; color:#e2e8f0; padding:12px; border-radius:8px; overflow:auto; }
+    code { font-family:Consolas,"Courier New",monospace; font-size:0.92em; }
+    a { color:var(--link); }
+    table { border-collapse:collapse; width:100%; display:block; overflow-x:auto; }
+    th,td { border:1px solid #cdd5e1; padding:6px 8px; text-align:left; vertical-align:top; }
+    .footer { margin-top:12px; color:var(--muted); font-size:0.92rem; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <nav class="topbar">
+      <a href="../index.html">Docs Home</a>
+      <a href="https://github.com/ApartsinProjects/Web2Comics#readme" target="_blank" rel="noopener noreferrer">Project README</a>
+      <a href="../privacy.html">Privacy</a>
+      <a href="../support.html">Support</a>
+    </nav>
+    <article>
+<h1 id="google-drive-oauth-setup-web2comics-extension">Google Drive OAuth Setup (Web2Comics Extension)</h1>
+<p>This guide configures Google OAuth so <code>Connect Google Drive</code> works in the extension and auto-sync uploads comics to the <code>MyComics</code> folder.</p>
+<h2 id="createconfigure-google-cloud-project">1. Create/Configure Google Cloud Project</h2>
+<ol>
+<li>Open Google Cloud Console.</li>
+<li>Create a project (or select an existing one).</li>
+<li>Enable API:
+<ul>
+<li><code>Google Drive API</code></li>
+</ul>
+</li>
+</ol>
+<h2 id="configure-oauth-consent-screen">2. Configure OAuth Consent Screen</h2>
+<ol>
+<li>Go to <code>APIs &amp; Services</code> -&gt; <code>OAuth consent screen</code>.</li>
+<li>Choose user type (<code>External</code> for most extension use).</li>
+<li>Fill required app fields (name, support email, developer contact).</li>
+<li>Add scope:
+<ul>
+<li><code>https://www.googleapis.com/auth/drive.file</code></li>
+</ul>
+</li>
+<li>If app is in Testing mode, add your tester Google accounts.</li>
+</ol>
+<h2 id="create-oauth-client-credentials">3. Create OAuth Client Credentials</h2>
+<p>Use an OAuth client that supports redirect URIs (typically <code>Web application</code> for this flow).</p>
+<ol>
+<li>Go to <code>APIs &amp; Services</code> -&gt; <code>Credentials</code>.</li>
+<li>Create <code>OAuth client ID</code>.</li>
+<li>Add authorized redirect URI(s):
+<ul>
+<li><code>https://&lt;YOUR_EXTENSION_ID&gt;.chromiumapp.org/google-oauth2</code></li>
+<li>Optional fallback also supported by code:
+<ul>
+<li><code>https://&lt;YOUR_EXTENSION_ID&gt;.chromiumapp.org/</code></li>
+</ul>
+</li>
+</ul>
+</li>
+</ol>
+<p>Notes:</p>
+<ul>
+<li>Replace <code>&lt;YOUR_EXTENSION_ID&gt;</code> with your real Chrome extension ID.</li>
+<li>The code uses <code>chrome.identity.getRedirectURL('google-oauth2')</code> first, then <code>chrome.identity.getRedirectURL()</code>.</li>
+</ul>
+<h2 id="put-client-id-into-extension-config">4. Put Client ID Into Extension Config</h2>
+<p>The extension resolves Google Drive OAuth client ID in this order:</p>
+<ol>
+<li><code>chrome.storage.local.oauthClientConfig.googleDriveClientId</code></li>
+<li><code>shared/oauth-client-config.local.json</code> (<code>googleDriveClientId</code>)</li>
+<li><code>manifest.oauth2.client_id</code></li>
+</ol>
+<p>Recommended for local/dev:</p>
+<p>Create <code>shared/oauth-client-config.local.json</code>:</p>
+<pre><code class="language-json">{
+  &quot;googleDriveClientId&quot;: &quot;YOUR_CLIENT_ID.apps.googleusercontent.com&quot;
+}
+</code></pre>
+<h2 id="required-extension-permissions">5. Required Extension Permissions</h2>
+<p>Manifest must include:</p>
+<ul>
+<li><code>permissions</code>: <code>identity</code>, <code>storage</code></li>
+<li><code>host_permissions</code>: <code>https://www.googleapis.com/*</code></li>
+</ul>
+<p>These are already present in the current extension.</p>
+<h2 id="runtime-flow-what-you-should-see">6. Runtime Flow (What You Should See)</h2>
+<ol>
+<li>Open extension Options -&gt; <code>Connections</code>.</li>
+<li>Click <code>Connect</code> in Google Drive card.</li>
+<li>Google sign-in/consent popup appears.</li>
+<li>After approval, status becomes <code>Connected</code>.</li>
+<li><code>Enable authorization</code> checkbox becomes available.</li>
+<li>Generate a comic; autosave uploads HTML to Drive folder <code>MyComics</code>.</li>
+</ol>
+<h2 id="token-behavior">7. Token Behavior</h2>
+<p>The extension uses OAuth 2.0 Authorization Code + PKCE:</p>
+<ul>
+<li>Receives authorization code from Google.</li>
+<li>Exchanges code for access token (and refresh token when provided).</li>
+<li>Refreshes expired access tokens in background before Drive upload.</li>
+</ul>
+<h2 id="validation-checklist">8. Validation Checklist</h2>
+<ol>
+<li><code>Connect</code> opens Google consent UI.</li>
+<li>No <code>OAuth app not configured</code> status after client ID is set.</li>
+<li><code>googleDriveAuth</code> is stored in <code>chrome.storage.local</code> with:
+<ul>
+<li><code>accessToken</code></li>
+<li><code>expiresAt</code></li>
+<li><code>clientId</code></li>
+<li>optionally <code>refreshToken</code></li>
+</ul>
+</li>
+<li>Upload creates/uses Drive folder <code>MyComics</code>.</li>
+<li>Uploaded file type is HTML and opens in Drive preview.</li>
+</ol>
+<h2 id="common-failure-causes">9. Common Failure Causes</h2>
+<ol>
+<li>Redirect URI mismatch:
+<ul>
+<li>Authorized URI in Google Cloud does not exactly match <code>chromiumapp.org</code> URL used by extension.</li>
+</ul>
+</li>
+<li>Wrong OAuth client type or wrong client ID.</li>
+<li>Consent screen still unapproved and test user not whitelisted.</li>
+<li>Drive API not enabled in project.</li>
+<li>Browser/profile uses different extension ID than the one configured in redirect URI.</li>
+</ol>
+<h2 id="debug-tips">10. Debug Tips</h2>
+<ol>
+<li>Export debug logs from popup/sidepanel/options.</li>
+<li>Look for service-worker events:
+<ul>
+<li><code>drive.connect.success</code></li>
+<li><code>drive.connect.attempt_failed</code></li>
+<li><code>drive.token.refresh.success</code></li>
+<li><code>drive.upload.success</code></li>
+<li><code>drive.upload.error</code></li>
+</ul>
+</li>
+</ol>
+
+    </article>
+    <div class="footer">Generated from <code>google-drive-oauth-setup.md</code></div>
+  </div>
+</body>
+</html>

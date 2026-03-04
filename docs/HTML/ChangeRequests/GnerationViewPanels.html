@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>GnerationViewPanels - Web2Comics Docs</title>
+  <style>
+    :root { --bg:#f7f4ed; --panel:#fff; --ink:#1d2a3f; --muted:#5c6b82; --line:#ddd6ca; --link:#155eef; }
+    * { box-sizing: border-box; }
+    body { margin:0; font-family:"Segoe UI",Tahoma,Arial,sans-serif; color:var(--ink); background:var(--bg); line-height:1.6; }
+    .wrap { max-width:980px; margin:0 auto; padding:18px; }
+    .topbar { display:flex; flex-wrap:wrap; gap:10px; align-items:center; margin-bottom:14px; padding:10px 12px; border:1px solid var(--line); background:#fff; border-radius:10px; }
+    .topbar a { color:var(--link); text-decoration:none; font-weight:600; }
+    article { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:20px; overflow-wrap:anywhere; }
+    h1,h2,h3 { line-height:1.25; }
+    pre { background:#0f172a; color:#e2e8f0; padding:12px; border-radius:8px; overflow:auto; }
+    code { font-family:Consolas,"Courier New",monospace; font-size:0.92em; }
+    a { color:var(--link); }
+    table { border-collapse:collapse; width:100%; display:block; overflow-x:auto; }
+    th,td { border:1px solid #cdd5e1; padding:6px 8px; text-align:left; vertical-align:top; }
+    .footer { margin-top:12px; color:var(--muted); font-size:0.92rem; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <nav class="topbar">
+      <a href="../../index.html">Docs Home</a>
+      <a href="https://github.com/ApartsinProjects/Web2Comics#readme" target="_blank" rel="noopener noreferrer">Project README</a>
+      <a href="../../privacy.html">Privacy</a>
+      <a href="../../support.html">Support</a>
+    </nav>
+    <article>
+<h1 id="change-request-document">Change Request Document</h1>
+<p><strong>Project:</strong> web2Comics<br />
+<strong>Document Type:</strong> Functional &amp; UX Change Request<br />
+<strong>Version:</strong> 1.3 (clarified after review)</p>
+<hr />
+<h2 id="objective">1. Objective</h2>
+<p>Streamline and modernize the user experience by:</p>
+<ul>
+<li>Reducing interface complexity to three primary views</li>
+<li>Improving generation flow clarity</li>
+<li>Enhancing customization capabilities</li>
+<li>Expanding layout flexibility</li>
+<li>Delivering a visually engaging, entertainment-grade UI</li>
+</ul>
+<p>This change aims to increase usability, reduce cognitive load, and
+create a consistent, polished experience across the application.</p>
+<h3 id="clarified-assumptions-approved">1.1 Clarified Assumptions (Approved)</h3>
+<ul>
+<li>&quot;Three primary views&quot; refers to the main content experience only:
+Generator Wizard View, Single Comic Strip View, and Historical Comics
+Browser.</li>
+<li>The Settings / Options interface is out-of-scope for the three-view count.</li>
+<li>Popup history access may remain as a shortcut, while the primary browsing
+experience is the historical browser view (side panel/page).</li>
+<li>Custom &quot;Style&quot; and &quot;Theme&quot; are merged into one reusable custom preset model
+in Phase 1 (name + description).</li>
+<li>Modal-based custom style creation is acceptable in Phase 1.</li>
+<li>Layout expansion is phased: Phase 1 uses layout/view presets; Phase 2 may
+introduce a richer layout template engine.</li>
+<li>Download export may include metadata (title/source URL/captions) in Phase 1.</li>
+</ul>
+<hr />
+<h2 id="core-ux-restructuring-three-primary-views">2. Core UX Restructuring: Three Primary Views</h2>
+<p>The application shall operate with only <strong>three primary views</strong>,
+ensuring consistency and clarity.</p>
+<hr />
+<h3 id="generator-wizard-view">2.1 Generator Wizard View</h3>
+<p>A guided, structured interface for comic generation.</p>
+<h4 id="default-configuration-handling">2.1.1 Default Configuration Handling</h4>
+<ul>
+<li>Advanced/default configuration settings must be hidden or collapsed
+by default.</li>
+<li>Users may expand the configuration panel when needed.</li>
+<li>The interface must support modification without overwhelming
+first-time users.</li>
+<li>Progressive disclosure principles must be applied.</li>
+</ul>
+<h4 id="editable-configuration">2.1.2 Editable Configuration</h4>
+<p>Users must be able to:</p>
+<ul>
+<li>Extend configuration options</li>
+<li>Modify generation parameters</li>
+<li>Save preferences automatically between sessions</li>
+</ul>
+<hr />
+<h3 id="single-comic-strip-view">2.2 Single Comic Strip View</h3>
+<p>This unified view shall be used for:</p>
+<ul>
+<li>Displaying newly generated comics</li>
+<li>Showing generation progress</li>
+<li>Viewing historical comics in detail</li>
+</ul>
+<p>Implementation may use one shared view shell with sub-states/modes (e.g.,
+generating, generated, historical detail).</p>
+<h4 id="progressive-generation-layout">2.2.1 Progressive Generation Layout</h4>
+<p>During generation:</p>
+<ul>
+<li>A predefined layout must be rendered immediately.</li>
+<li>Panels must be populated gradually as content becomes available.</li>
+<li>Each placeholder must display a status message:
+<ul>
+<li>Pending</li>
+<li>Sent</li>
+<li>Receiving</li>
+<li>Rendering</li>
+<li>Completed</li>
+</ul>
+</li>
+</ul>
+<p>This creates visual continuity and reduces perceived waiting time.</p>
+<hr />
+<h3 id="historical-comics-browser">2.3 Historical Comics Browser</h3>
+<p>A dedicated browsing interface.</p>
+<h4 id="grid-based-layout">2.3.1 Grid-Based Layout</h4>
+<ul>
+<li>Historical comics must be displayed in a responsive grid.</li>
+<li>Each item should show:
+<ul>
+<li>Thumbnail preview</li>
+<li>Title or theme</li>
+<li>Date created</li>
+</ul>
+</li>
+<li>Clicking opens the Single Comic Strip View.</li>
+</ul>
+<h4 id="delivery-clarification">2.3.2 Delivery Clarification</h4>
+<ul>
+<li>The primary historical browser may live in the side panel/browser view.</li>
+<li>Popup history may remain available as a lightweight shortcut.</li>
+</ul>
+<hr />
+<h2 id="generation-time-user-selection">3. Generation-Time User Selection</h2>
+<p>Users must be able to select configurable parameters during generation.</p>
+<p>Default values shall:</p>
+<ul>
+<li>Be pre-configured</li>
+<li>Be remembered between sessions (persistent storage)</li>
+<li>Be editable at any time</li>
+</ul>
+<h3 id="selectable-parameters">3.1 Selectable Parameters</h3>
+<ul>
+<li>Image Style</li>
+<li>Storyboard Theme</li>
+<li>Provider (only validated and configured providers)</li>
+<li>Number of Panels</li>
+<li>Detail Level</li>
+</ul>
+<h3 id="provider-validation">3.2 Provider Validation</h3>
+<ul>
+<li>Only providers with valid credentials may appear in selection.</li>
+<li>Validation must be enforced in the Settings page.</li>
+<li>Invalid providers must be excluded from the generation dropdown.</li>
+</ul>
+<hr />
+<h2 id="custom-style-and-theme-creation">4. Custom Style and Theme Creation</h2>
+<p>Users must be able to create and reuse custom style/theme presets.</p>
+<h3 id="inline-creation">4.1 Inline Creation</h3>
+<ul>
+<li>Dropdown selection boxes must include a &quot;Create New&quot; option.</li>
+<li>Selecting this option opens a style/theme editor.</li>
+<li>Phase 1 implementation may use a modal editor instead of inline expansion.</li>
+</ul>
+<h3 id="style-theme-editor">4.2 Style / Theme Editor</h3>
+<p>Each custom preset entry must include:</p>
+<ul>
+<li>Name (required)</li>
+<li>Description (required)</li>
+<li>Optional advanced parameters</li>
+</ul>
+<h3 id="persistence">4.3 Persistence</h3>
+<ul>
+<li>Custom style/theme presets must:
+<ul>
+<li>Be saved persistently</li>
+<li>Appear in future sessions</li>
+<li>Be usable during generation</li>
+<li>Be editable and deletable</li>
+</ul>
+</li>
+</ul>
+<hr />
+<h2 id="extended-layout-library-single-comic-strip-view">5. Extended Layout Library (Single Comic Strip View)</h2>
+<p>The system must support multiple professional comic layouts.</p>
+<h3 id="layout-application">5.1 Layout Application</h3>
+<ul>
+<li>Both historical and newly generated comics must be rendered using
+the selected layout.</li>
+<li>Layout selection must apply dynamically.</li>
+</ul>
+<h3 id="default-layout-set">5.2 Default Layout Set</h3>
+<p>Include the <strong>top 10 commonly used comic book layouts</strong>, such as:</p>
+<ul>
+<li>3-panel horizontal strip</li>
+<li>4-panel grid</li>
+<li>6-panel grid</li>
+<li>Vertical mobile strip</li>
+<li>Asymmetric cinematic layout</li>
+<li>Hero panel + supporting panels</li>
+<li>Two-row cinematic layout</li>
+<li>Diagonal action layout</li>
+<li>Manga-style vertical flow</li>
+<li>Full-page poster layout</li>
+</ul>
+<h4 id="phased-delivery">5.2.1 Phased Delivery</h4>
+<ul>
+<li>Phase 1 may implement these as named layout/view presets where practical.</li>
+<li>Phase 2 may implement a full advanced layout engine/template system.</li>
+</ul>
+<h3 id="layout-switching">5.3 Layout Switching</h3>
+<ul>
+<li>Users must be able to switch layouts in the Single Comic Strip View.</li>
+<li>Selected layout preference must be remembered per user.</li>
+<li>Layout change must not require regeneration.</li>
+</ul>
+<h3 id="download-behavior">5.4 Download Behavior</h3>
+<ul>
+<li>When downloading, the system must export:
+<ul>
+<li>A single flattened image</li>
+<li>Rendered using the selected layout</li>
+<li>At high resolution suitable for sharing</li>
+</ul>
+</li>
+</ul>
+<p>Phase 1 export may include title/source URL/captions in the flattened image.
+Optional metadata-free export can be added in a later phase.</p>
+<hr />
+<h2 id="ui-modernization-requirements">6. UI Modernization Requirements</h2>
+<p>The UI must be visually engaging and entertainment-grade while remaining
+usable and accessible.</p>
+<h3 id="design-principles">6.1 Design Principles</h3>
+<p>Adopt best practices from modern entertainment and media platforms:</p>
+<ul>
+<li>Strong visual hierarchy</li>
+<li>Bold but controlled typography</li>
+<li>Dynamic but subtle animations</li>
+<li>Card-based layout system</li>
+<li>Clean spacing system (8pt grid recommended)</li>
+<li>Consistent color system</li>
+</ul>
+<h3 id="interaction-design">6.2 Interaction Design</h3>
+<ul>
+<li>Smooth transitions between views</li>
+<li>Micro-interactions on hover and selection</li>
+<li>Clear loading states</li>
+<li>Immediate visual feedback</li>
+<li>Reduced friction workflows</li>
+</ul>
+<h3 id="accessibility">6.3 Accessibility</h3>
+<ul>
+<li>WCAG-compliant contrast</li>
+<li>Keyboard navigation</li>
+<li>Screen-reader compatibility</li>
+<li>Clear non-color indicators</li>
+</ul>
+<h3 id="performance-expectations">6.4 Performance Expectations</h3>
+<ul>
+<li>Immediate layout rendering on generation start</li>
+<li>Lazy loading for historical grid</li>
+<li>No blocking full-page refreshes</li>
+</ul>
+<hr />
+<h2 id="acceptance-criteria-summary">7. Acceptance Criteria Summary</h2>
+<p>Area             Acceptance Condition</p>
+<hr />
+<p>UX Views         Exactly three primary views implemented
+Wizard           Default config collapsed, editable
+Progress View    Pre-rendered layout with live status updates
+Browser          Responsive grid of historical comics
+Selections       Persistent generation parameters
+Custom Styles    Creatable, editable, reusable
+Layout Library   10 professional layouts available
+Download         Single image export in selected layout
+UI Quality       Modern, slick, accessible design</p>
+<hr />
+<h2 id="implementation-priority">8. Implementation Priority</h2>
+<ol>
+<li>Three-view architecture refactor\</li>
+<li>Progressive generation layout\</li>
+<li>Persistent generation parameters\</li>
+<li>Custom style/theme creation\</li>
+<li>Layout library expansion\</li>
+<li>UI modernization polish</li>
+</ol>
+<h3 id="phase-guidance">8.1 Phase Guidance</h3>
+<ul>
+<li>Phase 1: three-view UX alignment, progressive generation continuity,
+persistent generation parameters, reusable custom presets, layout/view
+presets, export continuity.</li>
+<li>Phase 2: advanced layout engine, inline editor variant, richer style/theme
+taxonomy, optional clean export modes.</li>
+</ul>
+<hr />
+<p><strong>End of Change Request Document</strong></p>
+
+    </article>
+    <div class="footer">Generated from <code>ChangeRequests/GnerationViewPanels.md</code></div>
+  </div>
+</body>
+</html>
