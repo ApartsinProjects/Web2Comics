@@ -16,11 +16,24 @@
     "test:e2e:headed": "playwright test --headed",
     "test:all": "npm run test && npm run test:e2e",
     "docs:build": "pwsh -NoProfile -File ./scripts/convert-docs-md-to-html.ps1",
-    "docs:build:keep-badges": "pwsh -NoProfile -File ./scripts/convert-docs-md-to-html.ps1 -PreserveBadges"
+    "docs:build:keep-badges": "pwsh -NoProfile -File ./scripts/convert-docs-md-to-html.ps1 -PreserveBadges",
+    "engine:comicify": "node engine/cli/comic-engine-cli.js",
+    "test:engine": "vitest run -c engine/vitest.config.js",
+    "comicbot:start": "node comicbot/src/bot.js",
+    "test:comicbot": "vitest run -c comicbot/vitest.config.js",
+    "render:start": "node render/src/webhook-bot.js",
+    "render:set-webhook": "node render/src/set-webhook.js",
+    "render:deploy:auto": "node render/scripts/deploy-render-webhook.js",
+    "test:render": "vitest run -c render/vitest.config.js"
+  },
+  "dependencies": {
+    "js-yaml": "^4.1.0",
+    "pg": "^8.19.0",
+    "sharp": "^0.34.4"
   },
   "devDependencies": {
-    "vitest": "^1.2.0",
     "@playwright/test": "^1.41.0",
-    "jsdom": "^24.0.0"
+    "jsdom": "^24.0.0",
+    "vitest": "^1.2.0"
   }
 }

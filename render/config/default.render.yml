@@ -1,0 +1,43 @@
+input:
+  format: auto
+  max_chars: 14000
+  strip_selectors:
+    - script
+    - style
+    - noscript
+    - nav
+    - footer
+    - aside
+
+generation:
+  panel_count: 3
+  objective: summarize
+  output_language: en
+  detail_level: low
+  style_prompt: "clean comic panel art, readable characters, coherent scene progression"
+
+providers:
+  text:
+    provider: gemini
+    model: gemini-2.5-flash
+    api_key_env: GEMINI_API_KEY
+  image:
+    provider: gemini
+    model: gemini-2.0-flash-exp-image-generation
+    api_key_env: GEMINI_API_KEY
+
+runtime:
+  timeout_ms: 120000
+  image_concurrency: 3
+  retries: 1
+
+output:
+  width: 1400
+  panel_height: 700
+  caption_height: 120
+  header_height: 120
+  footer_height: 34
+  padding: 24
+  gap: 16
+  background: "#f8fafc"
+  brand: "Made with Web2Comics Engine"
