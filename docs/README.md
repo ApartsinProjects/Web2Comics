@@ -3,6 +3,7 @@
 Project documentation and user-facing reference pages for Web2Comics.
 
 ## Start Here
+- `index.html` : GitHub Pages landing page for docs, policy, and support links.
 - `ROOT_README.md` : release-oriented README snapshot used by packaging checks.
 - `INSTALL.md` : installation + first-run guide.
 - `user-manual.html` : end-user manual (popup, side panel, options, workflows).

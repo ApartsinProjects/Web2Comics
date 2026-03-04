@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Web2Comics Docs</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #f3efe6;
+      --panel: #ffffff;
+      --ink: #152238;
+      --muted: #516079;
+      --line: #d7d0c5;
+      --brand: #1f7a5a;
+      --brand-2: #f08b3e;
+      --link: #155eef;
+      --shadow: 0 12px 30px rgba(23, 31, 47, 0.12);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+      color: var(--ink);
+      background:
+        radial-gradient(circle at 12% 8%, rgba(240, 139, 62, 0.2), transparent 28%),
+        radial-gradient(circle at 80% 12%, rgba(31, 122, 90, 0.2), transparent 35%),
+        var(--bg);
+      line-height: 1.6;
+    }
+
+    .wrap {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 28px 18px 60px;
+    }
+
+    .hero {
+      display: grid;
+      grid-template-columns: 1.1fr 0.9fr;
+      gap: 20px;
+      align-items: center;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+
+    .hero-copy {
+      padding: 26px;
+    }
+
+    .hero-tag {
+      display: inline-block;
+      padding: 4px 10px;
+      border-radius: 999px;
+      font-size: 0.8rem;
+      font-weight: 600;
+      color: #0f5132;
+      background: #d1f4e4;
+      margin-bottom: 12px;
+    }
+
+    h1, h2 {
+      margin: 0 0 10px;
+      font-family: "Space Grotesk", sans-serif;
+      line-height: 1.15;
+    }
+
+    h1 {
+      font-size: clamp(1.8rem, 5vw, 2.8rem);
+      letter-spacing: -0.02em;
+    }
+
+    .lead {
+      margin: 0 0 16px;
+      color: var(--muted);
+      max-width: 62ch;
+    }
+
+    .btns {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 14px;
+    }
+
+    .btn {
+      display: inline-block;
+      padding: 9px 14px;
+      border-radius: 10px;
+      font-weight: 600;
+      text-decoration: none;
+      border: 1px solid transparent;
+      transition: transform 0.15s ease, box-shadow 0.15s ease;
+    }
+
+    .btn:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 6px 15px rgba(0, 0, 0, 0.12);
+    }
+
+    .btn-primary {
+      background: var(--brand);
+      color: #fff;
+    }
+
+    .btn-secondary {
+      background: #fff;
+      color: var(--ink);
+      border-color: var(--line);
+    }
+
+    .hero-media {
+      padding: 14px;
+      border-left: 1px solid var(--line);
+      background: linear-gradient(160deg, #fff8ef, #f7fff8);
+    }
+
+    .hero-media img {
+      width: 100%;
+      height: auto;
+      border-radius: 12px;
+      border: 1px solid #d9d9d9;
+      display: block;
+    }
+
+    .grid {
+      margin-top: 20px;
+      display: grid;
+      grid-template-columns: repeat(12, 1fr);
+      gap: 14px;
+    }
+
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 18px;
+      box-shadow: var(--shadow);
+    }
+
+    .card h2 {
+      font-size: 1.2rem;
+      margin-bottom: 8px;
+    }
+
+    .card p {
+      margin: 0 0 10px;
+      color: var(--muted);
+    }
+
+    .col-7 {
+      grid-column: span 7;
+    }
+
+    .col-5 {
+      grid-column: span 5;
+    }
+
+    .links {
+      display: grid;
+      gap: 8px;
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+
+    .links a {
+      text-decoration: none;
+      color: var(--link);
+      font-weight: 600;
+    }
+
+    .links small {
+      display: block;
+      color: var(--muted);
+      font-weight: 400;
+      margin-top: 1px;
+    }
+
+    .preview-img {
+      width: 100%;
+      border-radius: 10px;
+      border: 1px solid #d9d9d9;
+      display: block;
+      margin-top: 8px;
+    }
+
+    .footer {
+      margin-top: 18px;
+      padding: 14px 2px 4px;
+      color: var(--muted);
+      font-size: 0.95rem;
+    }
+
+    .footer a {
+      color: var(--link);
+    }
+
+    @media (max-width: 900px) {
+      .hero {
+        grid-template-columns: 1fr;
+      }
+
+      .hero-media {
+        border-left: none;
+        border-top: 1px solid var(--line);
+      }
+
+      .col-7, .col-5 {
+        grid-column: span 12;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <section class="hero">
+      <div class="hero-copy">
+        <div class="hero-tag">Web2Comics Documentation Hub</div>
+        <h1>Turn any web page into a comic-style summary</h1>
+        <p class="lead">
+          Web2Comics is a Chrome extension that extracts content from the active page, creates a storyboard, generates panel art, and lets you review or share the result.
+        </p>
+        <div class="btns">
+          <a class="btn btn-primary" href="./user-manual.html">Open User Manual</a>
+          <a class="btn btn-secondary" href="./INSTALL.md">Install Guide</a>
+          <a class="btn btn-secondary" href="https://github.com/ApartsinProjects/Web2Comics" target="_blank" rel="noopener noreferrer">GitHub Repo</a>
+        </div>
+      </div>
+      <div class="hero-media">
+        <img src="./comicify-hero.png" alt="Web2Comics hero collage">
+      </div>
+    </section>
+
+    <section class="grid">
+      <article class="card col-7">
+        <h2>What You Can Do</h2>
+        <p>
+          Generate short visual summaries for articles, docs, and social posts. Configure model providers, customize style and panel count, and view finished comics in the side panel.
+        </p>
+        <ul>
+          <li>Create comics from full pages or highlighted text.</li>
+          <li>Use provider/model settings for text and image generation.</li>
+          <li>Keep a local comic history and export/share selected results.</li>
+        </ul>
+        <img class="preview-img" src="./my-collection-collage.png" alt="Web2Comics collection preview">
+      </article>
+
+      <article class="card col-5">
+        <h2>Start Here</h2>
+        <ul class="links">
+          <li>
+            <a href="./user-manual.html">User Manual</a>
+            <small>Complete usage guide for popup, side panel, and options.</small>
+          </li>
+          <li>
+            <a href="./INSTALL.md">Install</a>
+            <small>Step-by-step installation and first-run setup.</small>
+          </li>
+          <li>
+            <a href="./RELEASE_NOTES.md">Release Notes</a>
+            <small>Version history and notable changes.</small>
+          </li>
+          <li>
+            <a href="./google-drive-oauth-setup.md">Google Drive OAuth Setup</a>
+            <small>Optional export integration setup notes.</small>
+          </li>
+        </ul>
+      </article>
+
+      <article class="card col-5">
+        <h2>Policy and Support</h2>
+        <ul class="links">
+          <li>
+            <a href="./privacy.html">Privacy Policy</a>
+            <small>Data handling, integrations, storage, and controls.</small>
+          </li>
+          <li>
+            <a href="./terms.html">Terms</a>
+            <small>Usage terms for the extension.</small>
+          </li>
+          <li>
+            <a href="./support.html">Support</a>
+            <small>Help, troubleshooting, and key links.</small>
+          </li>
+          <li>
+            <a href="./permissions-audit.md">Permissions Audit</a>
+            <small>Manifest permissions and rationale summary.</small>
+          </li>
+        </ul>
+      </article>
+
+      <article class="card col-7">
+        <h2>Architecture Snapshot</h2>
+        <p>
+          The extension runs on Chrome Manifest V3 with a service worker, content script extraction, popup generation flow, and side panel viewer. Core docs:
+        </p>
+        <ul class="links">
+          <li>
+            <a href="./initial_specs.md">Initial Specs</a>
+            <small>Historical architecture baseline and requirements.</small>
+          </li>
+          <li>
+            <a href="./ROOT_README.md">Release README Snapshot</a>
+            <small>Packaging-oriented summary of current release behavior.</small>
+          </li>
+        </ul>
+        <img class="preview-img" src="./visual-abstract-gemini.png" alt="Web2Comics architecture visual abstract">
+      </article>
+    </section>
+
+    <footer class="footer">
+      <div>Web2Comics Documentation • Last refreshed March 2026</div>
+      <div>
+        Repository: <a href="https://github.com/ApartsinProjects/Web2Comics" target="_blank" rel="noopener noreferrer">ApartsinProjects/Web2Comics</a>
+      </div>
+      <div>
+        Creator: <a href="https://www.apartsin.com" target="_blank" rel="noopener noreferrer">www.apartsin.com</a>
+      </div>
+    </footer>
+  </div>
+</body>
+</html>
