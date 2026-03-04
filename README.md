@@ -209,5 +209,6 @@ HUGGINGFACE_INFERENCE_API_TOKEN=...
 
 - User manual: `docs/user-manual.html`
 - Additional specs: `docs/initial_specs.md`, `docs/INSTALL.md`
+- Privacy policy: [docs/privacy.html](docs/privacy.html)
 
 Copyright (c) 2026 Alexander Apartsin. All rights reserved.
