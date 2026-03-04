@@ -4,6 +4,8 @@
 ![Platform](https://img.shields.io/badge/platform-chrome%20extension-blue)
 ![Release](https://img.shields.io/badge/release-v1.0.3-success)
 ![License](https://img.shields.io/badge/%C2%A9%202026-Alexander%20Apartsin-red)
+[![GitHub Repo](https://img.shields.io/badge/GitHub-Repository-181717?logo=github)](https://github.com/ApartsinProjects/Web2Comics)
+[![Docs](https://img.shields.io/badge/Docs-GitHub%20Pages-0ea5e9?logo=githubpages&logoColor=white)](https://apartsinprojects.github.io/Web2Comics/)
 
 <p align="center">
   <img src="docs/visual-abstract-gemini.png" alt="Web2Comics visual abstract" width="760">
@@ -17,12 +19,16 @@ Web2Comics is a Chrome extension that:
 - saves history and exports a single composite comic image
 - supports right-click selected-text flows (instant generate or open composer prefilled)
 
+## Documentation
+
+- **Docs Home (GitHub Pages):** https://apartsinprojects.github.io/Web2Comics/
+- **Docs Index (Markdown source):** [docs/README.md](docs/README.md)
+
 ## Install (Release ZIP)
 
 Release links:
 - [Releases page](https://github.com/ApartsinProjects/Web2Comics/releases)
 - [Current release (`v1.0.3`) ZIP](https://github.com/ApartsinProjects/Web2Comics/releases/download/v1.0.3/Web2Comics-v1.0.3-extension.zip)
-- [Documentation site (GitHub Pages)](https://apartsinprojects.github.io/Web2Comics/)
 
 1. Open the repository `Releases` page on GitHub (link above).
 2. Download the latest release asset ZIP (for example `Web2Comics-v1.0.3-extension.zip`).
@@ -209,9 +215,9 @@ HUGGINGFACE_INFERENCE_API_TOKEN=...
 ## Documentation
 
 - User manual: `docs/user-manual.html`
-- Additional specs: [`docs/initial_specs.md`](docs/initial_specs.md), [`docs/INSTALL.md`](docs/INSTALL.md)
+- Additional specs: [`docs/INSTALL.md`](docs/INSTALL.md)
 - Privacy policy: [docs/privacy.html](docs/privacy.html)
 
 Copyright (c) 2026 Alexander Apartsin. All rights reserved.
 
-Creator website: https://www.apartsin.com
+Creator website: [www.apartsin.com](https://www.apartsin.com)
