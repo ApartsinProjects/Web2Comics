@@ -46,4 +46,30 @@ describe('render config store', () => {
     expect(h[0].requestText).toBe('req-6');
     expect(h[19].requestText).toBe('req-25');
   });
+
+  it('stores user profile metadata', async () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'render-bot-'));
+    const baseConfig = path.resolve(__dirname, '../config/default.render.yml');
+    const statePath = path.join(tmp, 'state.json');
+    const store = new RuntimeConfigStore(baseConfig, new FilePersistence(statePath));
+    await store.load();
+    await store.updateUserProfile('1796415913', {
+      user: { id: 1796415913, username: 'apart', first_name: 'Apart' },
+      chat: { id: 1796415913, type: 'private' }
+    });
+    const raw = JSON.parse(fs.readFileSync(statePath, 'utf8'));
+    expect(raw.users['1796415913'].profile.user.username).toBe('apart');
+    expect(raw.users['1796415913'].profile.chat.type).toBe('private');
+  });
+
+  it('applies shared keys when target has no own key', async () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'render-bot-'));
+    const baseConfig = path.resolve(__dirname, '../config/default.render.yml');
+    const store = new RuntimeConfigStore(baseConfig, new FilePersistence(path.join(tmp, 'state.json')));
+    await store.load();
+    await store.setSecret('admin', 'GEMINI_API_KEY', 'ADMIN_KEY');
+    await store.setSharedFrom('user2', 'admin');
+    store.applySecretsToEnv('user2');
+    expect(String(process.env.GEMINI_API_KEY || '')).toBe('ADMIN_KEY');
+  });
 });

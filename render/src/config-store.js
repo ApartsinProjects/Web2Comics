@@ -78,7 +78,7 @@ class RuntimeConfigStore {
   ensureUser(chatId) {
     const key = this.normalizeUserKey(chatId);
     if (!this.state.users[key]) {
-      this.state.users[key] = { overrides: {}, secrets: {}, seen: false };
+      this.state.users[key] = { overrides: {}, secrets: {}, seen: false, profile: {}, lastSeenAt: '', sharedFrom: '' };
     }
     return this.state.users[key];
   }
@@ -87,7 +87,19 @@ class RuntimeConfigStore {
     const user = this.ensureUser(chatId);
     const wasSeen = Boolean(user.seen);
     user.seen = true;
+    user.lastSeenAt = new Date().toISOString();
     return !wasSeen;
+  }
+
+  async updateUserProfile(chatId, profile) {
+    const user = this.ensureUser(chatId);
+    user.profile = {
+      ...(user.profile || {}),
+      ...(profile || {})
+    };
+    user.lastSeenAt = new Date().toISOString();
+    await this.save();
+    return user.profile;
   }
 
   getEffectiveConfig(chatId) {
@@ -114,12 +126,14 @@ class RuntimeConfigStore {
 
   getSecretsStatus(chatId) {
     const user = this.ensureUser(chatId);
+    const shared = user.sharedFrom ? this.ensureUser(user.sharedFrom) : null;
     const out = {};
     SECRET_KEYS.forEach((key) => {
       const stateVal = String((user.secrets || {})[key] || '').trim();
+      const sharedVal = String((shared && shared.secrets && shared.secrets[key]) || '').trim();
       out[key] = {
-        hasValue: Boolean(stateVal),
-        source: stateVal ? 'runtime' : 'missing'
+        hasValue: Boolean(stateVal || sharedVal),
+        source: stateVal ? 'runtime' : (sharedVal ? `shared:${user.sharedFrom}` : 'missing')
       };
     });
     return out;
@@ -142,13 +156,17 @@ class RuntimeConfigStore {
 
   applySecretsToEnv(chatId) {
     const user = this.ensureUser(chatId);
+    const shared = user.sharedFrom ? this.ensureUser(user.sharedFrom) : null;
     const applied = [];
     SECRET_KEYS.forEach((key) => {
       delete process.env[key];
     });
-    Object.entries(user.secrets || {}).forEach(([k, v]) => {
-      if (!v) return;
-      process.env[k] = String(v);
+    SECRET_KEYS.forEach((k) => {
+      const own = String((user.secrets || {})[k] || '').trim();
+      const sharedVal = String((shared && shared.secrets && shared.secrets[k]) || '').trim();
+      const val = own || sharedVal;
+      if (!val) return;
+      process.env[k] = val;
       applied.push(k);
     });
     return applied;
@@ -207,6 +225,19 @@ class RuntimeConfigStore {
 
   getHistory() {
     return Array.isArray(this.state.history) ? this.state.history.slice() : [];
+  }
+
+  async resetUser(chatId) {
+    const key = this.normalizeUserKey(chatId);
+    delete this.state.users[key];
+    await this.save();
+  }
+
+  async setSharedFrom(chatId, sourceChatId) {
+    const user = this.ensureUser(chatId);
+    user.sharedFrom = this.normalizeUserKey(sourceChatId);
+    await this.save();
+    return user.sharedFrom;
   }
 }
 

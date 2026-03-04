@@ -220,7 +220,7 @@ async function main() {
         plan,
         region,
         envSpecificDetails: {
-          buildCommand: 'npm install',
+          buildCommand: 'npm install && npx playwright install chromium',
           startCommand: 'node render/src/webhook-bot.js'
         },
         healthCheckPath: '/healthz',
@@ -235,6 +235,21 @@ async function main() {
 
   const serviceId = String((serviceRecord.service && serviceRecord.service.id) || serviceRecord.id || '');
   if (!serviceId) throw new Error('Could not determine service ID.');
+
+  try {
+    await render.updateService(serviceId, {
+      serviceDetails: {
+        runtime: 'node',
+        envSpecificDetails: {
+          buildCommand: 'npm install && npx playwright install chromium',
+          startCommand: 'node render/src/webhook-bot.js'
+        }
+      }
+    });
+    console.log('[deploy] service build/start commands updated');
+  } catch (error) {
+    console.log(`[deploy] warning: failed to update service commands: ${String(error?.message || error)}`);
+  }
 
   const envVars = {
     TELEGRAM_BOT_TOKEN: telegramToken,

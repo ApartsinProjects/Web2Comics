@@ -65,6 +65,7 @@ async function startBotProcess(botPort, telegramBaseUrl, statePath) {
     TELEGRAM_WEBHOOK_SECRET: 'TEST_SECRET',
     TELEGRAM_API_BASE_URL: telegramBaseUrl,
     COMICBOT_ALLOWED_CHAT_IDS: '777,888',
+    RENDER_BOT_FAKE_GENERATOR: 'true',
     RENDER_BOT_STATE_FILE: statePath,
     RENDER_BOT_BASE_CONFIG: path.join(repoRoot, 'render/config/default.render.yml'),
     RENDER_BOT_OUT_DIR: path.join(repoRoot, 'render/out')
@@ -238,4 +239,57 @@ describe('render webhook bot REST + telegram flow', () => {
       await tg.close();
     }
   }, 20000);
+
+  it('handles URL message and sends comic photo response', async () => {
+    const tg = await startFakeTelegramServer();
+    const botPort = await getFreePort();
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'render-bot-webhook-'));
+    const bot = await startBotProcess(
+      botPort,
+      `http://127.0.0.1:${tg.port}/botTEST_TOKEN`,
+      path.join(tmpDir, 'runtime-state.json')
+    );
+
+    try {
+      const res = await postUpdate(botPort, {
+        chat: { id: 777 },
+        from: { id: 777, username: 'url_user', first_name: 'Url' },
+        text: 'https://example.com',
+        entities: [{ offset: 0, length: 19, type: 'url' }]
+      });
+      expect(res.status).toBe(200);
+      await waitFor(() => tg.calls.some((c) => c.url.endsWith('/sendPhoto')), 10000, 100);
+      const msgTexts = tg.calls.filter((c) => c.url.endsWith('/sendMessage')).map((c) => String(c.body.text || ''));
+      expect(msgTexts.some((m) => m.includes('Generating your comic'))).toBe(true);
+    } finally {
+      await bot.stop();
+      await tg.close();
+    }
+  }, 30000);
+
+  it('reports unexpected command handling errors back to user', async () => {
+    const tg = await startFakeTelegramServer();
+    const botPort = await getFreePort();
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'render-bot-webhook-'));
+    const bot = await startBotProcess(
+      botPort,
+      `http://127.0.0.1:${tg.port}/botTEST_TOKEN`,
+      path.join(tmpDir, 'runtime-state.json')
+    );
+
+    try {
+      const res = await postUpdate(botPort, {
+        chat: { id: 777 },
+        text: '/set runtime.retries not-a-number'
+      });
+      expect(res.status).toBe(200);
+      await waitFor(() => tg.calls
+        .filter((c) => c.url.endsWith('/sendMessage'))
+        .map((c) => String(c.body.text || ''))
+        .some((m) => m.includes('Set failed:')), 8000, 100);
+    } finally {
+      await bot.stop();
+      await tg.close();
+    }
+  }, 30000);
 });

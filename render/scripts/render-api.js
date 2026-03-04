@@ -69,6 +69,10 @@ class RenderApiClient {
     return this.request(`/services/${serviceId}`, 'GET');
   }
 
+  async updateService(serviceId, payload) {
+    return this.request(`/services/${serviceId}`, 'PATCH', payload);
+  }
+
   async setServiceEnvVars(serviceId, keyValues) {
     const envVars = Object.entries(keyValues || {})
       .filter(([, value]) => String(value || '').trim())

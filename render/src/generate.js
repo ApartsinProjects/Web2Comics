@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const { execSync } = require('child_process');
 const { runComicEngine } = require('../../engine/src');
 const { fetchUrlToHtmlSnapshot, buildSnapshotPath } = require('../../engine/src/url-fetch');
 const { classifyMessageInput } = require('./message-utils');
@@ -16,6 +17,21 @@ function writeTinyPng(filePath) {
   fs.writeFileSync(filePath, Buffer.from(TINY_PNG_BASE64, 'base64'));
 }
 
+function shouldInstallPlaywrightBrowser(error) {
+  const msg = String(error?.message || error || '').toLowerCase();
+  return msg.includes("browsertype.launch: executable doesn't exist")
+    || msg.includes('please run the following command to download new browsers')
+    || msg.includes('chrome-headless-shell');
+}
+
+function installPlaywrightChromium() {
+  execSync('npx playwright install chromium', {
+    stdio: 'inherit',
+    shell: true,
+    env: { ...process.env }
+  });
+}
+
 async function prepareInput(text, runtime) {
   const parsed = classifyMessageInput(text);
   const ts = new Date().toISOString().replace(/[:.]/g, '-');
@@ -28,10 +44,20 @@ async function prepareInput(text, runtime) {
   if (parsed.kind === 'url') {
     const outputPath = path.join(runtime.outDir, `render-url-${ts}.png`);
     const snapshotPath = buildSnapshotPath(parsed.value, outputPath, '');
-    const snap = await fetchUrlToHtmlSnapshot(parsed.value, snapshotPath, {
-      timeoutMs: runtime.fetchTimeoutMs,
-      waitUntil: 'domcontentloaded'
-    });
+    let snap;
+    try {
+      snap = await fetchUrlToHtmlSnapshot(parsed.value, snapshotPath, {
+        timeoutMs: runtime.fetchTimeoutMs,
+        waitUntil: 'domcontentloaded'
+      });
+    } catch (error) {
+      if (!shouldInstallPlaywrightBrowser(error)) throw error;
+      installPlaywrightChromium();
+      snap = await fetchUrlToHtmlSnapshot(parsed.value, snapshotPath, {
+        timeoutMs: runtime.fetchTimeoutMs,
+        waitUntil: 'domcontentloaded'
+      });
+    }
     return {
       kind: 'url',
       inputPath: snap.snapshotPath,
@@ -97,5 +123,6 @@ async function generateWithRuntimeConfig(text, runtime, effectiveConfigPath) {
 }
 
 module.exports = {
-  generateWithRuntimeConfig
+  generateWithRuntimeConfig,
+  shouldInstallPlaywrightBrowser
 };

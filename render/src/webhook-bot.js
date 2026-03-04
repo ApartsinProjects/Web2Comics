@@ -24,6 +24,8 @@ const runtime = {
   allowedChatIds: String(process.env.COMICBOT_ALLOWED_CHAT_IDS || '')
     .split(',').map((v) => Number(v.trim())).filter((n) => Number.isFinite(n))
 };
+const adminChatIds = String(process.env.TELEGRAM_ADMIN_CHAT_IDS || '1796415913')
+  .split(',').map((v) => Number(v.trim())).filter((n) => Number.isFinite(n));
 
 const token = String(process.env.TELEGRAM_BOT_TOKEN || '').trim();
 if (!token) throw new Error('Missing TELEGRAM_BOT_TOKEN');
@@ -64,6 +66,15 @@ api.sendMessage = async (chatId, text, extra) => {
   const redacted = redactSensitiveText(text, collectSensitiveValues(chatId));
   return rawSendMessage(chatId, redacted, extra);
 };
+
+async function safeNotifyUser(chatId, text) {
+  if (!chatId || !text) return;
+  try {
+    await api.sendMessage(chatId, text);
+  } catch (_) {
+    // Do not throw from fallback notifications.
+  }
+}
 
 let jobQueue = Promise.resolve();
 
@@ -117,8 +128,12 @@ function classifyIncoming(text) {
   return { kind: 'text', command: '' };
 }
 
-function commandHelp() {
-  return [
+function isAdminChat(chatId) {
+  return adminChatIds.includes(Number(chatId));
+}
+
+function commandHelp(chatId) {
+  const lines = [
     'Web2Comics Render Bot',
     '',
     'Send plain text or URL to generate a comic image.',
@@ -145,6 +160,7 @@ function commandHelp() {
     '/credentials',
     '/setkey <KEY> <VALUE>',
     '/unsetkey <KEY>',
+    '/restart',
     '/reset_config',
     '',
     'Provider key links (Gemini free first):',
@@ -155,7 +171,13 @@ function commandHelp() {
     '- Hugging Face: https://huggingface.co/settings/tokens',
     '',
     'Docs: https://github.com/ApartsinProjects/Web2Comics/tree/engine/render'
-  ].join('\n');
+  ];
+  if (isAdminChat(chatId)) {
+    lines.push('');
+    lines.push('Admin commands:');
+    lines.push('/share <user_id>  - allow user to use your runtime keys');
+  }
+  return lines.join('\n');
 }
 
 function presetsMessage() {
@@ -229,12 +251,48 @@ function onboardingMessage() {
   ].join('\n');
 }
 
+function summarizeConfig(cfg) {
+  if (!cfg || typeof cfg !== 'object') return '-';
+  const parts = [
+    `panels=${cfg?.generation?.panel_count}`,
+    `obj=${cfg?.generation?.objective}`,
+    `lang=${cfg?.generation?.output_language}`,
+    `text=${cfg?.providers?.text?.provider}/${cfg?.providers?.text?.model}`,
+    `image=${cfg?.providers?.image?.provider}/${cfg?.providers?.image?.model}`
+  ];
+  return parts.join(', ');
+}
+
+function formatPeekMessage(history) {
+  const rows = (Array.isArray(history) ? history : [])
+    .slice()
+    .sort((a, b) => Date.parse(String(b?.timestamp || '')) - Date.parse(String(a?.timestamp || '')))
+    .slice(0, 10);
+  if (!rows.length) return 'No history yet.';
+
+  const lines = ['Last 10 global requests:'];
+  rows.forEach((h, idx) => {
+    const img = h?.result?.outputPath ? String(h.result.outputPath) : '-';
+    lines.push(`${idx + 1}. ${String(h.timestamp || '-')}`);
+    lines.push(`user: ${String(h.chatId || '-')}`);
+    lines.push(`msg: ${String(h.requestText || '').slice(0, 160)}`);
+    lines.push(`cfg: ${summarizeConfig(h.config)}`);
+    lines.push(`image: ${img}`);
+  });
+  return lines.join('\n');
+}
+
 async function handleCommand(chatId, text) {
   const parts = splitCommand(text);
   const command = String(parts[0] || '').toLowerCase();
 
   if (command === '/start' || command === '/help') {
-    await api.sendMessage(chatId, commandHelp());
+    await api.sendMessage(chatId, commandHelp(chatId));
+    return true;
+  }
+
+  if (command === '/user') {
+    await api.sendMessage(chatId, `Your user id: ${chatId}`);
     return true;
   }
 
@@ -245,6 +303,11 @@ async function handleCommand(chatId, text) {
 
   if (command === '/presets') {
     await api.sendMessage(chatId, presetsMessage());
+    return true;
+  }
+
+  if (command === '/peek') {
+    await api.sendMessage(chatId, formatPeekMessage(configStore.getHistory()));
     return true;
   }
 
@@ -441,6 +504,30 @@ async function handleCommand(chatId, text) {
     return true;
   }
 
+  if (command === '/restart') {
+    await configStore.resetUser(chatId);
+    configStore.markSeen(chatId);
+    await configStore.save();
+    await api.sendMessage(chatId, 'Your bot state was restarted to defaults.');
+    await api.sendMessage(chatId, onboardingMessage());
+    return true;
+  }
+
+  if (command === '/share') {
+    if (!isAdminChat(chatId)) {
+      await api.sendMessage(chatId, 'Access denied.');
+      return true;
+    }
+    const target = Number.parseInt(String(parts[1] || '').trim(), 10);
+    if (!Number.isFinite(target) || target <= 0) {
+      await api.sendMessage(chatId, 'Usage: /share <user_id>');
+      return true;
+    }
+    await configStore.setSharedFrom(String(target), String(chatId));
+    await api.sendMessage(chatId, `Shared your runtime keys with user ${target}.`);
+    return true;
+  }
+
   return false;
 }
 
@@ -449,41 +536,57 @@ async function processMessage(message) {
   const text = String(message?.text || '').trim();
   if (!chatId || !text) return;
   const incoming = classifyIncoming(text);
-
-  if (!isAllowedChat(chatId)) {
-    await api.sendMessage(chatId, 'Access denied for this bot instance.');
-    await configStore.recordInteraction(chatId, {
-      kind: incoming.kind,
-      command: incoming.command,
-      requestText: text,
-      result: { ok: false, type: 'denied', error: 'chat_not_allowed' },
-      config: configStore.getEffectiveConfig(chatId)
-    });
-    return;
-  }
-
-  const firstSeen = configStore.markSeen(chatId);
-  if (firstSeen) {
-    await configStore.save();
-    await api.sendMessage(chatId, onboardingMessage());
-  }
-
-  const handled = await handleCommand(chatId, text);
-  if (handled) {
-    await configStore.recordInteraction(chatId, {
-      kind: incoming.kind,
-      command: incoming.command,
-      requestText: text,
-      result: { ok: true, type: 'command' },
-      config: configStore.getEffectiveConfig(chatId)
-    });
-    return;
-  }
-
-  await api.sendChatAction(chatId, 'upload_photo');
-  await api.sendMessage(chatId, 'Generating your comic...');
-
   try {
+    if (!isAllowedChat(chatId)) {
+      await api.sendMessage(chatId, 'Access denied for this bot instance.');
+      await configStore.recordInteraction(chatId, {
+        kind: incoming.kind,
+        command: incoming.command,
+        requestText: text,
+        result: { ok: false, type: 'denied', error: 'chat_not_allowed' },
+        config: configStore.getEffectiveConfig(chatId)
+      });
+      return;
+    }
+
+    await configStore.updateUserProfile(chatId, {
+      chat: {
+        id: Number(message?.chat?.id || 0),
+        type: String(message?.chat?.type || ''),
+        title: String(message?.chat?.title || ''),
+        username: String(message?.chat?.username || '')
+      },
+      user: {
+        id: Number(message?.from?.id || 0),
+        username: String(message?.from?.username || ''),
+        first_name: String(message?.from?.first_name || ''),
+        last_name: String(message?.from?.last_name || ''),
+        language_code: String(message?.from?.language_code || ''),
+        is_bot: Boolean(message?.from?.is_bot)
+      }
+    });
+
+    const firstSeen = configStore.markSeen(chatId);
+    if (firstSeen) {
+      await configStore.save();
+      await api.sendMessage(chatId, onboardingMessage());
+    }
+
+    const handled = await handleCommand(chatId, text);
+    if (handled) {
+      await configStore.recordInteraction(chatId, {
+        kind: incoming.kind,
+        command: incoming.command,
+        requestText: text,
+        result: { ok: true, type: 'command' },
+        config: configStore.getEffectiveConfig(chatId)
+      });
+      return;
+    }
+
+    await api.sendChatAction(chatId, 'upload_photo');
+    await api.sendMessage(chatId, 'Generating your comic...');
+
     const effectiveConfigPath = configStore.writeEffectiveConfigFile(chatId, path.join(runtime.outDir, 'effective-config.yml'));
     configStore.applySecretsToEnv(chatId);
     const result = await generateWithRuntimeConfig(text, runtime, effectiveConfigPath);
@@ -507,7 +610,7 @@ async function processMessage(message) {
       config: configStore.getEffectiveConfig(chatId)
     });
   } catch (error) {
-    await api.sendMessage(chatId, `Generation failed: ${String(error?.message || error)}`);
+    await safeNotifyUser(chatId, `Generation failed: ${String(error?.message || error)}`);
     await configStore.recordInteraction(chatId, {
       kind: incoming.kind,
       command: incoming.command,
@@ -524,7 +627,9 @@ function enqueueUpdate(update) {
       if (!update?.message) return;
       await processMessage(update.message);
     })
-    .catch((error) => {
+    .catch(async (error) => {
+      const chatId = Number(update?.message?.chat?.id || 0);
+      await safeNotifyUser(chatId, `Unexpected bot error: ${String(error?.message || error)}`);
       console.error('[render-bot] job failed:', error && error.message ? error.message : String(error));
     });
 }

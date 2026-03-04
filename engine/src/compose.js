@@ -105,12 +105,13 @@ async function composeComicSheet({ storyboard, panelImages, source, outputConfig
     const imageBuffer = await ensurePanelImage(panelImages[i].buffer, panelWidth, panelHeight);
     composites.push({ input: imageBuffer, left: cfg.padding, top: cursorY });
 
-    const captionLines = wrapText(panel.caption || `Panel ${i + 1}`, Math.max(24, Math.floor(panelWidth / 18)), 3);
+    const panelLabel = `${i + 1}.`;
+    const captionLines = wrapText(panel.caption || panelLabel, Math.max(24, Math.floor(panelWidth / 18)), 3);
     composites.push({
       input: buildTextBlockSvg({
         width: panelWidth,
         height: captionHeight,
-        title: `Panel ${i + 1}`,
+        title: panelLabel,
         subtitle: '',
         lines: captionLines,
         background: '#ffffff'

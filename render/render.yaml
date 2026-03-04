@@ -3,7 +3,7 @@ services:
     name: web2comics-telegram-render-bot
     runtime: node
     plan: free
-    buildCommand: npm install
+    buildCommand: npm install && npx playwright install chromium
     startCommand: node render/src/webhook-bot.js
     autoDeploy: true
     envVars:

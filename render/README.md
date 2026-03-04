@@ -32,7 +32,7 @@ This folder contains a Render-ready webhook bot deployment.
 1. Push this repo to GitHub.
 2. In Render, create **Web Service** from the repo.
 3. Use blueprint `render/render.yaml` or manually set:
-   - Build: `npm install`
+   - Build: `npm install && npx playwright install chromium`
    - Start: `node render/src/webhook-bot.js`
 4. Set env vars:
    - `TELEGRAM_BOT_TOKEN`

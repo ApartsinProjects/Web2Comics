@@ -62,7 +62,8 @@ async function startBotProcess(botPort, telegramBaseUrl, statePath) {
     TELEGRAM_BOT_TOKEN: 'TEST_TOKEN',
     TELEGRAM_WEBHOOK_SECRET: 'TEST_SECRET',
     TELEGRAM_API_BASE_URL: telegramBaseUrl,
-    COMICBOT_ALLOWED_CHAT_IDS: '777,888',
+    COMICBOT_ALLOWED_CHAT_IDS: '777,888,1796415913',
+    TELEGRAM_ADMIN_CHAT_IDS: '1796415913',
     RENDER_BOT_STATE_FILE: statePath,
     RENDER_BOT_BASE_CONFIG: path.join(repoRoot, 'render/config/default.render.yml'),
     RENDER_BOT_OUT_DIR: path.join(repoRoot, 'render/out'),
@@ -148,12 +149,14 @@ describe('render bot comprehensive interaction suite', () => {
       const res = await postUpdate(botPort, { chat: { id: 777 }, text: commandText });
       expect(res.status).toBe(200);
       await waitFor(() => sentMessages(tg.calls).length > before, 8000, 100);
-      const last = sentMessages(tg.calls).pop();
-      expect(String(last.body.text || '')).toContain(expected);
+      const chunk = sentMessages(tg.calls).slice(before).map((c) => String(c.body.text || ''));
+      expect(chunk.some((m) => m.includes(expected))).toBe(true);
     }
 
     try {
       await runCommandAndExpect('/help', 'aistudio.google.com/apikey');
+      const helpMsgs = sentMessages(tg.calls).map((c) => String(c.body.text || ''));
+      expect(helpMsgs.some((m) => m.includes('/peek'))).toBe(false);
       await runCommandAndExpect('/presets', 'Friendly presets');
       await runCommandAndExpect('/vendor gemini', 'Provider updated: gemini');
       await runCommandAndExpect('/language en', 'Updated generation.output_language = en');
@@ -170,12 +173,71 @@ describe('render bot comprehensive interaction suite', () => {
       const latest = sentMessages(tg.calls).pop();
       expect(String(latest.body.text || '').includes('SUPER_SECRET_TOKEN_123')).toBe(false);
       await runCommandAndExpect('/unsetkey GEMINI_API_KEY', 'Removed runtime override for GEMINI_API_KEY');
+      await runCommandAndExpect('/restart', 'Your bot state was restarted to defaults.');
       await runCommandAndExpect('/reset_config', 'Runtime config overrides were reset to base config.');
     } finally {
       await bot.stop();
       await tg.close();
     }
   }, 40000);
+
+  it('supports /user command and admin-only help/commands', async () => {
+    const tg = await startFakeTelegramServer();
+    const botPort = await getFreePort();
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'render-bot-admin-'));
+    const bot = await startBotProcess(botPort, `http://127.0.0.1:${tg.port}/botTEST_TOKEN`, path.join(tmpDir, 'state.json'));
+
+    async function command(chatId, text) {
+      const before = sentMessages(tg.calls).length;
+      const res = await postUpdate(botPort, { chat: { id: chatId }, text });
+      expect(res.status).toBe(200);
+      await waitFor(() => sentMessages(tg.calls).length > before, 8000, 100);
+      return sentMessages(tg.calls).slice(before).map((c) => String(c.body.text || ''));
+    }
+
+    try {
+      const userMsg = await command(777, '/user');
+      expect(userMsg.some((m) => m.includes('Your user id: 777'))).toBe(true);
+
+      const adminHelp = await command(1796415913, '/help');
+      expect(adminHelp.some((m) => m.includes('Admin commands:'))).toBe(true);
+      expect(adminHelp.some((m) => m.includes('/share <user_id>'))).toBe(true);
+
+      const nonAdminHelp = await command(888, '/help');
+      expect(nonAdminHelp.some((m) => m.includes('Admin commands:'))).toBe(false);
+
+      const deny = await command(777, '/share 888');
+      expect(deny.some((m) => m.includes('Access denied.'))).toBe(true);
+    } finally {
+      await bot.stop();
+      await tg.close();
+    }
+  }, 50000);
+
+  it('lets admin share keys with another user', async () => {
+    const tg = await startFakeTelegramServer();
+    const botPort = await getFreePort();
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'render-bot-share-'));
+    const bot = await startBotProcess(botPort, `http://127.0.0.1:${tg.port}/botTEST_TOKEN`, path.join(tmpDir, 'state.json'));
+
+    async function command(chatId, text) {
+      const before = sentMessages(tg.calls).length;
+      const res = await postUpdate(botPort, { chat: { id: chatId }, text });
+      expect(res.status).toBe(200);
+      await waitFor(() => sentMessages(tg.calls).length > before, 8000, 100);
+      return sentMessages(tg.calls).slice(before).map((c) => String(c.body.text || ''));
+    }
+
+    try {
+      await command(1796415913, '/setkey GEMINI_API_KEY ADMIN_SHARED_KEY_1');
+      await command(1796415913, '/share 888');
+      const creds = await command(888, '/credentials');
+      expect(creds.some((m) => m.includes('GEMINI_API_KEY: set (shared:1796415913)'))).toBe(true);
+    } finally {
+      await bot.stop();
+      await tg.close();
+    }
+  }, 50000);
 
   it('isolates settings and keys per user, new user starts from defaults', async () => {
     const tg = await startFakeTelegramServer();
@@ -238,5 +300,105 @@ describe('render bot comprehensive interaction suite', () => {
     expect(raw.history.length).toBe(20);
     expect(raw.history.every((h) => typeof h.chatId === 'number')).toBe(true);
     expect(raw.history.every((h) => h.requestText && h.result && h.config)).toBe(true);
+  }, 50000);
+
+  it('stores new user profile metadata from telegram message', async () => {
+    const tg = await startFakeTelegramServer();
+    const botPort = await getFreePort();
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'render-bot-profile-'));
+    const statePath = path.join(tmpDir, 'state.json');
+    const bot = await startBotProcess(botPort, `http://127.0.0.1:${tg.port}/botTEST_TOKEN`, statePath);
+
+    try {
+      const res = await postUpdate(botPort, {
+        chat: { id: 888, type: 'private', username: 'profile_chat' },
+        from: {
+          id: 888,
+          username: 'profile_user',
+          first_name: 'John',
+          last_name: 'Doe',
+          language_code: 'en',
+          is_bot: false
+        },
+        text: '/help'
+      });
+      expect(res.status).toBe(200);
+      await waitFor(() => sentMessages(tg.calls).length >= 1, 8000, 100);
+    } finally {
+      await bot.stop();
+      await tg.close();
+    }
+
+    const raw = JSON.parse(fs.readFileSync(statePath, 'utf8'));
+    expect(raw.users['888'].profile.user.username).toBe('profile_user');
+    expect(raw.users['888'].profile.user.first_name).toBe('John');
+    expect(raw.users['888'].profile.user.language_code).toBe('en');
+    expect(raw.users['888'].profile.chat.username).toBe('profile_chat');
+  }, 30000);
+
+  it('supports hidden /peek with latest 10 global requests', async () => {
+    const tg = await startFakeTelegramServer();
+    const botPort = await getFreePort();
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'render-bot-peek-'));
+    const bot = await startBotProcess(botPort, `http://127.0.0.1:${tg.port}/botTEST_TOKEN`, path.join(tmpDir, 'state.json'));
+
+    async function send(chatId, text) {
+      const res = await postUpdate(botPort, { chat: { id: chatId }, text });
+      expect(res.status).toBe(200);
+    }
+
+    try {
+      for (let i = 1; i <= 12; i += 1) {
+        const chatId = i % 2 === 0 ? 777 : 888;
+        await send(chatId, `/set output.width ${1000 + i}`);
+      }
+      const before = sentMessages(tg.calls).length;
+      await send(777, '/peek');
+      await waitFor(() => sentMessages(tg.calls)
+        .slice(before)
+        .map((c) => String(c.body.text || ''))
+        .some((m) => m.includes('Last 10 global requests:')), 10000, 100);
+      const text = sentMessages(tg.calls)
+        .slice(before)
+        .map((c) => String(c.body.text || ''))
+        .find((m) => m.includes('Last 10 global requests:')) || '';
+      expect(text).toContain('Last 10 global requests:');
+      expect((text.match(/^\d+\./gm) || []).length).toBe(10);
+      expect(text).toContain('user:');
+      expect(text).toContain('msg:');
+      expect(text).toContain('cfg:');
+      expect(text).toContain('image:');
+    } finally {
+      await bot.stop();
+      await tg.close();
+    }
+  }, 50000);
+
+  it('restarts user state to defaults and clears runtime keys', async () => {
+    const tg = await startFakeTelegramServer();
+    const botPort = await getFreePort();
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'render-bot-restart-'));
+    const bot = await startBotProcess(botPort, `http://127.0.0.1:${tg.port}/botTEST_TOKEN`, path.join(tmpDir, 'state.json'));
+
+    async function command(text) {
+      const before = sentMessages(tg.calls).length;
+      const res = await postUpdate(botPort, { chat: { id: 777 }, text });
+      expect(res.status).toBe(200);
+      await waitFor(() => sentMessages(tg.calls).length > before, 8000, 100);
+      return sentMessages(tg.calls).slice(before).map((c) => String(c.body.text || ''));
+    }
+
+    try {
+      await command('/setkey GEMINI_API_KEY SECRET777');
+      await command('/panels 8');
+      await command('/restart');
+      const creds = await command('/credentials');
+      expect(creds.some((m) => m.includes('GEMINI_API_KEY: missing'))).toBe(true);
+      const cfg = await command('/config');
+      expect(cfg.some((m) => m.includes('generation.panel_count: 3'))).toBe(true);
+    } finally {
+      await bot.stop();
+      await tg.close();
+    }
   }, 50000);
 });
