@@ -64,7 +64,7 @@ async function startBotProcess(botPort, telegramBaseUrl, statePath) {
     TELEGRAM_BOT_TOKEN: 'TEST_TOKEN',
     TELEGRAM_WEBHOOK_SECRET: 'TEST_SECRET',
     TELEGRAM_API_BASE_URL: telegramBaseUrl,
-    COMICBOT_ALLOWED_CHAT_IDS: '777',
+    COMICBOT_ALLOWED_CHAT_IDS: '777,888',
     RENDER_BOT_STATE_FILE: statePath,
     RENDER_BOT_BASE_CONFIG: path.join(repoRoot, 'render/config/default.render.yml'),
     RENDER_BOT_OUT_DIR: path.join(repoRoot, 'render/out')
@@ -134,7 +134,9 @@ describe('render webhook bot REST + telegram flow', () => {
       expect(res.status).toBe(200);
 
       await waitFor(() => tg.calls.some((c) => c.url.endsWith('/sendMessage')), 8000, 100);
-      const helpCall = tg.calls.find((c) => c.url.endsWith('/sendMessage'));
+      const helpCall = tg.calls.find((c) =>
+        c.url.endsWith('/sendMessage') && String(c.body.text || '').includes('Web2Comics Render Bot')
+      );
       expect(String(helpCall?.body?.text || '')).toContain('Web2Comics Render Bot');
     } finally {
       const logs = bot.readLogs();
@@ -194,10 +196,43 @@ describe('render webhook bot REST + telegram flow', () => {
         text: '/set generation.style_prompt TEST_TOKEN'
       });
       expect(redactRes.status).toBe(200);
+      await waitFor(() => tg.calls
+        .filter((c) => c.url.endsWith('/sendMessage'))
+        .map((c) => String(c.body.text || ''))
+        .some((m) => m.includes('generation.style_prompt')), 8000, 100);
+      const updatedMsg = tg.calls
+        .filter((c) => c.url.endsWith('/sendMessage'))
+        .map((c) => String(c.body.text || ''))
+        .find((m) => m.includes('Updated generation.style_prompt'));
+      expect(String(updatedMsg || '')).toContain('[REDACTED]');
+      expect(String(updatedMsg || '')).not.toContain('TEST_TOKEN');
+    } finally {
+      await bot.stop();
+      await tg.close();
+    }
+  }, 20000);
+
+  it('sends onboarding to first-time user only', async () => {
+    const tg = await startFakeTelegramServer();
+    const botPort = await getFreePort();
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'render-bot-webhook-'));
+    const bot = await startBotProcess(
+      botPort,
+      `http://127.0.0.1:${tg.port}/botTEST_TOKEN`,
+      path.join(tmpDir, 'runtime-state.json')
+    );
+
+    try {
+      await postUpdate(botPort, { chat: { id: 888 }, text: '/help' });
       await waitFor(() => tg.calls.filter((c) => c.url.endsWith('/sendMessage')).length >= 2, 8000, 100);
-      const latest = tg.calls.filter((c) => c.url.endsWith('/sendMessage')).pop();
-      expect(String(latest?.body?.text || '')).toContain('[REDACTED]');
-      expect(String(latest?.body?.text || '')).not.toContain('TEST_TOKEN');
+      const messages = tg.calls.filter((c) => c.url.endsWith('/sendMessage')).map((c) => String(c.body.text || ''));
+      expect(messages.some((m) => m.includes('free Gemini'))).toBe(true);
+
+      const before = tg.calls.length;
+      await postUpdate(botPort, { chat: { id: 888 }, text: '/help' });
+      await waitFor(() => tg.calls.length > before, 8000, 100);
+      const newMessages = tg.calls.slice(before).filter((c) => c.url.endsWith('/sendMessage')).map((c) => String(c.body.text || ''));
+      expect(newMessages.some((m) => m.includes('free Gemini'))).toBe(false);
     } finally {
       await bot.stop();
       await tg.close();

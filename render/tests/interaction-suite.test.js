@@ -62,7 +62,7 @@ async function startBotProcess(botPort, telegramBaseUrl, statePath) {
     TELEGRAM_BOT_TOKEN: 'TEST_TOKEN',
     TELEGRAM_WEBHOOK_SECRET: 'TEST_SECRET',
     TELEGRAM_API_BASE_URL: telegramBaseUrl,
-    COMICBOT_ALLOWED_CHAT_IDS: '777',
+    COMICBOT_ALLOWED_CHAT_IDS: '777,888',
     RENDER_BOT_STATE_FILE: statePath,
     RENDER_BOT_BASE_CONFIG: path.join(repoRoot, 'render/config/default.render.yml'),
     RENDER_BOT_OUT_DIR: path.join(repoRoot, 'render/out'),
@@ -153,6 +153,7 @@ describe('render bot comprehensive interaction suite', () => {
     }
 
     try {
+      await runCommandAndExpect('/help', 'aistudio.google.com/apikey');
       await runCommandAndExpect('/presets', 'Friendly presets');
       await runCommandAndExpect('/vendor gemini', 'Provider updated: gemini');
       await runCommandAndExpect('/language en', 'Updated generation.output_language = en');
@@ -175,4 +176,67 @@ describe('render bot comprehensive interaction suite', () => {
       await tg.close();
     }
   }, 40000);
+
+  it('isolates settings and keys per user, new user starts from defaults', async () => {
+    const tg = await startFakeTelegramServer();
+    const botPort = await getFreePort();
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'render-bot-users-'));
+    const bot = await startBotProcess(botPort, `http://127.0.0.1:${tg.port}/botTEST_TOKEN`, path.join(tmpDir, 'state.json'));
+
+    async function command(chatId, text) {
+      const before = sentMessages(tg.calls).length;
+      const res = await postUpdate(botPort, { chat: { id: chatId }, text });
+      expect(res.status).toBe(200);
+      await waitFor(() => sentMessages(tg.calls).length > before, 8000, 100);
+      return sentMessages(tg.calls).slice(before).map((c) => String(c.body.text || ''));
+    }
+
+    try {
+      await command(777, '/setkey GEMINI_API_KEY USER777_SECRET_ABC');
+      const keyStatus777 = await command(777, '/credentials');
+      expect(keyStatus777.some((m) => m.includes('GEMINI_API_KEY: set'))).toBe(true);
+
+      const first888 = await command(888, '/credentials');
+      expect(first888.some((m) => m.includes('free Gemini'))).toBe(true);
+      expect(first888.some((m) => m.includes('/help  /config  /presets'))).toBe(true);
+      expect(first888.some((m) => m.includes('GEMINI_API_KEY: missing'))).toBe(true);
+
+      await command(777, '/panels 8');
+      const cfg777 = await command(777, '/config');
+      expect(cfg777.some((m) => m.includes('generation.panel_count: 8'))).toBe(true);
+
+      const cfg888 = await command(888, '/config');
+      expect(cfg888.some((m) => m.includes('generation.panel_count: 3'))).toBe(true);
+      expect(cfg888.some((m) => m.includes('generation.panel_count: 8'))).toBe(false);
+    } finally {
+      await bot.stop();
+      await tg.close();
+    }
+  }, 40000);
+
+  it('persists interaction history and caps at last 20 entries', async () => {
+    const tg = await startFakeTelegramServer();
+    const botPort = await getFreePort();
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'render-bot-history-'));
+    const statePath = path.join(tmpDir, 'state.json');
+    const bot = await startBotProcess(botPort, `http://127.0.0.1:${tg.port}/botTEST_TOKEN`, statePath);
+
+    try {
+      for (let i = 0; i < 22; i += 1) {
+        const chatId = i % 2 === 0 ? 777 : 888;
+        const res = await postUpdate(botPort, { chat: { id: chatId }, text: '/help' });
+        expect(res.status).toBe(200);
+      }
+      await waitFor(() => sentMessages(tg.calls).length >= 22, 15000, 100);
+    } finally {
+      await bot.stop();
+      await tg.close();
+    }
+
+    const raw = JSON.parse(fs.readFileSync(statePath, 'utf8'));
+    expect(Array.isArray(raw.history)).toBe(true);
+    expect(raw.history.length).toBe(20);
+    expect(raw.history.every((h) => typeof h.chatId === 'number')).toBe(true);
+    expect(raw.history.every((h) => h.requestText && h.result && h.config)).toBe(true);
+  }, 50000);
 });

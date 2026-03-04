@@ -34,7 +34,7 @@ const api = new TelegramApi(token, process.env.TELEGRAM_API_BASE_URL || '');
 let configStore = null;
 const rawSendMessage = api.sendMessage.bind(api);
 
-function collectSensitiveValues() {
+function collectSensitiveValues(chatId) {
   const keys = new Set([
     ...SECRET_KEYS,
     'TELEGRAM_BOT_TOKEN',
@@ -48,8 +48,10 @@ function collectSensitiveValues() {
     if (envVal) values.push(envVal);
   });
 
-  if (configStore && configStore.state && configStore.state.secrets) {
-    Object.values(configStore.state.secrets).forEach((v) => {
+  if (configStore && configStore.state && configStore.state.users) {
+    const key = configStore.normalizeUserKey(chatId);
+    const user = configStore.state.users[key];
+    Object.values((user && user.secrets) || {}).forEach((v) => {
       const secretVal = String(v || '').trim();
       if (secretVal) values.push(secretVal);
     });
@@ -59,7 +61,7 @@ function collectSensitiveValues() {
 }
 
 api.sendMessage = async (chatId, text, extra) => {
-  const redacted = redactSensitiveText(text, collectSensitiveValues());
+  const redacted = redactSensitiveText(text, collectSensitiveValues(chatId));
   return rawSendMessage(chatId, redacted, extra);
 };
 
@@ -107,6 +109,14 @@ function splitCommand(text) {
   return parts;
 }
 
+function classifyIncoming(text) {
+  const t = String(text || '').trim();
+  if (!t) return { kind: 'empty', command: '' };
+  if (t.startsWith('/')) return { kind: 'command', command: t.split(/\s+/)[0].toLowerCase() };
+  if (/^https?:\/\//i.test(t)) return { kind: 'url', command: '' };
+  return { kind: 'text', command: '' };
+}
+
 function commandHelp() {
   return [
     'Web2Comics Render Bot',
@@ -135,7 +145,16 @@ function commandHelp() {
     '/credentials',
     '/setkey <KEY> <VALUE>',
     '/unsetkey <KEY>',
-    '/reset_config'
+    '/reset_config',
+    '',
+    'Provider key links (Gemini free first):',
+    '- Gemini: https://aistudio.google.com/apikey',
+    '- OpenAI: https://platform.openai.com/api-keys',
+    '- OpenRouter: https://openrouter.ai/settings/keys',
+    '- Cloudflare: https://dash.cloudflare.com/profile/api-tokens',
+    '- Hugging Face: https://huggingface.co/settings/tokens',
+    '',
+    'Docs: https://github.com/ApartsinProjects/Web2Comics/tree/engine/render'
   ].join('\n');
 }
 
@@ -158,8 +177,8 @@ function presetsMessage() {
   ].join('\n');
 }
 
-function keysStatusMessage() {
-  const status = configStore.getSecretsStatus();
+function keysStatusMessage(chatId) {
+  const status = configStore.getSecretsStatus(chatId);
   const lines = ['Provider key status:'];
   Object.entries(status).forEach(([k, v]) => {
     lines.push(`- ${k}: ${v.hasValue ? 'set' : 'missing'} (${v.source})`);
@@ -174,26 +193,40 @@ function valueExists(options, value) {
   return (Array.isArray(options) ? options : []).some((opt) => String(opt).toLowerCase() === normalized);
 }
 
-function setConfigPathValue(pathKey, rawValue) {
+function setConfigPathValue(chatId, pathKey, rawValue) {
   const parsed = parseUserValue(pathKey, rawValue);
-  return configStore.setConfigValue(pathKey, parsed);
+  return configStore.setConfigValue(chatId, pathKey, parsed);
 }
 
-async function applyProvider(providerName, applyText, applyImage) {
+async function applyProvider(chatId, providerName, applyText, applyImage) {
   const key = String(providerName || '').trim().toLowerCase();
   const defaults = PROVIDER_DEFAULT_MODELS[key];
   if (!defaults) {
     throw new Error(`Unknown provider '${providerName}'. Use: ${Object.keys(PROVIDER_DEFAULT_MODELS).join(', ')}`);
   }
   if (applyText) {
-    await configStore.setConfigValue('providers.text.provider', key);
-    await configStore.setConfigValue('providers.text.model', defaults.text);
+    await configStore.setConfigValue(chatId, 'providers.text.provider', key);
+    await configStore.setConfigValue(chatId, 'providers.text.model', defaults.text);
   }
   if (applyImage) {
-    await configStore.setConfigValue('providers.image.provider', key);
-    await configStore.setConfigValue('providers.image.model', defaults.image);
+    await configStore.setConfigValue(chatId, 'providers.image.provider', key);
+    await configStore.setConfigValue(chatId, 'providers.image.model', defaults.image);
   }
   return defaults;
+}
+
+function onboardingMessage() {
+  return [
+    'Welcome to Web2Comics.',
+    'Before generating comics, add your provider key (free Gemini first):',
+    '1) Gemini key: https://aistudio.google.com/apikey',
+    '2) Setup guide: https://github.com/ApartsinProjects/Web2Comics/tree/engine/render',
+    'Set key: /setkey GEMINI_API_KEY <YOUR_KEY>',
+    'Check: /credentials',
+    '',
+    'Once connected, useful commands:',
+    '/help  /config  /presets  /vendor <name>  /panels <count>  /style <preset>'
+  ].join('\n');
 }
 
 async function handleCommand(chatId, text) {
@@ -206,7 +239,7 @@ async function handleCommand(chatId, text) {
   }
 
   if (command === '/config') {
-    await api.sendMessage(chatId, configStore.formatConfigSummary());
+    await api.sendMessage(chatId, configStore.formatConfigSummary(chatId));
     return true;
   }
 
@@ -224,7 +257,7 @@ async function handleCommand(chatId, text) {
     try {
       const isTextOnly = command === '/text_vendor';
       const isImageOnly = command === '/image_vendor';
-      const defaults = await applyProvider(vendor, !isImageOnly, !isTextOnly);
+      const defaults = await applyProvider(chatId, vendor, !isImageOnly, !isTextOnly);
       const msg = [];
       msg.push(`Provider updated: ${vendor}`);
       if (!isImageOnly) msg.push(`- text model: ${defaults.text}`);
@@ -243,7 +276,7 @@ async function handleCommand(chatId, text) {
       await api.sendMessage(chatId, `Usage: /language <code>\nAllowed: ${options.join(', ')}`);
       return true;
     }
-    const current = await setConfigPathValue('generation.output_language', value);
+    const current = await setConfigPathValue(chatId, 'generation.output_language', value);
     await api.sendMessage(chatId, `Updated generation.output_language = ${current}`);
     return true;
   }
@@ -255,7 +288,7 @@ async function handleCommand(chatId, text) {
       await api.sendMessage(chatId, `Usage: /panels <count>\nAllowed: ${options.join(', ')}`);
       return true;
     }
-    const current = await setConfigPathValue('generation.panel_count', value);
+    const current = await setConfigPathValue(chatId, 'generation.panel_count', value);
     await api.sendMessage(chatId, `Updated generation.panel_count = ${current}`);
     return true;
   }
@@ -267,7 +300,7 @@ async function handleCommand(chatId, text) {
       await api.sendMessage(chatId, `Usage: /objective <name>\nAllowed: ${options.join(', ')}`);
       return true;
     }
-    const current = await setConfigPathValue('generation.objective', value);
+    const current = await setConfigPathValue(chatId, 'generation.objective', value);
     await api.sendMessage(chatId, `Updated generation.objective = ${current}`);
     return true;
   }
@@ -279,7 +312,7 @@ async function handleCommand(chatId, text) {
       await api.sendMessage(chatId, `Usage: /style <preset>\nAllowed: ${Object.keys(STYLE_PRESETS).join(', ')}`);
       return true;
     }
-    await configStore.setConfigValue('generation.style_prompt', prompt);
+    await configStore.setConfigValue(chatId, 'generation.style_prompt', prompt);
     await api.sendMessage(chatId, `Updated style preset = ${preset}`);
     return true;
   }
@@ -291,7 +324,7 @@ async function handleCommand(chatId, text) {
       await api.sendMessage(chatId, `Usage: /detail <level>\nAllowed: ${options.join(', ')}`);
       return true;
     }
-    const current = await setConfigPathValue('generation.detail_level', value);
+    const current = await setConfigPathValue(chatId, 'generation.detail_level', value);
     await api.sendMessage(chatId, `Updated generation.detail_level = ${current}`);
     return true;
   }
@@ -303,7 +336,7 @@ async function handleCommand(chatId, text) {
       await api.sendMessage(chatId, `Usage: /concurrency <n>\nAllowed: ${options.join(', ')}`);
       return true;
     }
-    const current = await setConfigPathValue('runtime.image_concurrency', value);
+    const current = await setConfigPathValue(chatId, 'runtime.image_concurrency', value);
     await api.sendMessage(chatId, `Updated runtime.image_concurrency = ${current}`);
     return true;
   }
@@ -315,7 +348,7 @@ async function handleCommand(chatId, text) {
       await api.sendMessage(chatId, `Usage: /retries <n>\nAllowed: ${options.join(', ')}`);
       return true;
     }
-    const current = await setConfigPathValue('runtime.retries', value);
+    const current = await setConfigPathValue(chatId, 'runtime.retries', value);
     await api.sendMessage(chatId, `Updated runtime.retries = ${current}`);
     return true;
   }
@@ -333,7 +366,7 @@ async function handleCommand(chatId, text) {
       await api.sendMessage(chatId, 'Usage: /options <path>');
       return true;
     }
-    await api.sendMessage(chatId, formatOptionsMessage(pathKey, configStore.getCurrent(pathKey)));
+    await api.sendMessage(chatId, formatOptionsMessage(pathKey, configStore.getCurrent(chatId, pathKey)));
     return true;
   }
 
@@ -347,7 +380,7 @@ async function handleCommand(chatId, text) {
     }
     const chosen = options[idx - 1];
     const parsed = parseUserValue(pathKey, chosen);
-    const current = await configStore.setConfigValue(pathKey, parsed);
+    const current = await configStore.setConfigValue(chatId, pathKey, parsed);
     await api.sendMessage(chatId, `Updated ${pathKey} = ${String(current)}`);
     return true;
   }
@@ -361,7 +394,7 @@ async function handleCommand(chatId, text) {
     }
     try {
       const parsed = parseUserValue(pathKey, rawValue);
-      const current = await configStore.setConfigValue(pathKey, parsed);
+      const current = await configStore.setConfigValue(chatId, pathKey, parsed);
       await api.sendMessage(chatId, `Updated ${pathKey} = ${String(current)}`);
     } catch (error) {
       await api.sendMessage(chatId, `Set failed: ${error.message}`);
@@ -370,7 +403,7 @@ async function handleCommand(chatId, text) {
   }
 
   if (command === '/keys' || command === '/credentials') {
-    await api.sendMessage(chatId, keysStatusMessage());
+    await api.sendMessage(chatId, keysStatusMessage(chatId));
     return true;
   }
 
@@ -382,8 +415,8 @@ async function handleCommand(chatId, text) {
       return true;
     }
     try {
-      await configStore.setSecret(key, value);
-      configStore.applySecretsToEnv();
+      await configStore.setSecret(chatId, key, value);
+      configStore.applySecretsToEnv(chatId);
       await api.sendMessage(chatId, `Stored key ${key} in runtime state.`);
     } catch (error) {
       await api.sendMessage(chatId, `setkey failed: ${error.message}`);
@@ -397,13 +430,13 @@ async function handleCommand(chatId, text) {
       await api.sendMessage(chatId, 'Usage: /unsetkey <KEY>');
       return true;
     }
-    await configStore.unsetSecret(key);
+    await configStore.unsetSecret(chatId, key);
     await api.sendMessage(chatId, `Removed runtime override for ${key}.`);
     return true;
   }
 
   if (command === '/reset_config') {
-    await configStore.clearOverrides();
+    await configStore.clearOverrides(chatId);
     await api.sendMessage(chatId, 'Runtime config overrides were reset to base config.');
     return true;
   }
@@ -415,21 +448,44 @@ async function processMessage(message) {
   const chatId = Number(message?.chat?.id || 0);
   const text = String(message?.text || '').trim();
   if (!chatId || !text) return;
+  const incoming = classifyIncoming(text);
 
   if (!isAllowedChat(chatId)) {
     await api.sendMessage(chatId, 'Access denied for this bot instance.');
+    await configStore.recordInteraction(chatId, {
+      kind: incoming.kind,
+      command: incoming.command,
+      requestText: text,
+      result: { ok: false, type: 'denied', error: 'chat_not_allowed' },
+      config: configStore.getEffectiveConfig(chatId)
+    });
     return;
   }
 
+  const firstSeen = configStore.markSeen(chatId);
+  if (firstSeen) {
+    await configStore.save();
+    await api.sendMessage(chatId, onboardingMessage());
+  }
+
   const handled = await handleCommand(chatId, text);
-  if (handled) return;
+  if (handled) {
+    await configStore.recordInteraction(chatId, {
+      kind: incoming.kind,
+      command: incoming.command,
+      requestText: text,
+      result: { ok: true, type: 'command' },
+      config: configStore.getEffectiveConfig(chatId)
+    });
+    return;
+  }
 
   await api.sendChatAction(chatId, 'upload_photo');
   await api.sendMessage(chatId, 'Generating your comic...');
 
   try {
-    const effectiveConfigPath = configStore.writeEffectiveConfigFile(path.join(runtime.outDir, 'effective-config.yml'));
-    configStore.applySecretsToEnv();
+    const effectiveConfigPath = configStore.writeEffectiveConfigFile(chatId, path.join(runtime.outDir, 'effective-config.yml'));
+    configStore.applySecretsToEnv(chatId);
     const result = await generateWithRuntimeConfig(text, runtime, effectiveConfigPath);
     const caption = [
       `Done: ${result.kind === 'url' ? 'URL' : 'text'} -> comic`,
@@ -437,8 +493,28 @@ async function processMessage(message) {
       `Time: ${(Number(result.elapsedMs || 0) / 1000).toFixed(1)}s`
     ].join('\n');
     await api.sendPhoto(chatId, result.outputPath, caption);
+    await configStore.recordInteraction(chatId, {
+      kind: incoming.kind,
+      command: incoming.command,
+      requestText: text,
+      result: {
+        ok: true,
+        type: 'generation',
+        outputPath: result.outputPath,
+        panelCount: result.panelCount,
+        elapsedMs: result.elapsedMs
+      },
+      config: configStore.getEffectiveConfig(chatId)
+    });
   } catch (error) {
     await api.sendMessage(chatId, `Generation failed: ${String(error?.message || error)}`);
+    await configStore.recordInteraction(chatId, {
+      kind: incoming.kind,
+      command: incoming.command,
+      requestText: text,
+      result: { ok: false, type: 'generation', error: String(error?.message || error) },
+      config: configStore.getEffectiveConfig(chatId)
+    });
   }
 }
 
@@ -482,7 +558,7 @@ async function startServer() {
     persistenceMode.impl
   );
   await configStore.load();
-  configStore.applySecretsToEnv();
+  configStore.applySecretsToEnv('global');
 
   const server = http.createServer(async (req, res) => {
     try {

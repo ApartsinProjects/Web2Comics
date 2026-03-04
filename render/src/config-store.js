@@ -31,10 +31,7 @@ class RuntimeConfigStore {
     this.baseConfigPath = path.resolve(baseConfigPath);
     this.persistence = persistence;
     this.baseConfig = loadConfig(this.baseConfigPath).config;
-    this.state = {
-      overrides: {},
-      secrets: {}
-    };
+    this.state = { users: {}, history: [] };
   }
 
   async load() {
@@ -45,10 +42,25 @@ class RuntimeConfigStore {
       raw = null;
     }
     try {
-      this.state.overrides = raw && typeof raw.overrides === 'object' ? raw.overrides : {};
-      this.state.secrets = raw && typeof raw.secrets === 'object' ? raw.secrets : {};
+      if (raw && typeof raw.users === 'object') {
+        this.state.users = raw.users;
+        this.state.history = Array.isArray(raw.history) ? raw.history : [];
+      } else if (raw && (raw.overrides || raw.secrets)) {
+        // Backward compatibility with old single-user shape.
+        this.state.users = {
+          global: {
+            overrides: raw && typeof raw.overrides === 'object' ? raw.overrides : {},
+            secrets: raw && typeof raw.secrets === 'object' ? raw.secrets : {},
+            seen: true
+          }
+        };
+        this.state.history = [];
+      } else {
+        this.state.users = {};
+        this.state.history = [];
+      }
     } catch (_) {
-      this.state = { overrides: {}, secrets: {} };
+      this.state = { users: {}, history: [] };
     }
   }
 
@@ -57,54 +69,84 @@ class RuntimeConfigStore {
     await this.persistence.save(this.state);
   }
 
-  getEffectiveConfig() {
-    return deepMerge(this.baseConfig, this.state.overrides || {});
+  normalizeUserKey(chatId) {
+    const key = String(chatId || '').trim();
+    if (!key) return 'global';
+    return key;
   }
 
-  getCurrent(pathKey) {
-    return getByPath(this.getEffectiveConfig(), pathKey);
+  ensureUser(chatId) {
+    const key = this.normalizeUserKey(chatId);
+    if (!this.state.users[key]) {
+      this.state.users[key] = { overrides: {}, secrets: {}, seen: false };
+    }
+    return this.state.users[key];
   }
 
-  async setConfigValue(pathKey, value) {
-    setByPath(this.state.overrides, pathKey, value);
+  markSeen(chatId) {
+    const user = this.ensureUser(chatId);
+    const wasSeen = Boolean(user.seen);
+    user.seen = true;
+    return !wasSeen;
+  }
+
+  getEffectiveConfig(chatId) {
+    const user = this.ensureUser(chatId);
+    return deepMerge(this.baseConfig, user.overrides || {});
+  }
+
+  getCurrent(chatId, pathKey) {
+    return getByPath(this.getEffectiveConfig(chatId), pathKey);
+  }
+
+  async setConfigValue(chatId, pathKey, value) {
+    const user = this.ensureUser(chatId);
+    setByPath(user.overrides, pathKey, value);
     await this.save();
-    return this.getCurrent(pathKey);
+    return this.getCurrent(chatId, pathKey);
   }
 
-  async clearOverrides() {
-    this.state.overrides = {};
+  async clearOverrides(chatId) {
+    const user = this.ensureUser(chatId);
+    user.overrides = {};
     await this.save();
   }
 
-  getSecretsStatus() {
+  getSecretsStatus(chatId) {
+    const user = this.ensureUser(chatId);
     const out = {};
     SECRET_KEYS.forEach((key) => {
-      const stateVal = String(this.state.secrets[key] || '').trim();
-      const envVal = String(process.env[key] || '').trim();
+      const stateVal = String((user.secrets || {})[key] || '').trim();
       out[key] = {
-        hasValue: Boolean(stateVal || envVal),
-        source: stateVal ? 'runtime' : (envVal ? 'env' : 'missing')
+        hasValue: Boolean(stateVal),
+        source: stateVal ? 'runtime' : 'missing'
       };
     });
     return out;
   }
 
-  async setSecret(key, value) {
+  async setSecret(chatId, key, value) {
     const k = String(key || '').trim();
     if (!SECRET_KEYS.includes(k)) throw new Error(`Unsupported key: ${k}`);
-    this.state.secrets[k] = String(value || '').trim();
+    const user = this.ensureUser(chatId);
+    user.secrets[k] = String(value || '').trim();
     await this.save();
   }
 
-  async unsetSecret(key) {
+  async unsetSecret(chatId, key) {
     const k = String(key || '').trim();
-    delete this.state.secrets[k];
+    const user = this.ensureUser(chatId);
+    delete user.secrets[k];
     await this.save();
   }
 
-  applySecretsToEnv() {
+  applySecretsToEnv(chatId) {
+    const user = this.ensureUser(chatId);
     const applied = [];
-    Object.entries(this.state.secrets || {}).forEach(([k, v]) => {
+    SECRET_KEYS.forEach((key) => {
+      delete process.env[key];
+    });
+    Object.entries(user.secrets || {}).forEach(([k, v]) => {
       if (!v) return;
       process.env[k] = String(v);
       applied.push(k);
@@ -112,15 +154,15 @@ class RuntimeConfigStore {
     return applied;
   }
 
-  writeEffectiveConfigFile(outPath) {
+  writeEffectiveConfigFile(chatId, outPath) {
     const resolved = path.resolve(outPath);
     fs.mkdirSync(path.dirname(resolved), { recursive: true });
-    fs.writeFileSync(resolved, yaml.dump(this.getEffectiveConfig(), { lineWidth: 140 }), 'utf8');
+    fs.writeFileSync(resolved, yaml.dump(this.getEffectiveConfig(chatId), { lineWidth: 140 }), 'utf8');
     return resolved;
   }
 
-  formatConfigSummary() {
-    const cfg = this.getEffectiveConfig();
+  formatConfigSummary(chatId) {
+    const cfg = this.getEffectiveConfig(chatId);
     const lines = [
       'Current config snapshot:',
       `- generation.panel_count: ${cfg.generation.panel_count}`,
@@ -146,6 +188,25 @@ class RuntimeConfigStore {
       '/reset_config - clear runtime overrides'
     ];
     return lines.join('\n');
+  }
+
+  async recordInteraction(chatId, payload) {
+    const entry = {
+      timestamp: new Date().toISOString(),
+      chatId: Number(chatId),
+      ...(payload || {})
+    };
+    if (!Array.isArray(this.state.history)) this.state.history = [];
+    this.state.history.push(entry);
+    if (this.state.history.length > 20) {
+      this.state.history = this.state.history.slice(this.state.history.length - 20);
+    }
+    await this.save();
+    return entry;
+  }
+
+  getHistory() {
+    return Array.isArray(this.state.history) ? this.state.history.slice() : [];
   }
 }
 
