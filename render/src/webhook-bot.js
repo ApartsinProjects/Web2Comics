@@ -24,8 +24,13 @@ const runtime = {
   allowedChatIds: String(process.env.COMICBOT_ALLOWED_CHAT_IDS || '')
     .split(',').map((v) => Number(v.trim())).filter((n) => Number.isFinite(n))
 };
+const notifyOnStart = String(process.env.TELEGRAM_NOTIFY_ON_START || '').trim().toLowerCase() === 'true';
+const notifyChatId = Number(process.env.TELEGRAM_NOTIFY_CHAT_ID || 0);
 const adminChatIds = String(process.env.TELEGRAM_ADMIN_CHAT_IDS || '1796415913')
   .split(',').map((v) => Number(v.trim())).filter((n) => Number.isFinite(n));
+if (Number.isFinite(notifyChatId) && notifyChatId > 0 && !adminChatIds.includes(notifyChatId)) {
+  adminChatIds.push(notifyChatId);
+}
 
 const token = String(process.env.TELEGRAM_BOT_TOKEN || '').trim();
 if (!token) throw new Error('Missing TELEGRAM_BOT_TOKEN');
@@ -35,8 +40,6 @@ if (!webhookSecret) throw new Error('Missing TELEGRAM_WEBHOOK_SECRET');
 const api = new TelegramApi(token, process.env.TELEGRAM_API_BASE_URL || '');
 let configStore = null;
 const rawSendMessage = api.sendMessage.bind(api);
-const notifyOnStart = String(process.env.TELEGRAM_NOTIFY_ON_START || '').trim().toLowerCase() === 'true';
-const notifyChatId = Number(process.env.TELEGRAM_NOTIFY_CHAT_ID || 0);
 
 function collectSensitiveValues(chatId) {
   const keys = new Set([
@@ -126,6 +129,7 @@ const PROVIDER_DEFAULT_MODELS = {
 };
 
 function isAllowedChat(chatId) {
+  if (isAdminChat(chatId)) return true;
   if (!runtime.allowedChatIds.length) return true;
   return runtime.allowedChatIds.includes(Number(chatId));
 }
@@ -554,6 +558,7 @@ async function processMessage(message) {
   const incoming = classifyIncoming(text);
   try {
     if (!isAllowedChat(chatId)) {
+      console.warn(`[render-bot] denied chat ${chatId}; allowlist=${runtime.allowedChatIds.join(',') || '(none)'} admins=${adminChatIds.join(',') || '(none)'}`);
       await api.sendMessage(chatId, 'Access denied for this bot instance.');
       await configStore.recordInteraction(chatId, {
         kind: incoming.kind,

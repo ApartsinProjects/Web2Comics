@@ -176,6 +176,36 @@ describe('render webhook bot REST + telegram flow', () => {
     }
   }, 20000);
 
+  it('always allows admin chat id even if not in allowlist', async () => {
+    const tg = await startFakeTelegramServer();
+    const botPort = await getFreePort();
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'render-bot-webhook-'));
+    const bot = await startBotProcess(
+      botPort,
+      `http://127.0.0.1:${tg.port}/botTEST_TOKEN`,
+      path.join(tmpDir, 'runtime-state.json'),
+      {
+        COMICBOT_ALLOWED_CHAT_IDS: '777,888',
+        TELEGRAM_ADMIN_CHAT_IDS: '1796415913'
+      }
+    );
+
+    try {
+      const res = await postUpdate(botPort, { chat: { id: 1796415913 }, text: '/user' });
+      expect(res.status).toBe(200);
+      await waitFor(() => tg.calls.some((c) =>
+        c.url.endsWith('/sendMessage') && String(c.body.text || '').includes('Your user id: 1796415913')
+      ), 8000, 100);
+      const denied = tg.calls.some((c) =>
+        c.url.endsWith('/sendMessage') && String(c.body.text || '').includes('Access denied for this bot instance')
+      );
+      expect(denied).toBe(false);
+    } finally {
+      await bot.stop();
+      await tg.close();
+    }
+  }, 20000);
+
   it('supports /credentials command and redacts sensitive values in replies', async () => {
     const tg = await startFakeTelegramServer();
     const botPort = await getFreePort();

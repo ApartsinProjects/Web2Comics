@@ -105,6 +105,18 @@ function firstChatId(value, fallback = '') {
   return String(first || fallback || '').trim();
 }
 
+function normalizeIdCsv(...values) {
+  const uniq = new Set();
+  values.forEach((value) => {
+    String(value == null ? '' : value)
+      .split(',')
+      .map((v) => v.trim())
+      .filter(Boolean)
+      .forEach((v) => uniq.add(v));
+  });
+  return Array.from(uniq).join(',');
+}
+
 async function main() {
   const repoRoot = path.resolve(__dirname, '../..');
   loadEnvFiles([
@@ -140,10 +152,17 @@ async function main() {
     HUGGINGFACE_INFERENCE_API_TOKEN: firstNonEmpty(args['huggingface-token'], process.env.HUGGINGFACE_INFERENCE_API_TOKEN)
   };
 
-  const allowedChatIds = firstNonEmpty(args['allowed-chat-ids'], process.env.COMICBOT_ALLOWED_CHAT_IDS);
   const notifyChatId = firstChatId(
     firstNonEmpty(args['notify-chat-id'], process.env.TELEGRAM_NOTIFY_CHAT_ID, tgYaml.allowed_chat_ids),
     '1796415913'
+  );
+  const allowedChatIds = normalizeIdCsv(
+    firstNonEmpty(args['allowed-chat-ids'], process.env.COMICBOT_ALLOWED_CHAT_IDS, tgYaml.allowed_chat_ids),
+    notifyChatId
+  );
+  const adminChatIds = normalizeIdCsv(
+    firstNonEmpty(args['admin-chat-ids'], process.env.TELEGRAM_ADMIN_CHAT_IDS, '1796415913'),
+    notifyChatId
   );
   let databaseUrl = firstNonEmpty(
     args['database-url'],
@@ -276,6 +295,7 @@ async function main() {
     RENDER_BOT_DEBUG_ARTIFACTS: 'false',
     TELEGRAM_NOTIFY_ON_START: 'true',
     TELEGRAM_NOTIFY_CHAT_ID: notifyChatId,
+    TELEGRAM_ADMIN_CHAT_IDS: adminChatIds,
     COMICBOT_ALLOWED_CHAT_IDS: allowedChatIds,
     ...providerEnv
   };
