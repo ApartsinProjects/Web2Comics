@@ -17,6 +17,8 @@ describe('engine consistency flow helpers', () => {
   it('advertises provider support only where implemented', () => {
     expect(supportsImageReferenceInput({ provider: 'gemini', model: 'gemini-2.0-flash-exp-image-generation' })).toBe(true);
     expect(supportsImageReferenceInput({ provider: 'gemini', model: 'gemini-2.5-flash' })).toBe(false);
+    expect(supportsImageReferenceInput({ provider: 'openai', supports_image_reference: true })).toBe(true);
+    expect(supportsImageReferenceInput({ provider: 'gemini', model: 'gemini-2.0-flash-exp-image-generation', supports_image_reference: false })).toBe(false);
     expect(supportsImageReferenceInput({ provider: 'openai' })).toBe(false);
   });
 
@@ -54,7 +56,7 @@ describe('engine consistency flow helpers', () => {
     expect(prompt).toContain('Custom panel guidance: Use cinematic close-ups.');
   });
 
-  it('skips reference generation when consistency is off or provider unsupported', async () => {
+  it('skips reference generation when consistency is off', async () => {
     const storyboard = { title: 'Story', description: 'Summary' };
     const off = await generateConsistencyReferenceImage({
       generation: { consistency: false },
@@ -63,13 +65,14 @@ describe('engine consistency flow helpers', () => {
     }, storyboard);
     expect(off.used).toBe(false);
     expect(off.reason).toBe('disabled');
+  });
 
-    const unsupported = await generateConsistencyReferenceImage({
+  it('throws when consistency is enabled but provider/model is unsupported', async () => {
+    const storyboard = { title: 'Story', description: 'Summary' };
+    await expect(generateConsistencyReferenceImage({
       generation: { consistency: true },
       providers: { image: { provider: 'openai', model: 'dall-e-2' } },
       runtime: { retries: 0 }
-    }, storyboard);
-    expect(unsupported.used).toBe(false);
-    expect(unsupported.reason).toBe('provider_not_supported');
+    }, storyboard)).rejects.toThrow('does not support reference images');
   });
 });

@@ -3,8 +3,8 @@
 .env.local
 shared/recommended-model-set.local.json
 .telegram.yaml
-render/.env
-render/data/runtime-state.json
+telegram/.env
+telegram/data/runtime-state.json
 
 .aws.yaml
 .cloudflare.tokens.yaml
@@ -26,9 +26,9 @@ coverage/
 .nyc_output/
 *.lcov
 engine/out/
-render/out/
-render/cfgs/
-render/data/
+telegram/out/
+telegram/cfgs/
+telegram/data/
 comicbot/out/
 tmp/
 temp/

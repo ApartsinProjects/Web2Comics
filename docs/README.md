@@ -9,6 +9,9 @@ Project documentation and user-facing reference pages for Web2Comics.
 - [`user-manual.html`](./user-manual.html) : end-user manual (popup, side panel, options, workflows).
 - [`telegram-bot.md`](./telegram-bot.md) : Telegram bot overview, deployment, and testing links.
 - `RELEASE_NOTES.md` : versioned release history.
+- Extension root README (GitHub): <https://github.com/ApartsinProjects/Web2Comics/blob/main/README.md>
+- Telegram bot README (GitHub): <https://github.com/ApartsinProjects/Web2Comics/blob/main/telegram/README.md>
+- Telegram bot docs page (GitHub Pages): <https://apartsinprojects.github.io/Web2Comics/HTML/telegram-bot.html>
 
 ## Product and Strategy Docs
 - `Product_Backlog.md` : categorized backlog.

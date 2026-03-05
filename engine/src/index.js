@@ -97,7 +97,11 @@ async function generateConsistencyReferenceImage(config, storyboard) {
   const consistencyOn = isConsistencyEnabled(config?.generation);
   if (!consistencyOn) return { enabled: false, used: false, reason: 'disabled' };
   if (!supportsImageReferenceInput(config?.providers?.image || {})) {
-    return { enabled: true, used: false, reason: 'provider_not_supported' };
+    const provider = String(config?.providers?.image?.provider || 'unknown').trim().toLowerCase();
+    const model = String(config?.providers?.image?.model || 'unknown').trim();
+    throw new Error(
+      `Consistency is enabled, but image provider/model does not support reference images: ${provider}/${model}`
+    );
   }
 
   const prompt = buildStyleReferencePrompt(storyboard, config.generation || {});

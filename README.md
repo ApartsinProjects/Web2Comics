@@ -211,8 +211,11 @@ HUGGINGFACE_INFERENCE_API_TOKEN=...
 - User manual: [docs/user-manual.html](docs/user-manual.html)
 - Additional specs: [`docs/INSTALL.md`](docs/INSTALL.md)
 - Privacy policy: [docs/privacy.html](docs/privacy.html)
-- Telegram bot README: [render/README.md](render/README.md)
-- Telegram bot docs (GitHub Pages): <https://apartsinprojects.github.io/Web2Comics/HTML/telegram-bot.html>
+- Extension docs index (Markdown): [docs/README.md](docs/README.md)
+- Extension docs home (GitHub Pages): <https://apartsinprojects.github.io/Web2Comics/>
+- Telegram bot README (Markdown): [telegram/README.md](telegram/README.md)
+- Telegram bot docs page (GitHub Pages): <https://apartsinprojects.github.io/Web2Comics/HTML/telegram-bot.html>
+- Telegram bot manual (Markdown): [telegram/docs/user-manual.md](telegram/docs/user-manual.md)
 
 Copyright (c) 2026 Alexander Apartsin. All rights reserved.
 

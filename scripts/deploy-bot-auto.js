@@ -156,18 +156,18 @@ function main() {
   printSummary(args, targets);
 
   if (!asBool(args['skip-prechecks'], false)) {
-    runStep('predeploy-checks', ['run', 'test:render:predeploy']);
+    runStep('predeploy-checks', ['run', 'test:telegram:predeploy']);
   }
 
   if (!asBool(args['skip-local-tests'], false)) {
-    runStep('local-tests', ['run', 'test:render:local']);
+    runStep('local-tests', ['run', 'test:telegram:local']);
   }
 
   if (targets.includes('render')) {
     const renderDeployArgs = buildRenderDeployArgs(args);
-    runStep('render-deploy', ['run', 'render:deploy:auto', '--', ...renderDeployArgs]);
+    runStep('render-deploy', ['run', 'telegram:deploy:auto', '--', ...renderDeployArgs]);
     if (shouldRunRenderSanity(args)) {
-      const sanityArgs = ['run', 'render:deploy:sanity'];
+      const sanityArgs = ['run', 'telegram:deploy:sanity'];
       const metadataIn = String(args['metadata-in'] || process.env.RENDER_DEPLOY_METADATA_OUT || '').trim();
       if (metadataIn) {
         sanityArgs.push('--', '--metadata-in', metadataIn);
@@ -175,7 +175,7 @@ function main() {
       runStep('render-sanity-e2e', sanityArgs);
     }
     if (shouldRunRenderSmoke(args)) {
-      runStep('render-full-stack-smoke', ['run', 'test:render:full-stack'], { RUN_FULL_STACK_E2E: 'true' });
+      runStep('render-full-stack-smoke', ['run', 'test:telegram:full-stack'], { RUN_FULL_STACK_E2E: 'true' });
     }
   }
 

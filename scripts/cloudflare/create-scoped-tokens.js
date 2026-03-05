@@ -20,7 +20,7 @@ function parseArgs(argv) {
 }
 
 function readEnvFromLocalFiles(root) {
-  const files = [path.join(root, '.env.local'), path.join(root, '.env.e2e.local'), path.join(root, 'render/.env')];
+  const files = [path.join(root, '.env.local'), path.join(root, '.env.e2e.local'), path.join(root, 'telegram/.env')];
   const env = {};
   files.forEach((file) => {
     if (!fs.existsSync(file)) return;

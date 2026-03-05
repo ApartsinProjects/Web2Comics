@@ -1,0 +1,46 @@
+# Bot Operations
+
+Cross references:
+- Extension README (Markdown): [`../../README.md`](../../README.md)
+- Extension docs home (GitHub Pages): <https://apartsinprojects.github.io/Web2Comics/>
+- Bot docs bridge page (Markdown): [`../../docs/telegram-bot.md`](../../docs/telegram-bot.md)
+- Bot docs page (GitHub Pages): <https://apartsinprojects.github.io/Web2Comics/HTML/telegram-bot.html>
+
+## Health
+- Service health endpoint:
+  - `GET /healthz`
+
+## Webhook
+- Path:
+  - `/telegram/webhook/<TELEGRAM_WEBHOOK_SECRET>`
+- Header validation:
+  - `x-telegram-bot-api-secret-token`
+- Dedup:
+  - update IDs are deduplicated with TTL.
+
+## Runtime behavior
+- Immediate webhook ACK, processing continues asynchronously.
+- Per-chat queue to avoid concurrent conflicts.
+- Per-user config + secrets persisted in R2 state object.
+- Banned users are blocked before allowlist evaluation.
+- Panels are sent to Telegram progressively as they are generated.
+
+## Secrets handling
+- Secrets are redacted in user-facing responses.
+- Keys can be set at runtime with `/setkey`.
+- For CI/deploy hardening use `BOT_SECRETS_ENV_ONLY=true` so scripts use environment secrets only.
+
+## Failure handling
+- Fatal events (`uncaughtException`, `unhandledRejection`, startup failure) are persisted to crash storage.
+- Generation/storage failures are reported back to chat.
+
+## Useful scripts
+- Start locally: `npm run telegram:start`
+- Register webhook: `npm run telegram:set-webhook -- --url <base-url>`
+- Auto deploy: `npm run telegram:deploy:auto`
+
+## Admin command operations
+- `/peek` list last generated comics, `/peek<n>` view one.
+- `/users` list known users.
+- `/ban` list blacklist, `/ban <user_id|username>` add block.
+- `/unban <user_id|username>` remove block.

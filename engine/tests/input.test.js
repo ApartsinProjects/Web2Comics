@@ -15,4 +15,30 @@ describe('engine input', () => {
     expect(out.title).toContain('Space Launch');
     expect(out.text.length).toBeGreaterThan(60);
   });
+
+  it('prioritizes article text over cnn-like ad feedback boilerplate', () => {
+    const html = `
+      <html>
+        <head><title>Breaking News | CNN</title></head>
+        <body>
+          <main>
+            <div class="feedback">CNN values your feedback. How relevant is this ad to you? Did you encounter any technical issues? Ad never loaded.</div>
+            <article class="article__content">
+              <h1>Mission update</h1>
+              <p>The rescue team reached the mountain village before dawn and restored power to the main clinic.</p>
+              <p>Doctors treated dozens of residents while volunteers distributed food and warm clothing.</p>
+              <p>Officials said the operation would continue through the weekend as roads reopen.</p>
+            </article>
+          </main>
+        </body>
+      </html>
+    `;
+    const out = extractFromHtml(html, {});
+    expect(out.title).toContain('CNN');
+    expect(out.text).toContain('The rescue team reached the mountain village before dawn');
+    expect(out.text).toContain('Officials said the operation would continue through the weekend');
+    expect(out.text).not.toMatch(/values your feedback/i);
+    expect(out.text).not.toMatch(/how relevant is this ad/i);
+    expect(out.text).not.toMatch(/did you encounter any technical issues/i);
+  });
 });

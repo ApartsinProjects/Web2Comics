@@ -355,6 +355,13 @@ async function generateImageWithProvider(providerConfig, prompt, runtimeConfig, 
 }
 
 function supportsImageReferenceInput(providerConfig) {
+  const explicit = providerConfig?.supports_image_reference;
+  if (explicit != null) {
+    if (typeof explicit === 'boolean') return explicit;
+    const normalized = String(explicit).trim().toLowerCase();
+    if (normalized === '1' || normalized === 'true' || normalized === 'yes' || normalized === 'on') return true;
+    if (normalized === '0' || normalized === 'false' || normalized === 'no' || normalized === 'off') return false;
+  }
   const provider = String(providerConfig?.provider || '').trim().toLowerCase();
   const model = String(providerConfig?.model || '').trim().toLowerCase();
   if (provider === 'gemini') {
