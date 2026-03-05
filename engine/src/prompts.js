@@ -1,5 +1,15 @@
-function buildStoryboardPrompt({ sourceTitle, sourceLabel, sourceText, panelCount, objective, stylePrompt, outputLanguage }) {
-  return [
+function buildStoryboardPrompt({
+  sourceTitle,
+  sourceLabel,
+  sourceText,
+  panelCount,
+  objective,
+  stylePrompt,
+  outputLanguage,
+  objectivePromptOverride,
+  customStoryPrompt
+}) {
+  const out = [
     'Create a comic storyboard as strict JSON only. No markdown fences.',
     'Schema: {"title":string,"description":string,"panels":[{"caption":string,"image_prompt":string}]}',
     `Panel count: ${panelCount}`,
@@ -10,11 +20,22 @@ function buildStoryboardPrompt({ sourceTitle, sourceLabel, sourceText, panelCoun
     '- Keep captions concise, factual, and sequential.',
     '- Keep each image_prompt visual and concrete for a single panel scene.',
     '- Do not invent facts not present in source text.',
+  ];
+  const objectiveOverride = String(objectivePromptOverride || '').trim();
+  if (objectiveOverride) {
+    out.push(`Objective-specific instructions: ${objectiveOverride}`);
+  }
+  const customStory = String(customStoryPrompt || '').trim();
+  if (customStory) {
+    out.push(`Custom user story prompt: ${customStory}`);
+  }
+  out.push(
     `Source title: ${sourceTitle}`,
     `Source label: ${sourceLabel}`,
     'Source text:',
     sourceText
-  ].join('\n');
+  );
+  return out.join('\n');
 }
 
 function extractJsonCandidate(rawText) {

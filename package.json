@@ -24,12 +24,20 @@
     "render:start": "node render/src/webhook-bot.js",
     "render:set-webhook": "node render/src/set-webhook.js",
     "render:deploy:auto": "node render/scripts/deploy-render-webhook.js",
+    "bot:deploy:auto": "node scripts/deploy-bot-auto.js",
     "test:render": "vitest run -c render/vitest.config.js",
     "test:render:local": "vitest run -c render/vitest.config.js render/tests/webhook-rest.test.js render/tests/redact.test.js",
     "test:render:gemini-real": "vitest run -c render/vitest.config.js render/tests/gemini-real.e2e.test.js",
-    "test:render:predeploy": "node render/scripts/predeploy-check.js"
+    "test:render:r2-real": "vitest run -c render/vitest.config.js render/tests/r2-crash-log.e2e.test.js render/tests/image-r2.e2e.test.js",
+    "test:render:full-stack": "vitest run -c render/vitest.config.js render/tests/full-stack.interfaces.e2e.test.js",
+    "test:render:predeploy": "node render/scripts/predeploy-check.js",
+    "cloudflare:create-tokens": "node scripts/cloudflare/create-scoped-tokens.js",
+    "test:cloudflare": "vitest run -c cloudflare/vitest.config.mjs",
+    "deploy:cloudflare": "node cloudflare/scripts/deploy-worker.js",
+    "test:cloudflare:smoke": "node cloudflare/scripts/smoke-test.js"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1002.0",
     "js-yaml": "^4.1.0",
     "pg": "^8.19.0",
     "sharp": "^0.34.4"

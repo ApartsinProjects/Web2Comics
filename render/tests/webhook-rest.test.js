@@ -170,9 +170,9 @@ describe('render webhook bot REST + telegram flow', () => {
 
       await waitFor(() => tg.calls.some((c) => c.url.endsWith('/sendMessage')), 8000, 100);
       const helpCall = tg.calls.find((c) =>
-        c.url.endsWith('/sendMessage') && String(c.body.text || '').includes('Web2Comics Render Bot')
+        c.url.endsWith('/sendMessage') && String(c.body.text || '').includes('Web2Comic')
       );
-      expect(String(helpCall?.body?.text || '')).toContain('Web2Comics Render Bot');
+      expect(String(helpCall?.body?.text || '')).toContain('Web2Comic');
     } finally {
       const logs = bot.readLogs();
       if (!tg.calls.length) {
@@ -380,6 +380,95 @@ describe('render webhook bot REST + telegram flow', () => {
     }
   }, 30000);
 
+  it('handles URL with surrounding text and still treats it as URL source', async () => {
+    const tg = await startFakeTelegramServer();
+    const botPort = await getFreePort();
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'render-bot-webhook-'));
+    const bot = await startBotProcess(
+      botPort,
+      `http://127.0.0.1:${tg.port}/botTEST_TOKEN`,
+      path.join(tmpDir, 'runtime-state.json')
+    );
+
+    try {
+      const before = tg.calls.length;
+      const res = await postUpdate(botPort, {
+        chat: { id: 777 },
+        from: { id: 777, username: 'url_text_user', first_name: 'UrlText' },
+        text: 'Please comicify this page: https://example.com/article about testing.'
+      });
+      expect(res.status).toBe(200);
+      await waitFor(() => tg.calls.filter((c) => c.url.endsWith('/sendPhoto')).length >= 3, 10000, 100);
+      const chunk = tg.calls.slice(before);
+      const msgTexts = chunk.filter((c) => c.url.endsWith('/sendMessage')).map((c) => String(c.body.text || ''));
+      expect(msgTexts.some((m) => m.includes('Done: url -> comic panels'))).toBe(true);
+    } finally {
+      await bot.stop();
+      await tg.close();
+    }
+  }, 30000);
+
+  it('handles forwarded text containing URL as URL source', async () => {
+    const tg = await startFakeTelegramServer();
+    const botPort = await getFreePort();
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'render-bot-webhook-'));
+    const bot = await startBotProcess(
+      botPort,
+      `http://127.0.0.1:${tg.port}/botTEST_TOKEN`,
+      path.join(tmpDir, 'runtime-state.json')
+    );
+
+    try {
+      const before = tg.calls.length;
+      const res = await postUpdate(botPort, {
+        chat: { id: 777 },
+        from: { id: 777, username: 'forward_user', first_name: 'Forward' },
+        forward_from_chat: { id: -10012345, title: 'News Channel', type: 'channel' },
+        forward_date: Math.floor(Date.now() / 1000),
+        text: 'https://example.com/forwarded-story'
+      });
+      expect(res.status).toBe(200);
+      await waitFor(() => tg.calls.filter((c) => c.url.endsWith('/sendPhoto')).length >= 3, 10000, 100);
+      const chunk = tg.calls.slice(before);
+      const msgTexts = chunk.filter((c) => c.url.endsWith('/sendMessage')).map((c) => String(c.body.text || ''));
+      expect(msgTexts.some((m) => m.includes('Done: url -> comic panels'))).toBe(true);
+    } finally {
+      await bot.stop();
+      await tg.close();
+    }
+  }, 30000);
+
+  it('expands short text prompt with AI story first, then generates comics', async () => {
+    const tg = await startFakeTelegramServer();
+    const botPort = await getFreePort();
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'render-bot-webhook-'));
+    const bot = await startBotProcess(
+      botPort,
+      `http://127.0.0.1:${tg.port}/botTEST_TOKEN`,
+      path.join(tmpDir, 'runtime-state.json')
+    );
+
+    try {
+      const before = tg.calls.length;
+      const res = await postUpdate(botPort, {
+        chat: { id: 777 },
+        from: { id: 777, username: 'short_user', first_name: 'Short' },
+        text: 'Space cat'
+      });
+      expect(res.status).toBe(200);
+      await waitFor(() => tg.calls.filter((c) => c.url.endsWith('/sendPhoto')).length >= 3, 12000, 100);
+      const chunk = tg.calls.slice(before);
+      const texts = chunk.filter((c) => c.url.endsWith('/sendMessage')).map((c) => String(c.body.text || ''));
+      expect(texts.some((m) => m.includes('prompt is too short'))).toBe(true);
+      expect(texts.some((m) => m.includes('Invented story (expanded by AI):'))).toBe(true);
+      expect(texts.some((m) => m.includes('Generating your comic from the expanded story'))).toBe(true);
+      expect(texts.some((m) => m.includes('Done: text -> comic panels'))).toBe(true);
+    } finally {
+      await bot.stop();
+      await tg.close();
+    }
+  }, 30000);
+
   it('reports unexpected command handling errors back to user', async () => {
     const tg = await startFakeTelegramServer();
     const botPort = await getFreePort();
@@ -400,6 +489,40 @@ describe('render webhook bot REST + telegram flow', () => {
         .filter((c) => c.url.endsWith('/sendMessage'))
         .map((c) => String(c.body.text || ''))
         .some((m) => m.includes('Set failed:')), 8000, 100);
+    } finally {
+      await bot.stop();
+      await tg.close();
+    }
+  }, 30000);
+
+  it('refuses provider switch when required key is missing and points to manual', async () => {
+    const tg = await startFakeTelegramServer();
+    const botPort = await getFreePort();
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'render-bot-webhook-'));
+    const bot = await startBotProcess(
+      botPort,
+      `http://127.0.0.1:${tg.port}/botTEST_TOKEN`,
+      path.join(tmpDir, 'runtime-state.json'),
+      {
+        OPENAI_API_KEY: ' '
+      }
+    );
+
+    try {
+      const res = await postUpdate(botPort, {
+        chat: { id: 777 },
+        text: '/text_vendor openai'
+      });
+      expect(res.status).toBe(200);
+      await waitFor(() => tg.calls
+        .filter((c) => c.url.endsWith('/sendMessage'))
+        .map((c) => String(c.body.text || ''))
+        .some((m) => m.includes('Provider switch blocked: missing OPENAI_API_KEY')), 8000, 100);
+      const msg = tg.calls
+        .filter((c) => c.url.endsWith('/sendMessage'))
+        .map((c) => String(c.body.text || ''))
+        .find((m) => m.includes('Provider switch blocked: missing OPENAI_API_KEY')) || '';
+      expect(msg).toContain('deployment-runbook.md');
     } finally {
       await bot.stop();
       await tg.close();
@@ -431,6 +554,70 @@ describe('render webhook bot REST + telegram flow', () => {
       await tg.close();
     }
   }, 30000);
+
+  it('handles telegram message combinations: text, photo+caption text/url/mixed, and image-only unsupported', async () => {
+    const tg = await startFakeTelegramServer();
+    const botPort = await getFreePort();
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'render-bot-webhook-combos-'));
+    const bot = await startBotProcess(
+      botPort,
+      `http://127.0.0.1:${tg.port}/botTEST_TOKEN`,
+      path.join(tmpDir, 'runtime-state.json')
+    );
+
+    try {
+      const startCalls = tg.calls.length;
+
+      const r1 = await postUpdate(botPort, {
+        chat: { id: 777 },
+        from: { id: 777, username: 'combo_user', first_name: 'Combo' },
+        text: 'A normal text-only story message'
+      });
+      expect(r1.status).toBe(200);
+
+      const r2 = await postUpdate(botPort, {
+        chat: { id: 777 },
+        from: { id: 777, username: 'combo_user', first_name: 'Combo' },
+        photo: [{ file_id: 'img1' }],
+        caption: 'Photo caption story text only'
+      });
+      expect(r2.status).toBe(200);
+
+      const r3 = await postUpdate(botPort, {
+        chat: { id: 777 },
+        from: { id: 777, username: 'combo_user', first_name: 'Combo' },
+        photo: [{ file_id: 'img2' }],
+        caption: 'https://example.com/caption-url-story'
+      });
+      expect(r3.status).toBe(200);
+
+      const r4 = await postUpdate(botPort, {
+        chat: { id: 777 },
+        from: { id: 777, username: 'combo_user', first_name: 'Combo' },
+        photo: [{ file_id: 'img3' }],
+        caption: 'Check this page https://example.com/mixed-caption and summarize'
+      });
+      expect(r4.status).toBe(200);
+
+      const r5 = await postUpdate(botPort, {
+        chat: { id: 777 },
+        from: { id: 777, username: 'combo_user', first_name: 'Combo' },
+        photo: [{ file_id: 'img4' }]
+      });
+      expect(r5.status).toBe(200);
+
+      await waitFor(() => tg.calls.filter((c) => c.url.endsWith('/sendPhoto')).length >= 12, 20000, 100);
+      const chunk = tg.calls.slice(startCalls);
+      const texts = chunk.filter((c) => c.url.endsWith('/sendMessage')).map((c) => String(c.body.text || ''));
+
+      expect(texts.filter((m) => m.includes('Done: text -> comic panels')).length).toBeGreaterThanOrEqual(2);
+      expect(texts.filter((m) => m.includes('Done: url -> comic panels')).length).toBeGreaterThanOrEqual(2);
+      expect(texts.some((m) => m.includes('Unsupported message format'))).toBe(true);
+    } finally {
+      await bot.stop();
+      await tg.close();
+    }
+  }, 40000);
 
   it('reports timeout errors back to chat when a job exceeds timeout', async () => {
     const tg = await startFakeTelegramServer();

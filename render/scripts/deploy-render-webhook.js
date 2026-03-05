@@ -2,7 +2,15 @@
 const path = require('path');
 const { loadEnvFiles } = require('../src/env');
 const { RenderApiClient } = require('./render-api');
-const { parseArgs, readTelegramYaml, resolveLatestDeployId, validateProviderEnv } = require('./lib');
+const { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand } = require('@aws-sdk/client-s3');
+const {
+  parseArgs,
+  readTelegramYaml,
+  readCloudflareYaml,
+  readAwsYaml,
+  resolveLatestDeployId,
+  validateProviderEnv
+} = require('./lib');
 
 async function setTelegramWebhook(token, secret, publicBaseUrl) {
   const url = `${String(publicBaseUrl || '').replace(/\/+$/, '')}/telegram/webhook/${secret}`;
@@ -22,6 +30,149 @@ async function setTelegramWebhook(token, secret, publicBaseUrl) {
     throw new Error(`setWebhook failed: ${JSON.stringify(json)}`);
   }
   return url;
+}
+
+function pickCloudflareApiToken(cfYaml) {
+  const tokens = (cfYaml && cfYaml.api_tokens) || {};
+  return firstNonEmpty(
+    tokens.deployment_token,
+    tokens.additional_token_2,
+    tokens.additional_token_1,
+    tokens.env_e2e_token,
+    tokens.primary_invalid_or_old,
+    process.env.CLOUDFLARE_API_TOKEN
+  );
+}
+
+function resolveR2Config(args, cfYaml, awsYaml) {
+  const cfR2 = (cfYaml && cfYaml.r2) || {};
+  const s3Clients = (cfR2 && cfR2.s3_clients) || {};
+  const key2 = s3Clients.keypair_2 || {};
+  const key1 = s3Clients.keypair_1 || {};
+  const endpoints = (cfR2 && cfR2.endpoints) || {};
+  const accountId = firstNonEmpty(
+    args['cloudflare-account-id'],
+    process.env.CLOUDFLARE_ACCOUNT_ID,
+    cfYaml && cfYaml.account_id
+  );
+  const bucket = firstNonEmpty(args['r2-bucket'], process.env.R2_BUCKET, cfR2.bucket, 'web2comics-bot-data');
+  const endpoint = firstNonEmpty(
+    args['r2-endpoint'],
+    process.env.R2_S3_ENDPOINT,
+    endpoints.global_s3,
+    endpoints.regional_s3_eu,
+    accountId ? `https://${accountId}.r2.cloudflarestorage.com` : ''
+  );
+  const accessKeyId = firstNonEmpty(
+    args['r2-access-key-id'],
+    process.env.R2_ACCESS_KEY_ID,
+    key2.access_key_id,
+    key1.access_key_id,
+    awsYaml.aws_access_key_id
+  );
+  const secretAccessKey = firstNonEmpty(
+    args['r2-secret-access-key'],
+    process.env.R2_SECRET_ACCESS_KEY,
+    key2.secret_access_key,
+    key1.secret_access_key,
+    awsYaml.aws_secret_access_key
+  );
+  return {
+    endpoint: String(endpoint || '').trim(),
+    bucket: String(bucket || '').trim(),
+    accessKeyId: String(accessKeyId || '').trim(),
+    secretAccessKey: String(secretAccessKey || '').trim()
+  };
+}
+
+async function cfApi(token, endpoint, options = {}) {
+  const res = await fetch(`https://api.cloudflare.com/client/v4${endpoint}`, {
+    ...options,
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+      ...(options.headers || {})
+    }
+  });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok || !json.success) {
+    const errors = Array.isArray(json.errors) ? json.errors : [];
+    const msg = errors.map((e) => `${e.code}:${e.message}`).join('; ') || `${res.status} ${res.statusText}`;
+    throw new Error(`Cloudflare API ${endpoint} failed: ${msg}`);
+  }
+  return json.result;
+}
+
+async function ensureCloudflareR2Bucket(options = {}) {
+  const token = String(options.token || '').trim();
+  const accountId = String(options.accountId || '').trim();
+  const bucket = String(options.bucket || '').trim();
+  if (!token || !accountId || !bucket) return { enabled: false, created: false };
+
+  const listed = await cfApi(token, `/accounts/${accountId}/r2/buckets`, { method: 'GET' });
+  const buckets = Array.isArray(listed?.buckets) ? listed.buckets : [];
+  const exists = buckets.some((b) => String(b?.name || '') === bucket);
+  if (exists) return { enabled: true, created: false };
+
+  await cfApi(token, `/accounts/${accountId}/r2/buckets/${bucket}`, {
+    method: 'PUT',
+    body: JSON.stringify({ locationHint: 'weur' })
+  });
+  return { enabled: true, created: true };
+}
+
+async function resolveWorkingCloudflareToken(accountId, candidates) {
+  const seen = new Set();
+  const list = (Array.isArray(candidates) ? candidates : [])
+    .map((v) => String(v || '').trim())
+    .filter(Boolean)
+    .filter((v) => {
+      if (seen.has(v)) return false;
+      seen.add(v);
+      return true;
+    });
+  for (const token of list) {
+    try {
+      await cfApi(token, `/accounts/${accountId}/r2/buckets`, { method: 'GET' });
+      return token;
+    } catch (_) {
+      // try next token
+    }
+  }
+  return '';
+}
+
+async function verifyR2S3WriteRead(options = {}) {
+  const endpoint = String(options.endpoint || '').trim();
+  const bucket = String(options.bucket || '').trim();
+  const accessKeyId = String(options.accessKeyId || '').trim();
+  const secretAccessKey = String(options.secretAccessKey || '').trim();
+  if (!endpoint || !bucket || !accessKeyId || !secretAccessKey) return { enabled: false, ok: false };
+
+  const client = new S3Client({
+    region: 'auto',
+    endpoint,
+    credentials: { accessKeyId, secretAccessKey }
+  });
+  const key = `deploy-probe/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.txt`;
+  const body = Buffer.from(`probe ${new Date().toISOString()}`, 'utf8');
+
+  await client.send(new PutObjectCommand({
+    Bucket: bucket,
+    Key: key,
+    Body: body,
+    ContentType: 'text/plain'
+  }));
+  const got = await client.send(new GetObjectCommand({
+    Bucket: bucket,
+    Key: key
+  }));
+  const txt = await got.Body.transformToString();
+  await client.send(new DeleteObjectCommand({
+    Bucket: bucket,
+    Key: key
+  }));
+  return { enabled: true, ok: txt.includes('probe ') };
 }
 
 async function getExistingWebhookSecret(token) {
@@ -130,6 +281,8 @@ function normalizeIdCsv(...values) {
 
 async function main() {
   const repoRoot = path.resolve(__dirname, '../..');
+  const preArgs = parseArgs(process.argv.slice(2));
+  const envOnly = parseBool(preArgs['env-only'] || process.env.BOT_SECRETS_ENV_ONLY);
   loadEnvFiles([
     path.join(repoRoot, '.env.local'),
     path.join(repoRoot, '.env.e2e.local'),
@@ -137,10 +290,15 @@ async function main() {
     path.join(repoRoot, 'render/.env')
   ]);
 
-  const args = parseArgs(process.argv.slice(2));
-  const tgYaml = readTelegramYaml(repoRoot);
+  const args = preArgs;
+  const tgYaml = envOnly ? {} : readTelegramYaml(repoRoot);
+  const cfYaml = envOnly ? {} : readCloudflareYaml(repoRoot);
+  const awsYaml = envOnly ? {} : readAwsYaml(repoRoot);
   const testDeployment = parseBool(args['test-deployment'] || process.env.RENDER_TEST_DEPLOYMENT);
-  const requireAllKeys = parseBool(args['require-all-keys'] || process.env.RENDER_REQUIRE_ALL_KEYS) || testDeployment;
+  const allowPartialKeys = parseBool(args['allow-partial-keys'] || process.env.RENDER_ALLOW_PARTIAL_KEYS);
+  const requireAllKeys = allowPartialKeys
+    ? false
+    : (parseBool(args['require-all-keys'] || process.env.RENDER_REQUIRE_ALL_KEYS) || true);
 
   const renderApiKey = firstNonEmpty(args['render-api-key'], process.env.RENDER_API_KEY);
   const repoUrl = firstNonEmpty(args['repo-url'], process.env.RENDER_REPO_URL, 'https://github.com/ApartsinProjects/Web2Comics');
@@ -152,19 +310,55 @@ async function main() {
   const plan = firstNonEmpty(args.plan, process.env.RENDER_PLAN, 'free');
 
   const telegramToken = firstNonEmpty(args['telegram-token'], process.env.TELEGRAM_BOT_TOKEN, tgYaml.bot_token);
+  const cloudflareAccountId = firstNonEmpty(args['cloudflare-account-id'], process.env.CLOUDFLARE_ACCOUNT_ID, cfYaml.account_id);
+  const cloudflareTokenCandidates = [
+    args['cloudflare-api-token'],
+    pickCloudflareApiToken(cfYaml),
+    process.env.CLOUDFLARE_API_TOKEN
+  ];
+  const cloudflareApiToken = cloudflareAccountId
+    ? await resolveWorkingCloudflareToken(cloudflareAccountId, cloudflareTokenCandidates)
+    : '';
 
   const providerEnv = {
     GEMINI_API_KEY: firstNonEmpty(args['gemini-key'], process.env.GEMINI_API_KEY),
     OPENAI_API_KEY: firstNonEmpty(args['openai-key'], process.env.OPENAI_API_KEY),
     OPENROUTER_API_KEY: firstNonEmpty(args['openrouter-key'], process.env.OPENROUTER_API_KEY),
-    CLOUDFLARE_ACCOUNT_ID: firstNonEmpty(args['cloudflare-account-id'], process.env.CLOUDFLARE_ACCOUNT_ID),
-    CLOUDFLARE_API_TOKEN: firstNonEmpty(args['cloudflare-api-token'], process.env.CLOUDFLARE_API_TOKEN),
+    CLOUDFLARE_ACCOUNT_ID: cloudflareAccountId,
+    CLOUDFLARE_API_TOKEN: cloudflareApiToken,
     HUGGINGFACE_INFERENCE_API_TOKEN: firstNonEmpty(args['huggingface-token'], process.env.HUGGINGFACE_INFERENCE_API_TOKEN)
+  };
+  const resolvedR2 = resolveR2Config(args, cfYaml, awsYaml);
+  const r2Env = {
+    R2_S3_ENDPOINT: resolvedR2.endpoint,
+    R2_BUCKET: resolvedR2.bucket,
+    R2_ACCESS_KEY_ID: resolvedR2.accessKeyId,
+    R2_SECRET_ACCESS_KEY: resolvedR2.secretAccessKey,
+    R2_IMAGE_PREFIX: firstNonEmpty(args['r2-image-prefix'], process.env.R2_IMAGE_PREFIX, 'images'),
+    R2_IMAGE_STATUS_KEY: firstNonEmpty(args['r2-image-status-key'], process.env.R2_IMAGE_STATUS_KEY, 'status/image-storage-status.json'),
+    R2_CRASH_LOG_PREFIX: firstNonEmpty(args['r2-crash-log-prefix'], process.env.R2_CRASH_LOG_PREFIX, 'crash-logs'),
+    R2_CRASH_LOG_STATUS_KEY: firstNonEmpty(args['r2-crash-log-status-key'], process.env.R2_CRASH_LOG_STATUS_KEY, 'crash-logs/status.json'),
+    R2_REQUEST_LOG_PREFIX: firstNonEmpty(args['r2-request-log-prefix'], process.env.R2_REQUEST_LOG_PREFIX, 'logs/requests'),
+    R2_REQUEST_LOG_STATUS_KEY: firstNonEmpty(args['r2-request-log-status-key'], process.env.R2_REQUEST_LOG_STATUS_KEY, 'logs/requests/status.json'),
+    R2_CRASH_LOG_RETENTION_DAYS: firstNonEmpty(args['r2-crash-retention-days'], process.env.R2_CRASH_LOG_RETENTION_DAYS, '5'),
+    R2_REQUEST_LOG_RETENTION_DAYS: firstNonEmpty(args['r2-request-retention-days'], process.env.R2_REQUEST_LOG_RETENTION_DAYS, '5')
+  };
+  const r2BudgetEnv = {
+    RENDER_BOT_IMAGE_CAPACITY_BYTES: firstNonEmpty(args['r2-image-capacity-bytes'], process.env.RENDER_BOT_IMAGE_CAPACITY_BYTES, String(4 * 1024 * 1024 * 1024)),
+    RENDER_BOT_IMAGE_CLEANUP_THRESHOLD_RATIO: firstNonEmpty(args['r2-image-threshold-ratio'], process.env.RENDER_BOT_IMAGE_CLEANUP_THRESHOLD_RATIO, '0.5'),
+    R2_CRASH_LOG_CAPACITY_BYTES: firstNonEmpty(args['r2-crash-capacity-bytes'], process.env.R2_CRASH_LOG_CAPACITY_BYTES, String(512 * 1024 * 1024)),
+    R2_CRASH_LOG_CLEANUP_THRESHOLD_RATIO: firstNonEmpty(args['r2-crash-threshold-ratio'], process.env.R2_CRASH_LOG_CLEANUP_THRESHOLD_RATIO, '0.8'),
+    R2_REQUEST_LOG_CAPACITY_BYTES: firstNonEmpty(args['r2-request-capacity-bytes'], process.env.R2_REQUEST_LOG_CAPACITY_BYTES, String(512 * 1024 * 1024)),
+    R2_REQUEST_LOG_CLEANUP_THRESHOLD_RATIO: firstNonEmpty(args['r2-request-threshold-ratio'], process.env.R2_REQUEST_LOG_CLEANUP_THRESHOLD_RATIO, '0.8')
   };
 
   const notifyChatId = firstChatId(
     firstNonEmpty(args['notify-chat-id'], process.env.TELEGRAM_NOTIFY_CHAT_ID, tgYaml.allowed_chat_ids),
     '1796415913'
+  );
+  const telegramTestChatId = firstChatId(
+    firstNonEmpty(args['telegram-test-chat-id'], process.env.TELEGRAM_TEST_CHAT_ID, tgYaml.allowed_chat_ids),
+    notifyChatId
   );
   const allowedChatIds = normalizeIdCsv(
     firstNonEmpty(args['allowed-chat-ids'], process.env.COMICBOT_ALLOWED_CHAT_IDS, tgYaml.allowed_chat_ids),
@@ -193,7 +387,7 @@ async function main() {
     throw new Error('Missing Render API key. Set RENDER_API_KEY or pass --render-api-key');
   }
   if (!telegramToken) {
-    throw new Error('Missing Telegram bot token. Put it in .telegram.yaml or TELEGRAM_BOT_TOKEN or --telegram-token');
+    throw new Error('Missing Telegram bot token. Provide TELEGRAM_BOT_TOKEN (GitHub Secret) or --telegram-token');
   }
   const existingWebhookSecret = await getExistingWebhookSecret(telegramToken);
   const webhookSecret = firstNonEmpty(
@@ -205,12 +399,40 @@ async function main() {
   const keyCheck = validateProviderEnv(providerEnv, requireAllKeys);
   if (!keyCheck.ok) {
     if (requireAllKeys) {
-      throw new Error(`Missing provider keys for strict deployment: ${keyCheck.missing.join(', ')}`);
+      throw new Error(`Missing provider keys for strict deployment: ${keyCheck.missing.join(', ')}. Set all provider secrets or use --allow-partial-keys.`);
     }
     throw new Error('Missing provider keys. At least one provider key is required (e.g. GEMINI_API_KEY).');
   }
+  const providerKeyStatus = Object.entries(providerEnv)
+    .map(([k, v]) => `${k}:${String(v || '').trim() ? 'set' : 'missing'}`)
+    .join(', ');
+  console.log(`[deploy] provider key status -> ${providerKeyStatus}`);
 
   const render = new RenderApiClient(renderApiKey);
+
+  if (providerEnv.CLOUDFLARE_API_TOKEN && providerEnv.CLOUDFLARE_ACCOUNT_ID && r2Env.R2_BUCKET) {
+    const r2Out = await ensureCloudflareR2Bucket({
+      token: providerEnv.CLOUDFLARE_API_TOKEN,
+      accountId: providerEnv.CLOUDFLARE_ACCOUNT_ID,
+      bucket: r2Env.R2_BUCKET
+    });
+    if (r2Out.created) console.log(`[deploy] created cloudflare R2 bucket: ${r2Env.R2_BUCKET}`);
+    else console.log(`[deploy] cloudflare R2 bucket exists: ${r2Env.R2_BUCKET}`);
+  } else {
+    console.log('[deploy] cloudflare account token/id not provided; skipping bucket provisioning');
+  }
+
+  if (r2Env.R2_S3_ENDPOINT && r2Env.R2_BUCKET && r2Env.R2_ACCESS_KEY_ID && r2Env.R2_SECRET_ACCESS_KEY) {
+    await verifyR2S3WriteRead({
+      endpoint: r2Env.R2_S3_ENDPOINT,
+      bucket: r2Env.R2_BUCKET,
+      accessKeyId: r2Env.R2_ACCESS_KEY_ID,
+      secretAccessKey: r2Env.R2_SECRET_ACCESS_KEY
+    });
+    console.log('[deploy] R2 S3 probe ok');
+  } else {
+    console.log('[deploy] R2 S3 credentials incomplete; image/crash logs will use file fallback');
+  }
 
   let ownerId = ownerIdArg;
   if (!ownerId) {
@@ -312,9 +534,12 @@ async function main() {
     RENDER_BOT_DEBUG_ARTIFACTS: 'false',
     TELEGRAM_NOTIFY_ON_START: 'true',
     TELEGRAM_NOTIFY_CHAT_ID: notifyChatId,
+    TELEGRAM_TEST_CHAT_ID: telegramTestChatId,
     TELEGRAM_ADMIN_CHAT_IDS: adminChatIds,
     COMICBOT_ALLOWED_CHAT_IDS: allowedChatIds,
-    ...providerEnv
+    ...providerEnv,
+    ...r2Env,
+    ...r2BudgetEnv
   };
 
   await render.setServiceEnvVars(serviceId, envVars);

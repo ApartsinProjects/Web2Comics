@@ -1,0 +1,94 @@
+name: Bot Deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: Deploy target
+        required: true
+        default: render
+        type: choice
+        options:
+          - render
+          - cloudflare
+          - both
+      branch:
+        description: Git branch to deploy on Render
+        required: true
+        default: engine
+        type: string
+      test_deployment:
+        description: Deploy Render test service name
+        required: true
+        default: true
+        type: boolean
+      with_render_smoke:
+        description: Run Render full-stack smoke after deploy
+        required: true
+        default: false
+        type: boolean
+      with_cloudflare_smoke:
+        description: Run Cloudflare smoke after deploy
+        required: true
+        default: false
+        type: boolean
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Deploy
+        shell: bash
+        env:
+          BOT_SECRETS_ENV_ONLY: "true"
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          RENDER_OWNER_ID: ${{ secrets.RENDER_OWNER_ID }}
+          RENDER_REGION: ${{ secrets.RENDER_REGION }}
+          RENDER_PLAN: ${{ secrets.RENDER_PLAN }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_WEBHOOK_SECRET: ${{ secrets.TELEGRAM_WEBHOOK_SECRET }}
+          TELEGRAM_NOTIFY_CHAT_ID: ${{ secrets.TELEGRAM_NOTIFY_CHAT_ID }}
+          TELEGRAM_TEST_CHAT_ID: ${{ secrets.TELEGRAM_TEST_CHAT_ID }}
+          TELEGRAM_ADMIN_CHAT_IDS: ${{ secrets.TELEGRAM_ADMIN_CHAT_IDS }}
+          COMICBOT_ALLOWED_CHAT_IDS: ${{ secrets.COMICBOT_ALLOWED_CHAT_IDS }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          HUGGINGFACE_INFERENCE_API_TOKEN: ${{ secrets.HUGGINGFACE_INFERENCE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          R2_S3_ENDPOINT: ${{ secrets.R2_S3_ENDPOINT }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          set -euo pipefail
+          EXTRA_ARGS=()
+          EXTRA_ARGS+=(--target "${{ github.event.inputs.target }}")
+          EXTRA_ARGS+=(--branch "${{ github.event.inputs.branch }}")
+          EXTRA_ARGS+=(--env-only)
+
+          if [[ "${{ github.event.inputs.test_deployment }}" == "true" ]]; then
+            EXTRA_ARGS+=(--test-deployment)
+          fi
+          if [[ "${{ github.event.inputs.with_render_smoke }}" == "true" ]]; then
+            EXTRA_ARGS+=(--with-render-smoke)
+          fi
+          if [[ "${{ github.event.inputs.with_cloudflare_smoke }}" == "true" ]]; then
+            EXTRA_ARGS+=(--with-cloudflare-smoke)
+          fi
+
+          npm run bot:deploy:auto -- "${EXTRA_ARGS[@]}"

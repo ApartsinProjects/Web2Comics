@@ -55,7 +55,7 @@ async function startFakeTelegramServer() {
   };
 }
 
-async function startBotProcess(botPort, telegramBaseUrl, statePath) {
+async function startBotProcess(botPort, telegramBaseUrl, statePath, extraEnv = {}) {
   const repoRoot = path.resolve(__dirname, '../..');
   const env = {
     ...process.env,
@@ -68,7 +68,8 @@ async function startBotProcess(botPort, telegramBaseUrl, statePath) {
     RENDER_BOT_STATE_FILE: statePath,
     RENDER_BOT_BASE_CONFIG: path.join(repoRoot, 'render/config/default.render.yml'),
     RENDER_BOT_OUT_DIR: path.join(repoRoot, 'render/out'),
-    RENDER_BOT_FAKE_GENERATOR: 'true'
+    RENDER_BOT_FAKE_GENERATOR: 'true',
+    ...extraEnv
   };
 
   const child = spawn(process.execPath, ['render/src/webhook-bot.js'], {
@@ -178,6 +179,11 @@ describe('render bot comprehensive interaction suite', () => {
       await runCommandAndExpect('/panels 4', 'Updated generation.panel_count = 4');
       await runCommandAndExpect('/objective summarize', 'Updated generation.objective = summarize');
       await runCommandAndExpect('/detail low', 'Updated generation.detail_level = low');
+      await runCommandAndExpect('/set_style cinematic hand-drawn frames', 'Updated generation.style_prompt');
+      await runCommandAndExpect('/set_prompt story Focus on cause and effect', 'Updated generation.custom_story_prompt');
+      await runCommandAndExpect('/set_prompt panel Keep faces expressive', 'Updated generation.custom_panel_prompt');
+      await runCommandAndExpect('/set_prompt objective summarize Keep it extra concise', 'Updated objective prompt override for summarize');
+      await runCommandAndExpect('/prompts', 'Prompt catalog');
       await runCommandAndExpect('/concurrency 2', 'Updated runtime.image_concurrency = 2');
       await runCommandAndExpect('/retries 1', 'Updated runtime.retries = 1');
       await runCommandAndExpect('/options generation.objective', 'Options for `generation.objective`');
@@ -189,7 +195,7 @@ describe('render bot comprehensive interaction suite', () => {
       expect(String(latest.body.text || '').includes('SUPER_SECRET_TOKEN_123')).toBe(false);
       await runCommandAndExpect('/unsetkey GEMINI_API_KEY', 'Removed runtime override for GEMINI_API_KEY');
       await runCommandAndExpect('/restart', 'Your bot state was restarted to defaults.');
-      await runCommandAndExpect('/reset_config', 'Runtime config overrides were reset to base config.');
+      await runCommandAndExpect('/reset_default', 'Runtime config overrides were reset to base config.');
     } finally {
       await bot.stop();
       await tg.close();
@@ -217,6 +223,7 @@ describe('render bot comprehensive interaction suite', () => {
       const adminHelp = await command(1796415913, '/help');
       expect(adminHelp.some((m) => m.includes('Admin commands:'))).toBe(true);
       expect(adminHelp.some((m) => m.includes('/share <user_id>'))).toBe(true);
+      expect(adminHelp.some((m) => m.includes('/log'))).toBe(true);
 
       const nonAdminHelp = await command(888, '/help');
       expect(nonAdminHelp.some((m) => m.includes('Admin commands:'))).toBe(false);
@@ -248,6 +255,53 @@ describe('render bot comprehensive interaction suite', () => {
       await command(1796415913, '/share 888');
       const creds = await command(888, '/credentials');
       expect(creds.some((m) => m.includes('GEMINI_API_KEY: set (shared:1796415913)'))).toBe(true);
+    } finally {
+      await bot.stop();
+      await tg.close();
+    }
+  }, 50000);
+
+  it('enforces share flow: blocked without key, allowed with shared key, own key overrides shared', async () => {
+    const tg = await startFakeTelegramServer();
+    const botPort = await getFreePort();
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'render-bot-share-override-'));
+    const bot = await startBotProcess(
+      botPort,
+      `http://127.0.0.1:${tg.port}/botTEST_TOKEN`,
+      path.join(tmpDir, 'state.json'),
+      {
+        OPENAI_API_KEY: ' '
+      }
+    );
+
+    async function command(chatId, text) {
+      const before = sentMessages(tg.calls).length;
+      const res = await postUpdate(botPort, { chat: { id: chatId }, text });
+      expect(res.status).toBe(200);
+      await waitFor(() => sentMessages(tg.calls).length > before, 8000, 100);
+      return sentMessages(tg.calls).slice(before).map((c) => String(c.body.text || ''));
+    }
+
+    try {
+      const blocked = await command(888, '/text_vendor openai');
+      expect(blocked.some((m) => m.includes('Provider switch blocked: missing OPENAI_API_KEY'))).toBe(true);
+
+      await command(1796415913, '/setkey OPENAI_API_KEY ADMIN_OPENAI_KEY_123');
+      const shared = await command(1796415913, '/share 888');
+      expect(shared.some((m) => m.includes('Shared your runtime keys with user 888'))).toBe(true);
+
+      const allowedAfterShare = await command(888, '/text_vendor openai');
+      expect(allowedAfterShare.some((m) => m.includes('Provider updated: openai'))).toBe(true);
+
+      const sharedCreds = await command(888, '/credentials');
+      expect(sharedCreds.some((m) => m.includes('OPENAI_API_KEY: set (shared:1796415913)'))).toBe(true);
+
+      await command(888, '/setkey OPENAI_API_KEY USER_OWN_OPENAI_KEY_456');
+      const ownCreds = await command(888, '/credentials');
+      expect(ownCreds.some((m) => m.includes('OPENAI_API_KEY: set (runtime)'))).toBe(true);
+
+      const allowedWithOwn = await command(888, '/text_vendor openai');
+      expect(allowedWithOwn.some((m) => m.includes('Provider updated: openai'))).toBe(true);
     } finally {
       await bot.stop();
       await tg.close();
@@ -351,7 +405,7 @@ describe('render bot comprehensive interaction suite', () => {
     expect(raw.users['888'].profile.chat.username).toBe('profile_chat');
   }, 30000);
 
-  it('supports hidden /peek with latest 10 global requests', async () => {
+  it('supports hidden /peek with count variants for latest generated comics', async () => {
     const tg = await startFakeTelegramServer();
     const botPort = await getFreePort();
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'render-bot-peek-'));
@@ -363,26 +417,103 @@ describe('render bot comprehensive interaction suite', () => {
     }
 
     try {
-      for (let i = 1; i <= 12; i += 1) {
+      for (let i = 1; i <= 6; i += 1) {
         const chatId = i % 2 === 0 ? 777 : 888;
-        await send(chatId, `/set output.width ${1000 + i}`);
+        await send(chatId, `Generated comic seed ${i} for peek`);
       }
+      await waitFor(() => sentMessages(tg.calls)
+        .map((c) => String(c.body.text || ''))
+        .filter((m) => m.includes('Done: text -> comic panels')).length >= 6, 20000, 100);
       const before = sentMessages(tg.calls).length;
       await send(777, '/peek');
       await waitFor(() => sentMessages(tg.calls)
         .slice(before)
         .map((c) => String(c.body.text || ''))
-        .some((m) => m.includes('Last 10 global requests:')), 10000, 100);
+        .some((m) => m.includes('Last 10 generated comics:')), 10000, 100);
       const text = sentMessages(tg.calls)
         .slice(before)
         .map((c) => String(c.body.text || ''))
-        .find((m) => m.includes('Last 10 global requests:')) || '';
-      expect(text).toContain('Last 10 global requests:');
-      expect((text.match(/^\d+\./gm) || []).length).toBe(10);
+        .find((m) => m.includes('Last 10 generated comics:')) || '';
+      expect(text).toContain('Last 10 generated comics:');
+      expect((text.match(/^\d+\./gm) || []).length).toBe(6);
       expect(text).toContain('user:');
       expect(text).toContain('msg:');
       expect(text).toContain('cfg:');
       expect(text).toContain('image:');
+
+      const beforePeek5 = sentMessages(tg.calls).length;
+      await send(777, '/peek5');
+      await waitFor(() => sentMessages(tg.calls)
+        .slice(beforePeek5)
+        .map((c) => String(c.body.text || ''))
+        .some((m) => m.includes('Last 5 generated comics:')), 10000, 100);
+      const text5 = sentMessages(tg.calls)
+        .slice(beforePeek5)
+        .map((c) => String(c.body.text || ''))
+        .find((m) => m.includes('Last 5 generated comics:')) || '';
+      expect((text5.match(/^\d+\./gm) || []).length).toBe(5);
+
+      const beforePeek3 = sentMessages(tg.calls).length;
+      await send(777, '/peek 3');
+      await waitFor(() => sentMessages(tg.calls)
+        .slice(beforePeek3)
+        .map((c) => String(c.body.text || ''))
+        .some((m) => m.includes('Last 3 generated comics:')), 10000, 100);
+      const text3 = sentMessages(tg.calls)
+        .slice(beforePeek3)
+        .map((c) => String(c.body.text || ''))
+        .find((m) => m.includes('Last 3 generated comics:')) || '';
+      expect((text3.match(/^\d+\./gm) || []).length).toBe(3);
+    } finally {
+      await bot.stop();
+      await tg.close();
+    }
+  }, 50000);
+
+  it('supports admin /log with count variants for latest logs', async () => {
+    const tg = await startFakeTelegramServer();
+    const botPort = await getFreePort();
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'render-bot-log-'));
+    const bot = await startBotProcess(botPort, `http://127.0.0.1:${tg.port}/botTEST_TOKEN`, path.join(tmpDir, 'state.json'));
+
+    async function send(chatId, text) {
+      const res = await postUpdate(botPort, { chat: { id: chatId }, text });
+      expect(res.status).toBe(200);
+    }
+
+    try {
+      for (let i = 1; i <= 7; i += 1) {
+        const chatId = i % 2 === 0 ? 777 : 888;
+        await send(chatId, `/set output.width ${1200 + i}`);
+      }
+
+      const before = sentMessages(tg.calls).length;
+      await send(1796415913, '/log');
+      await waitFor(() => sentMessages(tg.calls)
+        .slice(before)
+        .map((c) => String(c.body.text || ''))
+        .some((m) => m.includes('Last 10 logs:')), 10000, 100);
+      const text = sentMessages(tg.calls)
+        .slice(before)
+        .map((c) => String(c.body.text || ''))
+        .find((m) => m.includes('Last 10 logs:')) || '';
+      expect(text).toContain('user:');
+      expect(text).toContain('type:');
+      expect(text).toContain('msg:');
+
+      const before3 = sentMessages(tg.calls).length;
+      await send(1796415913, '/log3');
+      await waitFor(() => sentMessages(tg.calls)
+        .slice(before3)
+        .map((c) => String(c.body.text || ''))
+        .some((m) => m.includes('Last 3 logs:')), 10000, 100);
+
+      const before2 = sentMessages(tg.calls).length;
+      await send(1796415913, '/log 2');
+      await waitFor(() => sentMessages(tg.calls)
+        .slice(before2)
+        .map((c) => String(c.body.text || ''))
+        .some((m) => m.includes('Last 2 logs:')), 10000, 100);
     } finally {
       await bot.stop();
       await tg.close();

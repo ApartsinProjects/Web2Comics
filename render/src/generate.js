@@ -6,6 +6,7 @@ const { loadConfig } = require('../../engine/src/config');
 const { generateTextWithProvider } = require('../../engine/src/providers');
 const { fetchUrlToHtmlSnapshot, buildSnapshotPath } = require('../../engine/src/url-fetch');
 const { classifyMessageInput } = require('./message-utils');
+const { createImageStorageManagerFromEnv } = require('./image-storage');
 
 const TINY_PNG_BASE64 =
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/w8AAgMBAp6R9gAAAABJRU5ErkJggg==';
@@ -37,6 +38,31 @@ function installPlaywrightChromium() {
     stdio: 'inherit',
     shell: true,
     env: { ...process.env }
+  });
+}
+
+async function recordGeneratedImages(runtime, imagePaths) {
+  const storage = createImageStorageManagerFromEnv({
+    statusFilePath: runtime.imageStatusFile,
+    capacityBytes: runtime.imageCapacityBytes,
+    cleanupThresholdRatio: runtime.imageCleanupThresholdRatio,
+    r2Endpoint: runtime.r2Endpoint,
+    r2Bucket: runtime.r2Bucket,
+    r2AccessKeyId: runtime.r2AccessKeyId,
+    r2SecretAccessKey: runtime.r2SecretAccessKey,
+    r2Prefix: runtime.r2ImagePrefix,
+    r2StatusKey: runtime.r2ImageStatusKey
+  });
+  try {
+    await storage.recordImages(imagePaths);
+  } catch (error) {
+    console.error('[render-bot] image storage write failed:', error && error.message ? error.message : String(error));
+  }
+}
+
+function recordGeneratedImagesInBackground(runtime, imagePaths) {
+  recordGeneratedImages(runtime, imagePaths).catch((error) => {
+    console.error('[render-bot] image bookkeeping failed:', error && error.message ? error.message : String(error));
   });
 }
 
@@ -139,21 +165,33 @@ async function generatePanelsWithRuntimeConfig(text, runtime, effectiveConfigPat
     const ts = new Date().toISOString().replace(/[:.]/g, '-');
     const panelCount = 3;
     const panelMessages = [];
+    const writtenPaths = [];
     for (let i = 0; i < panelCount; i += 1) {
       const imagePath = path.join(runtime.outDir, `render-fake-${ts}-panel-${i + 1}.png`);
       writeTinyPng(imagePath);
+      writtenPaths.push(imagePath);
+      const caption = `${i + 1}. Fake panel ${i + 1}`;
       panelMessages.push({
         index: i + 1,
-        caption: `${i + 1}. Fake panel ${i + 1}`,
+        caption,
         imagePath
       });
     }
+    recordGeneratedImagesInBackground(runtime, writtenPaths);
     return {
       panelCount,
       elapsedMs: 5,
       kind: parsed.kind,
       summary: parsed.kind === 'url' ? parsed.value : `text (${parsed.value.length} chars)`,
-      panelMessages
+      panelMessages,
+      storyboard: {
+        panels: panelMessages.map((p) => ({
+          index: p.index,
+          caption: p.caption,
+          beat: '',
+          imagePrompt: p.caption
+        }))
+      }
     };
   }
 
@@ -171,6 +209,7 @@ async function generatePanelsWithRuntimeConfig(text, runtime, effectiveConfigPat
   });
 
   const panelMessages = [];
+  const writtenPaths = [];
   const ts = new Date().toISOString().replace(/[:.]/g, '-');
   fs.mkdirSync(runtime.outDir, { recursive: true });
   for (let i = 0; i < detailed.panelImages.length; i += 1) {
@@ -178,6 +217,7 @@ async function generatePanelsWithRuntimeConfig(text, runtime, effectiveConfigPat
     const image = detailed.panelImages[i];
     const imagePath = path.join(runtime.outDir, `render-${prep.kind}-${ts}-panel-${i + 1}.png`);
     fs.writeFileSync(imagePath, image.buffer);
+    writtenPaths.push(imagePath);
     const captionText = String(panel.caption || '').trim();
     const beatText = String(panel.beat || '').trim();
     const caption = beatText
@@ -190,12 +230,15 @@ async function generatePanelsWithRuntimeConfig(text, runtime, effectiveConfigPat
     });
   }
 
+  recordGeneratedImagesInBackground(runtime, writtenPaths);
+
   return {
     panelCount: panelMessages.length,
     elapsedMs: detailed.elapsedMs,
     kind: prep.kind,
     summary: prep.summary,
-    panelMessages
+    panelMessages,
+    storyboard: detailed.storyboard || null
   };
 }
 

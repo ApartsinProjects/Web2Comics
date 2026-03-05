@@ -8,12 +8,17 @@ const { generateTextWithProvider, generateImageWithProvider } = require('./provi
 const { composeComicSheet } = require('./compose');
 
 function buildPanelImagePrompt(panel, index, total, settings) {
-  return [
+  const out = [
     `Comic panel ${index + 1}/${total}`,
     `Caption: ${panel.caption}`,
     `Style: ${settings.style_prompt}`,
     'Create one clear scene, no collage, no extra text overlays unless implied by caption.'
-  ].join('\n');
+  ];
+  const customPanelPrompt = String(settings.custom_panel_prompt || '').trim();
+  if (customPanelPrompt) {
+    out.push(`Custom user panel prompt: ${customPanelPrompt}`);
+  }
+  return out.join('\n');
 }
 
 async function mapWithConcurrency(items, concurrency, mapper) {
@@ -77,7 +82,9 @@ async function runComicEngine(options) {
     panelCount: config.generation.panel_count,
     objective: config.generation.objective,
     stylePrompt: config.generation.style_prompt,
-    outputLanguage: config.generation.output_language
+    outputLanguage: config.generation.output_language,
+    objectivePromptOverride: config.generation?.objective_prompt_overrides?.[config.generation.objective],
+    customStoryPrompt: config.generation.custom_story_prompt
   });
 
   const storyboardRawText = await withRetries(
@@ -151,7 +158,9 @@ async function runComicEnginePanels(options) {
     panelCount: config.generation.panel_count,
     objective: config.generation.objective,
     stylePrompt: config.generation.style_prompt,
-    outputLanguage: config.generation.output_language
+    outputLanguage: config.generation.output_language,
+    objectivePromptOverride: config.generation?.objective_prompt_overrides?.[config.generation.objective],
+    customStoryPrompt: config.generation.custom_story_prompt
   });
 
   const storyboardRawText = await withRetries(

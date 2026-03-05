@@ -58,7 +58,7 @@ describe('render real gemini e2e', () => {
         },
         image: {
           provider: 'gemini',
-          model: 'gemini-2.0-flash-exp-image-generation',
+          model: 'gemini-2.5-flash-image',
           api_key_env: 'GEMINI_API_KEY'
         }
       },
@@ -113,7 +113,7 @@ describe('render real gemini e2e', () => {
         },
         image: {
           provider: 'gemini',
-          model: 'gemini-2.0-flash-exp-image-generation',
+          model: 'gemini-2.5-flash-image',
           api_key_env: 'GEMINI_API_KEY'
         }
       },
