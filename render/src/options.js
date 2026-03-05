@@ -15,6 +15,7 @@ const OPTION_MAP = {
     'debate-map'
   ],
   'generation.output_language': ['en', 'auto', 'es', 'fr', 'de', 'it', 'pt', 'ru', 'ja', 'ko', 'zh', 'he'],
+  'generation.consistency': ['off', 'on'],
   'generation.invent_temperature': ['0.3', '0.5', '0.7', '0.95', '1.2', '1.5'],
   'generation.delivery_mode': ['default', 'media_group', 'single'],
   'generation.detail_level': ['low', 'medium', 'high'],
@@ -75,13 +76,19 @@ function parseUserValue(pathKey, raw) {
     if (!Number.isFinite(n)) throw new Error(`Expected number for ${key}`);
     return n;
   }
+  if (/generation\.consistency|generation\.panel_watermark/.test(key)) {
+    const low = v.toLowerCase();
+    if (['1', 'true', 'yes', 'on'].includes(low)) return true;
+    if (['0', 'false', 'no', 'off'].includes(low)) return false;
+    throw new Error(`Expected boolean on/off for ${key}`);
+  }
   return v;
 }
 
 function formatOptionsMessage(pathKey, current) {
   const options = getOptions(pathKey);
   if (!options.length) {
-    return `No predefined options for \`${pathKey}\`. Current: \`${String(current)}\`\nUse /set <path> <value>.`;
+    return `No predefined options for \`${pathKey}\`. Current: \`${String(current)}\`\nUse a dedicated command (for example /objective, /panels, /mode, /vendor, /models).`;
   }
   const lines = [`Options for \`${pathKey}\``, `Current: \`${String(current)}\``, ''];
   options.forEach((opt, idx) => {
@@ -89,7 +96,7 @@ function formatOptionsMessage(pathKey, current) {
     lines.push(`${idx + 1}. ${opt}${mark}`);
   });
   lines.push('');
-  lines.push(`Choose with: /choose ${pathKey} <number>`);
+  lines.push('Set with the dedicated command for this path.');
   return lines.join('\n');
 }
 

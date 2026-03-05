@@ -67,6 +67,31 @@ function decodeDataUri(value) {
   return Buffer.from(match[1], 'base64');
 }
 
+const NO_TEXT_IMAGE_SUFFIX = [
+  'STRICT NO-TEXT RULE:',
+  'Do not render any words, letters, numbers, symbols, labels, signs, logos, UI text, speech bubbles, subtitles, captions, or watermarks.',
+  'Output must be fully text-free artwork.'
+].join(' ');
+
+function enforceNoTextImagePrompt(prompt) {
+  const base = String(prompt || '').trim();
+  const lower = base.toLowerCase();
+  if (!base) return NO_TEXT_IMAGE_SUFFIX;
+  if (lower.includes('strict no-text rule')) return base;
+  return `${base}\n\n${NO_TEXT_IMAGE_SUFFIX}`.trim();
+}
+
+function rethrowCloudflareAuthError(error, kind) {
+  const msg = String(error?.message || error || '');
+  const low = msg.toLowerCase();
+  const isAuth = low.includes('cloudflare') && (low.includes('failed (401)') || low.includes('"code":10000') || low.includes('authentication error'));
+  if (!isAuth) throw error;
+  const label = kind === 'image' ? 'image' : 'text';
+  throw new Error(
+    `Cloudflare ${label} authentication failed. Check CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN (Workers AI scope) in /keys, or switch provider with /vendor gemini. Original: ${msg}`
+  );
+}
+
 async function generateTextWithProvider(providerConfig, prompt, runtimeConfig) {
   const provider = String(providerConfig.provider || '').toLowerCase();
   const model = String(providerConfig.model || '').trim();
@@ -141,17 +166,25 @@ async function generateTextWithProvider(providerConfig, prompt, runtimeConfig) {
     const apiToken = resolveProviderValue(providerConfig, 'api_token', 'CLOUDFLARE_API_TOKEN');
     if (!accountId || !apiToken) throw new Error('Missing CLOUDFLARE_ACCOUNT_ID/CLOUDFLARE_API_TOKEN for Cloudflare text provider');
     const url = `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/run/${model}`;
-    const { json } = await fetchJson(url, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${apiToken}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({ prompt })
-    }, timeoutMs, 'Cloudflare text');
-    const text = String(json?.result?.response || json?.result?.text || '').trim();
-    if (!text) throw new Error('Cloudflare text response was empty');
-    return text;
+    try {
+      const { json } = await fetchJson(url, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${apiToken}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          prompt,
+          ...(hasTemperature ? { temperature } : {})
+        })
+      }, timeoutMs, 'Cloudflare text');
+      const text = String(json?.result?.response || json?.result?.text || '').trim();
+      if (!text) throw new Error('Cloudflare text response was empty');
+      return text;
+    } catch (error) {
+      rethrowCloudflareAuthError(error, 'text');
+      throw error;
+    }
   }
 
   if (provider === 'huggingface') {
@@ -163,7 +196,13 @@ async function generateTextWithProvider(providerConfig, prompt, runtimeConfig) {
         Authorization: `Bearer ${apiKey}`,
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify({ inputs: prompt, parameters: { max_new_tokens: 512 } })
+      body: JSON.stringify({
+        inputs: prompt,
+        parameters: {
+          max_new_tokens: 512,
+          ...(hasTemperature ? { temperature } : {})
+        }
+      })
     }, timeoutMs, 'Hugging Face text');
     const text = Array.isArray(json)
       ? String(json[0]?.generated_text || '').trim()
@@ -175,25 +214,36 @@ async function generateTextWithProvider(providerConfig, prompt, runtimeConfig) {
   throw new Error(`Unsupported text provider: ${provider}`);
 }
 
-async function generateImageWithProvider(providerConfig, prompt, runtimeConfig) {
+async function generateImageWithProvider(providerConfig, prompt, runtimeConfig, options = {}) {
   const provider = String(providerConfig.provider || '').toLowerCase();
   const model = String(providerConfig.model || '').trim();
   const timeoutMs = Number(runtimeConfig.timeout_ms || DEFAULT_TIMEOUT_MS);
+  const referenceImage = options && options.referenceImage ? options.referenceImage : null;
+  const safePrompt = enforceNoTextImagePrompt(prompt);
 
   if (provider === 'gemini') {
     const apiKey = resolveProviderValue(providerConfig, 'api_key', 'GEMINI_API_KEY');
     if (!apiKey) throw new Error('Missing GEMINI_API_KEY for Gemini image provider');
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+    const parts = [{ text: safePrompt }];
+    if (referenceImage && Buffer.isBuffer(referenceImage.buffer) && referenceImage.buffer.length) {
+      parts.unshift({
+        inlineData: {
+          mimeType: String(referenceImage.mimeType || 'image/png'),
+          data: referenceImage.buffer.toString('base64')
+        }
+      });
+    }
     const { json } = await fetchJson(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
+        contents: [{ parts }],
         generationConfig: { responseModalities: ['image', 'text'], maxOutputTokens: 512 }
       })
     }, timeoutMs, 'Gemini image');
-    const parts = json?.candidates?.[0]?.content?.parts || [];
-    const imagePart = parts.find((p) => p?.inlineData?.data);
+    const responseParts = json?.candidates?.[0]?.content?.parts || [];
+    const imagePart = responseParts.find((p) => p?.inlineData?.data);
     if (!imagePart?.inlineData?.data) throw new Error('Gemini image response did not include inline image bytes');
     return {
       buffer: Buffer.from(imagePart.inlineData.data, 'base64'),
@@ -213,7 +263,7 @@ async function generateImageWithProvider(providerConfig, prompt, runtimeConfig) 
       },
       body: JSON.stringify({
         model,
-        prompt,
+        prompt: safePrompt,
         size,
         quality: String(providerConfig.quality || 'standard'),
         n: 1
@@ -243,7 +293,7 @@ async function generateImageWithProvider(providerConfig, prompt, runtimeConfig) 
       },
       body: JSON.stringify({
         model,
-        prompt,
+        prompt: safePrompt,
         size: String(providerConfig.size || '1024x1024'),
         n: 1
       })
@@ -259,19 +309,24 @@ async function generateImageWithProvider(providerConfig, prompt, runtimeConfig) 
     const apiToken = resolveProviderValue(providerConfig, 'api_token', 'CLOUDFLARE_API_TOKEN');
     if (!accountId || !apiToken) throw new Error('Missing CLOUDFLARE_ACCOUNT_ID/CLOUDFLARE_API_TOKEN for Cloudflare image provider');
     const url = `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/run/${model}`;
-    const { json } = await fetchJson(url, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${apiToken}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({ prompt })
-    }, timeoutMs, 'Cloudflare image');
-    const imagePayload = json?.result?.image || json?.result?.output?.[0] || '';
-    if (!imagePayload) throw new Error('Cloudflare image response had no image payload');
-    const dataUriBuffer = decodeDataUri(imagePayload);
-    if (dataUriBuffer) return { buffer: dataUriBuffer, mimeType: 'image/png' };
-    return { buffer: Buffer.from(String(imagePayload), 'base64'), mimeType: 'image/png' };
+    try {
+      const { json } = await fetchJson(url, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${apiToken}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ prompt: safePrompt })
+      }, timeoutMs, 'Cloudflare image');
+      const imagePayload = json?.result?.image || json?.result?.output?.[0] || '';
+      if (!imagePayload) throw new Error('Cloudflare image response had no image payload');
+      const dataUriBuffer = decodeDataUri(imagePayload);
+      if (dataUriBuffer) return { buffer: dataUriBuffer, mimeType: 'image/png' };
+      return { buffer: Buffer.from(String(imagePayload), 'base64'), mimeType: 'image/png' };
+    } catch (error) {
+      rethrowCloudflareAuthError(error, 'image');
+      throw error;
+    }
   }
 
   if (provider === 'huggingface') {
@@ -283,7 +338,7 @@ async function generateImageWithProvider(providerConfig, prompt, runtimeConfig) 
         Authorization: `Bearer ${apiKey}`,
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify({ inputs: prompt })
+      body: JSON.stringify({ inputs: safePrompt })
     }), timeoutMs, 'Hugging Face image');
     if (!response.ok) {
       const text = await response.text();
@@ -299,7 +354,18 @@ async function generateImageWithProvider(providerConfig, prompt, runtimeConfig) 
   throw new Error(`Unsupported image provider: ${provider}`);
 }
 
+function supportsImageReferenceInput(providerConfig) {
+  const provider = String(providerConfig?.provider || '').trim().toLowerCase();
+  const model = String(providerConfig?.model || '').trim().toLowerCase();
+  if (provider === 'gemini') {
+    return /image|flash-exp-image-generation|image-preview/.test(model);
+  }
+  return false;
+}
+
 module.exports = {
   generateTextWithProvider,
-  generateImageWithProvider
+  generateImageWithProvider,
+  supportsImageReferenceInput,
+  enforceNoTextImagePrompt
 };

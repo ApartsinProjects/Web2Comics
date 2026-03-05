@@ -11,7 +11,7 @@ function buildStoryboardPrompt({
 }) {
   const out = [
     'Create a comic storyboard as strict JSON only. No markdown fences.',
-    'Schema: {"title":string,"description":string,"panels":[{"caption":string,"image_prompt":string}]}',
+    'Schema: {"title": string, "description": string, "panels":[{"caption": string, "image_prompt": string}]}',
     `Panel count: ${panelCount}`,
     `Objective: ${objective || 'summarize'}`,
     `Output language: ${outputLanguage || 'en'}`,
@@ -19,7 +19,8 @@ function buildStoryboardPrompt({
     'Rules:',
     '- Keep captions concise, factual, and sequential.',
     '- Keep each image_prompt visual and concrete for a single panel scene.',
-    '- Do not invent facts not present in source text.',
+    '- Each image prompt should include a description of the scene, characters, and interactions for the panel.',
+    '- Image prompt should not include requirements for in-image text or panel number.'
   ];
   const objectiveOverride = String(objectivePromptOverride || '').trim();
   if (objectiveOverride) {

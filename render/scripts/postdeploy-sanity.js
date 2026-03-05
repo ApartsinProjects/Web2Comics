@@ -67,12 +67,74 @@ async function readJson(s3, bucket, key) {
   return JSON.parse(text || '{}');
 }
 
+async function healthStatus(baseUrl) {
+  const res = await fetch(`${baseUrl.replace(/\/+$/, '')}/healthz`);
+  const body = await res.json().catch(() => ({}));
+  return { ok: Boolean(res.ok && body && body.ok), code: res.status, body };
+}
+
+async function assertHealth(baseUrl, stage = 'health') {
+  const st = await healthStatus(baseUrl);
+  if (!st.ok) {
+    throw new Error(`Service unhealthy during ${stage} (${st.code}): ${JSON.stringify(st.body || {})}`);
+  }
+  return st;
+}
+
+async function findMarkerRequestEntry(s3, bucket, beforeSet, marker) {
+  const keys = await listKeys(s3, bucket, 'logs/requests/');
+  const candidates = keys.filter((k) => !beforeSet.has(k)).slice(-120);
+  for (let i = candidates.length - 1; i >= 0; i -= 1) {
+    const key = candidates[i];
+    const obj = await readJson(s3, bucket, key);
+    if (String(obj.requestText || '').includes(marker)) {
+      return { key, obj };
+    }
+  }
+  return null;
+}
+
+async function loadR2Diagnostics(s3, bucket) {
+  const out = { latestCrash: null, latestRequests: [] };
+  try {
+    const crashStatus = await readJson(s3, bucket, 'crash-logs/status.json');
+    const crashRows = Array.isArray(crashStatus?.logs) ? crashStatus.logs : [];
+    const lastCrash = crashRows.slice().sort((a, b) => Date.parse(String(b?.createdAt || '')) - Date.parse(String(a?.createdAt || '')))[0];
+    if (lastCrash && lastCrash.key) {
+      out.latestCrash = await readJson(s3, bucket, String(lastCrash.key));
+    }
+  } catch (_) {}
+  try {
+    const reqStatus = await readJson(s3, bucket, 'logs/requests/status.json');
+    const reqRows = Array.isArray(reqStatus?.logs) ? reqStatus.logs : [];
+    const latest = reqRows
+      .slice()
+      .sort((a, b) => Date.parse(String(b?.createdAt || '')) - Date.parse(String(a?.createdAt || '')))
+      .slice(0, 5);
+    for (const row of latest) {
+      if (!row?.key) continue;
+      try {
+        const payload = await readJson(s3, bucket, String(row.key));
+        out.latestRequests.push({
+          key: row.key,
+          createdAt: row.createdAt,
+          requestText: payload.requestText,
+          result: payload.result
+        });
+      } catch (_) {}
+    }
+  } catch (_) {}
+  return out;
+}
+
 async function postWebhook(baseUrl, secret, text, chatId) {
   const update = {
     update_id: Date.now(),
+    source: 'test',
     message: {
       chat: { id: Number(chatId) },
       from: { id: Number(chatId), username: 'sanity_user', first_name: 'Sanity' },
+      source: 'test',
       text
     }
   };
@@ -185,11 +247,7 @@ async function main() {
   if (missing.length) throw new Error(`Missing inputs: ${missing.join(', ')}`);
 
   console.log('[sanity] health check');
-  const healthRes = await fetch(`${baseUrl.replace(/\/+$/, '')}/healthz`);
-  const healthBody = await healthRes.json().catch(() => ({}));
-  if (!healthRes.ok || !healthBody.ok) {
-    throw new Error(`Health failed (${healthRes.status}): ${JSON.stringify(healthBody)}`);
-  }
+  await assertHealth(baseUrl, 'startup');
 
   console.log('[sanity] capture R2 baseline');
   const s3 = createS3(endpoint, accessKeyId, secretAccessKey);
@@ -199,21 +257,27 @@ async function main() {
   const marker = `sanity-${Date.now()}`;
   console.log(`[sanity] webhook generation trigger -> ${marker}`);
   await postWebhook(baseUrl, webhookSecret, marker, chatId);
+  await assertHealth(baseUrl, 'post-webhook');
 
   console.log('[sanity] wait for request log marker');
-  await waitFor(async () => {
-    const keys = await listKeys(s3, bucket, 'logs/requests/');
-    const candidates = keys.filter((k) => !beforeReq.has(k)).slice(-50);
-    if (!candidates.length) return false;
-    for (const key of candidates) {
-      const obj = await readJson(s3, bucket, key);
-      if (String(obj.requestText || '').includes(marker)) return true;
+  const requestEntry = await waitFor(async () => {
+    await assertHealth(baseUrl, 'request-log-wait');
+    const found = await findMarkerRequestEntry(s3, bucket, beforeReq, marker);
+    if (!found) return false;
+    if (found.obj && found.obj.result && found.obj.result.ok === false) {
+      throw new Error(`Remote generation failed early: ${String(found.obj.result.error || 'unknown error')}`);
     }
-    return false;
+    return found;
   }, 180000, 2500, 'request log marker');
+  console.log(`[sanity] marker request found: ${requestEntry.key}`);
 
   console.log('[sanity] wait for image artifact growth (live provider path)');
   await waitFor(async () => {
+    await assertHealth(baseUrl, 'image-growth-wait');
+    const found = await findMarkerRequestEntry(s3, bucket, beforeReq, marker);
+    if (found && found.obj && found.obj.result && found.obj.result.ok === false) {
+      throw new Error(`Remote generation failed: ${String(found.obj.result.error || 'unknown error')}`);
+    }
     const keys = await listKeys(s3, bucket, 'images/');
     return keys.some((k) => !beforeImg.has(k));
   }, 240000, 3000, 'generated images');
@@ -227,6 +291,50 @@ async function main() {
 
 main().catch(async (error) => {
   console.error('[sanity] FAIL:', error && error.message ? error.message : String(error));
+  try {
+    const repoRoot = path.resolve(__dirname, '../..');
+    const args = parseArgs(process.argv.slice(2));
+    const envOnly = parseBool(args['env-only'] || process.env.BOT_SECRETS_ENV_ONLY);
+    const metadata = loadMetadata(firstNonEmpty(
+      args['metadata-in'],
+      process.env.RENDER_DEPLOY_METADATA_OUT,
+      path.join(repoRoot, 'render/out/deploy-render-metadata.json')
+    ));
+    const cfYaml = envOnly ? {} : readCloudflareYaml(repoRoot);
+    const awsYaml = envOnly ? {} : readAwsYaml(repoRoot);
+    const cfR2 = (cfYaml && cfYaml.r2) || {};
+    const s3Clients = (cfR2 && cfR2.s3_clients) || {};
+    const key2 = s3Clients.keypair_2 || {};
+    const key1 = s3Clients.keypair_1 || {};
+    const endpoint = firstNonEmpty(
+      args['r2-endpoint'],
+      process.env.R2_S3_ENDPOINT,
+      (cfR2.endpoints && cfR2.endpoints.global_s3) || '',
+      process.env.CLOUDFLARE_ACCOUNT_ID ? `https://${process.env.CLOUDFLARE_ACCOUNT_ID}.r2.cloudflarestorage.com` : ''
+    );
+    const bucket = firstNonEmpty(args['r2-bucket'], process.env.R2_BUCKET, cfR2.bucket);
+    const accessKeyId = firstNonEmpty(args['r2-access-key-id'], process.env.R2_ACCESS_KEY_ID, key2.access_key_id, key1.access_key_id, awsYaml.aws_access_key_id);
+    const secretAccessKey = firstNonEmpty(args['r2-secret-access-key'], process.env.R2_SECRET_ACCESS_KEY, key2.secret_access_key, key1.secret_access_key, awsYaml.aws_secret_access_key);
+    if (endpoint && bucket && accessKeyId && secretAccessKey) {
+      const s3 = createS3(endpoint, accessKeyId, secretAccessKey);
+      const diag = await loadR2Diagnostics(s3, bucket);
+      if (diag.latestCrash) {
+        console.error('[sanity] Latest R2 crash log:');
+        console.error(JSON.stringify(diag.latestCrash, null, 2));
+      }
+      if (diag.latestRequests.length) {
+        console.error('[sanity] Latest R2 request logs:');
+        console.error(JSON.stringify(diag.latestRequests, null, 2));
+      }
+    }
+    const baseUrl = firstNonEmpty(args['service-url'], process.env.RENDER_PUBLIC_BASE_URL, metadata.publicUrl);
+    if (baseUrl) {
+      const st = await healthStatus(baseUrl);
+      console.error('[sanity] service status snapshot:', JSON.stringify(st));
+    }
+  } catch (diagError) {
+    console.error('[sanity] failed to collect R2/service diagnostics:', String(diagError?.message || diagError));
+  }
   try {
     const args = parseArgs(process.argv.slice(2));
     const metadata = loadMetadata(firstNonEmpty(
@@ -247,4 +355,3 @@ main().catch(async (error) => {
   }
   process.exit(1);
 });
-

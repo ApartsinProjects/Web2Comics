@@ -87,8 +87,9 @@ Validated interfaces include:
 - Streaming panel delivery (panels sent as ready)
 - Caption prefix format `X(Y)` on each panel
 - Story-summary context present in image prompts (engine prompt builder test)
-- Panel watermark is applied to generated panel images
-- Prompt controls (`/options`, `/choose`, `/set`)
+- Panel watermark toggle works (`generation.panel_watermark`, default off)
+- Consistency toggle works (`/consistency on|off`) and unsupported models fall back safely
+- Prompt controls (`/options`, dedicated setting commands)
 - `/crazyness` command updates story invention temperature
 - Objective listing with `/objective` (no args)
 - Admin commands (`/peek`, `/users`, `/ban`, `/unban`)

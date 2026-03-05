@@ -157,12 +157,12 @@ describe('webhook URL real e2e', () => {
       await postUpdate(bot.port, {
         chat: { id: 777 },
         from: { id: 777, username: 'url_real_user', first_name: 'UrlReal' },
-        text: '/set providers.text.model gemini-2.5-flash'
+        text: '/models text gemini-2.5-flash'
       });
       await postUpdate(bot.port, {
         chat: { id: 777 },
         from: { id: 777, username: 'url_real_user', first_name: 'UrlReal' },
-        text: '/set providers.image.model gemini-2.5-flash-image'
+        text: '/models image gemini-2.0-flash-exp-image-generation'
       });
 
       const res = await postUpdate(bot.port, {
@@ -185,4 +185,3 @@ describe('webhook URL real e2e', () => {
     }
   }, 240000);
 });
-

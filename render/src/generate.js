@@ -14,9 +14,27 @@ const TINY_PNG_BASE64 =
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/w8AAgMBAp6R9gAAAABJRU5ErkJggg==';
 const SUPPORTED_OUTPUT_LANGS = new Set(['en', 'auto', 'es', 'fr', 'de', 'it', 'pt', 'ru', 'ja', 'ko', 'zh', 'he']);
 const PANEL_WATERMARK_TEXT = 'made with Web2Comics';
+const GEMINI_TEXT_MODEL = 'gemini-2.5-flash';
+const GEMINI_IMAGE_MODEL = 'gemini-2.0-flash-exp-image-generation';
+
+const PROVIDER_REQUIRED_ENV = {
+  gemini: ['GEMINI_API_KEY'],
+  openai: ['OPENAI_API_KEY'],
+  openrouter: ['OPENROUTER_API_KEY'],
+  cloudflare: ['CLOUDFLARE_ACCOUNT_ID', 'CLOUDFLARE_API_TOKEN'],
+  huggingface: ['HUGGINGFACE_INFERENCE_API_TOKEN']
+};
 
 function isFakeGeneratorEnabled() {
   return String(process.env.RENDER_BOT_FAKE_GENERATOR || '').trim().toLowerCase() === 'true';
+}
+
+function isFakeGeneratorOutOfOrderEnabled() {
+  return String(process.env.RENDER_BOT_FAKE_OUT_OF_ORDER || '').trim().toLowerCase() === 'true';
+}
+
+function isFakeUrlFetchFailureEnabled() {
+  return String(process.env.RENDER_BOT_FAKE_URL_FETCH_FAIL || '').trim().toLowerCase() === 'true';
 }
 
 async function maybeFakeDelay() {
@@ -169,6 +187,94 @@ function installPlaywrightChromium() {
   });
 }
 
+function hasGeminiKey() {
+  return Boolean(String(process.env.GEMINI_API_KEY || '').trim());
+}
+
+function providerHasRequiredEnv(providerName) {
+  const provider = String(providerName || '').trim().toLowerCase();
+  const required = PROVIDER_REQUIRED_ENV[provider] || [];
+  if (!required.length) return true;
+  return required.every((k) => String(process.env[k] || '').trim());
+}
+
+function isProviderOrModelFailure(error) {
+  const msg = String(error?.message || error || '').toLowerCase();
+  if (!msg) return false;
+  const providerHints = ['gemini', 'openai', 'openrouter', 'cloudflare', 'hugging face', 'huggingface', 'provider', 'model'];
+  const errorHints = [
+    'unsupported',
+    'missing',
+    'authentication error',
+    'invalid api key',
+    'invalid model',
+    'not found',
+    'failed (401)',
+    'failed (403)',
+    'failed (404)',
+    'failed (429)',
+    'for cloudflare',
+    'for openai',
+    'for openrouter',
+    'for gemini',
+    'for hugging face'
+  ];
+  return providerHints.some((h) => msg.includes(h)) && errorHints.some((h) => msg.includes(h));
+}
+
+function shouldFallbackToGemini(config, error) {
+  if (!hasGeminiKey()) return false;
+  const textProvider = String(config?.providers?.text?.provider || '').trim().toLowerCase();
+  const imageProvider = String(config?.providers?.image?.provider || '').trim().toLowerCase();
+  const nonGemini = textProvider !== 'gemini' || imageProvider !== 'gemini';
+  if (!nonGemini) return false;
+  if (!error) return false;
+  return isProviderOrModelFailure(error);
+}
+
+function shouldPreemptiveFallbackToGemini(config) {
+  if (!hasGeminiKey()) return false;
+  const textProvider = String(config?.providers?.text?.provider || '').trim().toLowerCase();
+  const imageProvider = String(config?.providers?.image?.provider || '').trim().toLowerCase();
+  const textMissing = textProvider && textProvider !== 'gemini' && !providerHasRequiredEnv(textProvider);
+  const imageMissing = imageProvider && imageProvider !== 'gemini' && !providerHasRequiredEnv(imageProvider);
+  return textMissing || imageMissing;
+}
+
+function withGeminiProviders(config) {
+  const next = JSON.parse(JSON.stringify(config || {}));
+  if (!next.providers || typeof next.providers !== 'object') next.providers = {};
+  if (!next.providers.text || typeof next.providers.text !== 'object') next.providers.text = {};
+  if (!next.providers.image || typeof next.providers.image !== 'object') next.providers.image = {};
+  next.providers.text.provider = 'gemini';
+  next.providers.text.model = GEMINI_TEXT_MODEL;
+  next.providers.text.api_key_env = 'GEMINI_API_KEY';
+  next.providers.image.provider = 'gemini';
+  next.providers.image.model = GEMINI_IMAGE_MODEL;
+  next.providers.image.api_key_env = 'GEMINI_API_KEY';
+  return next;
+}
+
+function providerPairLabel(config) {
+  const textProvider = String(config?.providers?.text?.provider || '-').trim().toLowerCase();
+  const imageProvider = String(config?.providers?.image?.provider || '-').trim().toLowerCase();
+  return `${textProvider}/${imageProvider}`;
+}
+
+async function notifyFallback(options, payload) {
+  if (!options || typeof options.onFallback !== 'function') return;
+  await options.onFallback(payload);
+}
+
+function writeGeminiFallbackConfigPath(configPath, config) {
+  const base = path.resolve(configPath);
+  const ext = path.extname(base) || '.yml';
+  const stem = path.basename(base, ext);
+  const outPath = path.join(path.dirname(base), `${stem}.fallback-gemini${ext}`);
+  fs.writeFileSync(outPath, yaml.dump(withGeminiProviders(config), { lineWidth: 140 }), 'utf8');
+  return outPath;
+}
+
 async function recordGeneratedImages(runtime, imagePaths) {
   const storage = createImageStorageManagerFromEnv({
     statusFilePath: runtime.imageStatusFile,
@@ -303,6 +409,9 @@ async function generateWithRuntimeConfig(text, runtime, effectiveConfigPath) {
     await maybeFakeDelay();
     const parsed = classifyMessageInput(text);
     if (parsed.kind === 'empty') throw new Error('Empty message. Send plain text or full URL.');
+    if (parsed.kind === 'url' && isFakeUrlFetchFailureEnabled()) {
+      throw new Error('URL fetch failed (forced test mode)');
+    }
     const ts = new Date().toISOString().replace(/[:.]/g, '-');
     const outPath = path.join(runtime.outDir, `render-fake-${ts}.png`);
     writeTinyPng(outPath);
@@ -331,14 +440,34 @@ async function generateWithRuntimeConfig(text, runtime, effectiveConfigPath) {
     ? path.join(runtime.outDir, path.basename(prep.outputPath, '.png') + '-debug')
     : '';
 
-  const result = await runComicEngine({
-    rootDir: runtime.repoRoot,
-    inputPath: prep.inputPath,
-    configPath: runtimeConfigPath,
-    outputPath: prep.outputPath,
-    debugDir,
-    titleOverride: prep.titleOverride
-  });
+  let configPathForRun = runtimeConfigPath;
+  let configForRun = loadConfig(configPathForRun).config;
+  if (shouldPreemptiveFallbackToGemini(configForRun)) {
+    configPathForRun = writeGeminiFallbackConfigPath(configPathForRun, configForRun);
+    configForRun = loadConfig(configPathForRun).config;
+  }
+  let result;
+  try {
+    result = await runComicEngine({
+      rootDir: runtime.repoRoot,
+      inputPath: prep.inputPath,
+      configPath: configPathForRun,
+      outputPath: prep.outputPath,
+      debugDir,
+      titleOverride: prep.titleOverride
+    });
+  } catch (error) {
+    if (!shouldFallbackToGemini(configForRun, error)) throw error;
+    const fallbackPath = writeGeminiFallbackConfigPath(configPathForRun, configForRun);
+    result = await runComicEngine({
+      rootDir: runtime.repoRoot,
+      inputPath: prep.inputPath,
+      configPath: fallbackPath,
+      outputPath: prep.outputPath,
+      debugDir,
+      titleOverride: prep.titleOverride
+    });
+  }
 
   return {
     ...result,
@@ -356,12 +485,15 @@ async function generatePanelsWithRuntimeConfig(text, runtime, effectiveConfigPat
     await maybeFakeDelay();
     const parsed = classifyMessageInput(text);
     if (parsed.kind === 'empty') throw new Error('Empty message. Send plain text or full URL.');
+    if (parsed.kind === 'url' && isFakeUrlFetchFailureEnabled()) {
+      throw new Error('URL fetch failed (forced test mode)');
+    }
     const ts = new Date().toISOString().replace(/[:.]/g, '-');
     const scope = resolvePanelOutputScope(runtime, options, ts);
     const panelCount = 3;
     const panelMessages = [];
     const writtenPaths = [];
-    for (let i = 0; i < panelCount; i += 1) {
+    const buildAndEmit = async (i) => {
       const imagePath = path.join(scope.baseDir, `panel-${i + 1}.png`);
       writeTinyPng(imagePath);
       if (watermarkEnabled) {
@@ -375,12 +507,20 @@ async function generatePanelsWithRuntimeConfig(text, runtime, effectiveConfigPat
       const panelMessage = {
         index: i + 1,
         caption,
-        imagePath
+        imagePath,
+        total: panelCount,
+        imagePromptUsed: `Fake panel ${i + 1}`
       };
-      panelMessages.push(panelMessage);
+      panelMessages[i] = panelMessage;
       if (typeof options.onPanelReady === 'function') {
         await options.onPanelReady(panelMessage);
       }
+    };
+
+    const outOfOrder = isFakeGeneratorOutOfOrderEnabled();
+    const order = outOfOrder ? [2, 0, 1] : [0, 1, 2];
+    for (let j = 0; j < order.length; j += 1) {
+      await buildAndEmit(order[j]);
     }
     recordGeneratedImagesInBackground(runtime, writtenPaths);
     return {
@@ -388,15 +528,16 @@ async function generatePanelsWithRuntimeConfig(text, runtime, effectiveConfigPat
       elapsedMs: 5,
       kind: parsed.kind,
       summary: parsed.kind === 'url' ? parsed.value : `text (${parsed.value.length} chars)`,
-      panelMessages,
+      panelMessages: panelMessages.filter(Boolean),
       storyboard: {
-        panels: panelMessages.map((p) => ({
+        panels: panelMessages.filter(Boolean).map((p) => ({
           index: p.index,
           caption: p.caption,
           beat: '',
           imagePrompt: p.caption
         }))
-      }
+      },
+      consistency: { enabled: false, used: false, reason: 'fake_generator' }
     };
   }
 
@@ -414,13 +555,19 @@ async function generatePanelsWithRuntimeConfig(text, runtime, effectiveConfigPat
   const ts = new Date().toISOString().replace(/[:.]/g, '-');
   const scope = resolvePanelOutputScope(runtime, options, ts);
 
-  const detailed = await runComicEnginePanels({
-    rootDir: runtime.repoRoot,
-    inputPath: prep.inputPath,
-    configPath: runtimeConfigPath,
-    debugDir,
-    titleOverride: prep.titleOverride,
-    onPanelReady: async ({ index, total, panel, image }) => {
+  let configPathForRun = runtimeConfigPath;
+  let configForRun = loadConfig(configPathForRun).config;
+  if (shouldPreemptiveFallbackToGemini(configForRun)) {
+    await notifyFallback(options, {
+      from: providerPairLabel(configForRun),
+      to: 'gemini/gemini',
+      reason: 'missing_credentials'
+    });
+    configPathForRun = writeGeminiFallbackConfigPath(configPathForRun, configForRun);
+    configForRun = loadConfig(configPathForRun).config;
+  }
+
+  const onPanelReady = async ({ index, total, panel, imagePrompt, image }) => {
       const imagePath = path.join(scope.baseDir, `panel-${index + 1}.png`);
       const finalBuffer = watermarkEnabled
         ? await applyPanelWatermark(image.buffer)
@@ -435,14 +582,54 @@ async function generatePanelsWithRuntimeConfig(text, runtime, effectiveConfigPat
       const panelMessage = {
         index: index + 1,
         caption: caption.slice(0, 1000),
-        imagePath
+        imagePath,
+        total,
+        imagePromptUsed: String(imagePrompt || panel?.image_prompt || '').trim()
       };
       panelMessages[index] = panelMessage;
       if (typeof options.onPanelReady === 'function') {
         await options.onPanelReady(panelMessage);
       }
-    }
-  });
+  };
+
+  let detailed;
+  try {
+    detailed = await runComicEnginePanels({
+      rootDir: runtime.repoRoot,
+      inputPath: prep.inputPath,
+      configPath: configPathForRun,
+      debugDir,
+      titleOverride: prep.titleOverride,
+      onPanelReady
+    });
+  } catch (error) {
+    if (!shouldFallbackToGemini(configForRun, error) || panelMessages.filter(Boolean).length > 0) throw error;
+    await notifyFallback(options, {
+      from: providerPairLabel(configForRun),
+      to: 'gemini/gemini',
+      reason: 'provider_failure',
+      error: String(error?.message || error)
+    });
+    const fallbackPath = writeGeminiFallbackConfigPath(configPathForRun, configForRun);
+    detailed = await runComicEnginePanels({
+      rootDir: runtime.repoRoot,
+      inputPath: prep.inputPath,
+      configPath: fallbackPath,
+      debugDir,
+      titleOverride: prep.titleOverride,
+      onPanelReady
+    });
+  }
+
+  let consistencyReferenceImagePath = '';
+  if (detailed && detailed.consistencyReferenceImage && Buffer.isBuffer(detailed.consistencyReferenceImage.buffer)) {
+    try {
+      const consistencyPath = path.join(scope.baseDir, 'summary-style-reference.png');
+      fs.writeFileSync(consistencyPath, detailed.consistencyReferenceImage.buffer);
+      consistencyReferenceImagePath = consistencyPath;
+      writtenPaths.push(consistencyPath);
+    } catch (_) {}
+  }
 
   recordGeneratedImagesInBackground(runtime, writtenPaths);
 
@@ -453,11 +640,13 @@ async function generatePanelsWithRuntimeConfig(text, runtime, effectiveConfigPat
     kind: prep.kind,
     summary: prep.summary,
     panelMessages: panelMessages.filter(Boolean),
-    storyboard: detailed.storyboard || null
+    storyboard: detailed.storyboard || null,
+    consistency: detailed.consistency || { enabled: false, used: false, reason: '' },
+    consistencyReferenceImagePath
   };
 }
 
-async function inventStoryText(seedText, effectiveConfigPath) {
+async function inventStoryText(seedText, effectiveConfigPath, options = {}) {
   const seed = String(seedText || '').trim();
   if (!seed) throw new Error('Usage: /invent <story seed>');
 
@@ -475,28 +664,51 @@ async function inventStoryText(seedText, effectiveConfigPath) {
   const config = loaded.config;
   const targetLanguage = resolveInventLanguage(seed, config);
   const inventTemperature = resolveInventTemperature(config);
+  const objective = String(config?.generation?.objective || 'summarize').trim();
+  const stylePrompt = String(config?.generation?.style_prompt || '').trim();
+  const objectiveOverride = String(config?.generation?.objective_prompt_overrides?.[objective] || '').trim();
+  const customStoryPrompt = String(config?.generation?.custom_story_prompt || '').trim();
   const prompt = [
     'You are a creative comic writer.',
     'Expand the seed into an engaging short narrative that is easy to storyboard into comic panels.',
     'Add at least two unexpected but coherent twists.',
     'Keep characters and timeline consistent.',
+    `Objective: ${objective}`,
+    `Style: ${stylePrompt || 'not specified'}`,
+    objectiveOverride ? `Objective-specific instructions: ${objectiveOverride}` : '',
+    customStoryPrompt ? `Custom user story prompt: ${customStoryPrompt}` : '',
     `Write the output strictly in language code "${targetLanguage}".`,
     'Return plain text only (no JSON, no markdown headings).',
     '',
     `Seed story:`,
     seed
-  ].join('\n');
+  ].filter(Boolean).join('\n');
 
   const runtimeConfig = {
     ...(config.runtime || {}),
     text_temperature: inventTemperature
   };
 
-  return withRetries(
-    () => generateTextWithProvider(config.providers.text, prompt, runtimeConfig),
-    config.runtime.retries,
+  const runWith = (cfg) => withRetries(
+    () => generateTextWithProvider(cfg.providers.text, prompt, runtimeConfig),
+    cfg.runtime.retries,
     'Story invention'
-  ).then((generated) => sanitizeInventedStoryText(generated));
+  );
+  try {
+    const generated = await runWith(config);
+    return sanitizeInventedStoryText(generated);
+  } catch (error) {
+    if (!shouldFallbackToGemini(config, error)) throw error;
+    await notifyFallback(options, {
+      from: `${String(config?.providers?.text?.provider || '-').trim().toLowerCase()}/-`,
+      to: 'gemini/-',
+      reason: 'provider_failure',
+      error: String(error?.message || error)
+    });
+    const fallbackConfig = withGeminiProviders(config);
+    const generated = await runWith(fallbackConfig);
+    return sanitizeInventedStoryText(generated);
+  }
 }
 
 module.exports = {
@@ -508,6 +720,9 @@ module.exports = {
   resolveInventLanguage,
   resolveInventTemperature,
   resolvePanelWatermarkEnabled,
+  isProviderOrModelFailure,
+  shouldFallbackToGemini,
+  shouldPreemptiveFallbackToGemini,
   sanitizeInventedStoryText,
   applyPanelWatermark,
   shouldInstallPlaywrightBrowser,

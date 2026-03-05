@@ -26,6 +26,39 @@ function setByPath(obj, pathKey, value) {
   cur[keys[keys.length - 1]] = value;
 }
 
+function flattenObject(obj, prefix = '') {
+  const out = [];
+  if (!obj || typeof obj !== 'object') return out;
+  const keys = Object.keys(obj).sort();
+  keys.forEach((key) => {
+    const value = obj[key];
+    const nextKey = prefix ? `${prefix}.${key}` : key;
+    if (Array.isArray(value)) {
+      out.push([nextKey, JSON.stringify(value)]);
+      return;
+    }
+    if (value && typeof value === 'object') {
+      const nested = flattenObject(value, nextKey);
+      if (nested.length) out.push(...nested);
+      else out.push([nextKey, '{}']);
+      return;
+    }
+    out.push([nextKey, value]);
+  });
+  return out;
+}
+
+function formatConfigValue(value) {
+  if (value == null) return 'null';
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+  try {
+    return JSON.stringify(value);
+  } catch (_) {
+    return String(value);
+  }
+}
+
 class RuntimeConfigStore {
   constructor(baseConfigPath, persistence) {
     this.baseConfigPath = path.resolve(baseConfigPath);
@@ -118,9 +151,40 @@ class RuntimeConfigStore {
   ensureUser(chatId) {
     const key = this.normalizeUserKey(chatId);
     if (!this.state.users[key]) {
-      this.state.users[key] = { overrides: {}, secrets: {}, seen: false, profile: {}, lastSeenAt: '', sharedFrom: '' };
+      this.state.users[key] = {
+        overrides: {},
+        secrets: {},
+        seen: false,
+        profile: {},
+        identity: { usernames: [], names: [], chatUsernames: [] },
+        lastSeenAt: '',
+        sharedFrom: ''
+      };
+    }
+    if (!this.state.users[key].identity || typeof this.state.users[key].identity !== 'object') {
+      this.state.users[key].identity = { usernames: [], names: [], chatUsernames: [] };
+    }
+    if (!Array.isArray(this.state.users[key].identity.usernames)) this.state.users[key].identity.usernames = [];
+    if (!Array.isArray(this.state.users[key].identity.names)) this.state.users[key].identity.names = [];
+    if (!Array.isArray(this.state.users[key].identity.chatUsernames)) this.state.users[key].identity.chatUsernames = [];
+    if (!this.state.users[key].profile || typeof this.state.users[key].profile !== 'object') {
+      this.state.users[key].profile = {};
     }
     return this.state.users[key];
+  }
+
+  appendUniqueIdentity(list, value, normalize = (v) => String(v || '').trim()) {
+    const normalized = normalize(value);
+    if (!normalized) return;
+    if (!Array.isArray(list)) return;
+    if (!list.includes(normalized)) list.push(normalized);
+  }
+
+  buildDisplayName(profile) {
+    const first = String(profile?.user?.first_name || '').trim();
+    const last = String(profile?.user?.last_name || '').trim();
+    const full = `${first} ${last}`.trim();
+    return full;
   }
 
   markSeen(chatId) {
@@ -137,9 +201,63 @@ class RuntimeConfigStore {
       ...(user.profile || {}),
       ...(profile || {})
     };
+    const username = this.normalizeUsername(user?.profile?.user?.username || '');
+    const chatUsername = this.normalizeUsername(user?.profile?.chat?.username || '');
+    const displayName = this.buildDisplayName(user.profile);
+    this.appendUniqueIdentity(user.identity.usernames, username, (v) => this.normalizeUsername(v));
+    this.appendUniqueIdentity(user.identity.chatUsernames, chatUsername, (v) => this.normalizeUsername(v));
+    this.appendUniqueIdentity(user.identity.names, displayName, (v) => String(v || '').trim());
     user.lastSeenAt = new Date().toISOString();
     await this.save();
     return user.profile;
+  }
+
+  getUserSummary(chatId) {
+    const key = this.normalizeUserKey(chatId);
+    const user = this.state && this.state.users ? this.state.users[key] : null;
+    if (!user) {
+      return {
+        id: key,
+        username: '',
+        name: '',
+        chatUsername: '',
+        label: `id:${key}`
+      };
+    }
+    const username = String(user?.profile?.user?.username || '').trim()
+      || String((user?.identity?.usernames || [])[0] || '').trim();
+    const chatUsername = String(user?.profile?.chat?.username || '').trim()
+      || String((user?.identity?.chatUsernames || [])[0] || '').trim();
+    const name = this.buildDisplayName(user.profile)
+      || String((user?.identity?.names || [])[0] || '').trim();
+    const label = username
+      ? `@${username}`
+      : (name || (chatUsername ? `@${chatUsername}` : `id:${key}`));
+    return { id: key, username, chatUsername, name, label };
+  }
+
+  listKnownUsers() {
+    const users = (this.state && this.state.users && typeof this.state.users === 'object')
+      ? this.state.users
+      : {};
+    const rows = Object.entries(users).map(([id, record]) => {
+      const summary = this.getUserSummary(id);
+      return {
+        uid: String(id || '').trim() || 'unknown',
+        username: summary.username,
+        name: summary.name,
+        chatUsername: summary.chatUsername,
+        label: summary.label,
+        lastSeen: String(record?.lastSeenAt || '').trim()
+      };
+    });
+    rows.sort((a, b) => {
+      const ta = Date.parse(a.lastSeen || '');
+      const tb = Date.parse(b.lastSeen || '');
+      if (Number.isFinite(tb) && Number.isFinite(ta) && tb !== ta) return tb - ta;
+      return String(a.uid).localeCompare(String(b.uid));
+    });
+    return rows;
   }
 
   getEffectiveConfig(chatId) {
@@ -240,27 +358,13 @@ class RuntimeConfigStore {
 
   formatConfigSummary(chatId) {
     const cfg = this.getEffectiveConfig(chatId);
+    const flat = flattenObject(cfg);
     const lines = [
-      'Current config snapshot:',
-      `- generation.panel_count: ${cfg.generation.panel_count}`,
-      `- generation.objective: ${cfg.generation.objective}`,
-      `- generation.output_language: ${cfg.generation.output_language}`,
-      `- generation.panel_watermark: ${cfg.generation.panel_watermark}`,
-      `- generation.delivery_mode: ${cfg.generation.delivery_mode || 'default'}`,
-      `- generation.detail_level: ${cfg.generation.detail_level}`,
-      `- providers.text.provider: ${cfg.providers.text.provider}`,
-      `- providers.text.model: ${cfg.providers.text.model}`,
-      `- providers.image.provider: ${cfg.providers.image.provider}`,
-      `- providers.image.model: ${cfg.providers.image.model}`,
-      `- runtime.image_concurrency: ${cfg.runtime.image_concurrency}`,
-      `- runtime.retries: ${cfg.runtime.retries}`,
-      `- output.width: ${cfg.output.width}`,
-      `- output.panel_height: ${cfg.output.panel_height}`,
+      'Current config snapshot (all values):',
+      ...flat.map(([k, v]) => `- ${k}: ${formatConfigValue(v)}`),
       '',
       'Commands:',
       '/options <path>  - list choices for a setting',
-      '/choose <path> <number> - choose option by index',
-      '/set <path> <value> - set any value directly',
       '/keys - show provider key status',
       '/setkey <KEY> <VALUE> - set provider key in runtime state',
       '/unsetkey <KEY> - remove runtime key override',
@@ -421,10 +525,21 @@ class RuntimeConfigStore {
     await this.save();
     return value;
   }
+
+  async setMetaValue(key, value) {
+    const k = String(key || '').trim();
+    if (!k) return '';
+    if (!this.state.meta || typeof this.state.meta !== 'object') this.state.meta = {};
+    this.state.meta[k] = value;
+    await this.save();
+    return this.state.meta[k];
+  }
 }
 
 module.exports = {
   RuntimeConfigStore,
   getByPath,
-  setByPath
+  setByPath,
+  flattenObject,
+  formatConfigValue
 };

@@ -18,8 +18,9 @@ GitHub Pages bot docs: <https://apartsinprojects.github.io/Web2Comics/HTML/teleg
 ## Runtime Highlights
 - Fast webhook ACK + per-chat processing queue
 - Caption prefix format `X(Y)` for each panel
-- Per-panel watermark: small semi-transparent `made with Web2Comics` (bottom-right)
+- Watermark is configurable (default: `off`)
 - Panel image prompts include story title + short summary + panel visual brief
+- Optional style consistency flow (`/consistency on`): generate summary reference image first, then use it as style reference for panel generation on supported image models
 - Outbound Telegram messages/photos are sent with forwarding allowed (`protect_content=false`)
 - `/objective` without args lists all objectives
 - `/options` and `/choose` provide guided usage when called without args
@@ -29,10 +30,12 @@ GitHub Pages bot docs: <https://apartsinprojects.github.io/Web2Comics/HTML/teleg
 User:
 - `/help`
 - `/about`
+- `/version`
 - `/user`
 - `/config`
 - `/vendor`, `/text_vendor`, `/image_vendor`
 - `/panels`, `/objective`, `/language`, `/style`, `/crazyness`
+- `/consistency`
 - `/options`, `/choose`, `/set`
 - `/keys` or `/credentials`
 - `/setkey`, `/unsetkey`

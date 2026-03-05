@@ -25,14 +25,16 @@ URL flow snapshots rendered page HTML before generation.
 1. Resolve effective per-user config
 2. Apply secrets (runtime/shared/env)
 3. Build storyboard with text provider
-4. Generate panel images (each prompt includes story title + short story summary + panel visual brief)
-5. Stream panel sends to Telegram as each panel becomes ready
-6. Send final completion summary
+4. Optional consistency flow (if enabled and supported): generate one summary reference image
+5. Generate panel images (each prompt includes story title + short story summary + panel visual brief, and references summary style when available)
+6. Stream panel sends to Telegram as each panel becomes ready
+7. Send final completion summary
 
 Important behavior:
 - Panel captions in chat use `X(Y)` prefix
 - Image prompt explicitly forbids rendering caption text inside artwork
-- Every panel image gets a subtle bottom-right watermark (`made with Web2Comics`)
+- Watermark is configurable (`generation.panel_watermark`, default `false`)
+- Consistency mode is configurable (`generation.consistency`, default `false`)
 - Telegram sends use `protect_content=false` to keep forwarding enabled
 
 ## Command System
@@ -41,8 +43,8 @@ Primary command handling is in `handleCommand`.
 Notable UX behavior:
 - `/objective` without args lists all objectives
 - `/crazyness <0..2>` controls story invention temperature
-- `/options` and `/choose` without args explain valid paths/options
-- `/keys` and `/credentials` are aliases
+- `/options` without args explains valid paths/options; apply via dedicated commands (`/objective`, `/panels`, `/mode`, `/vendor`, `/models`, etc.)
+- `/keys` shows runtime key status
 
 Admin-only commands:
 - `/peek`, `/peek<n>`
@@ -89,3 +91,4 @@ npm run bot:deploy:auto -- --target render --branch engine --env-only
 See:
 - `render/docs/deployment-runbook.md`
 - `render/docs/testing.md`
+

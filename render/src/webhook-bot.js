@@ -10,7 +10,12 @@ const { createPersistence } = require('./persistence');
 const { redactSensitiveText } = require('./redact');
 const { createCrashLogStoreFromEnv, FileCrashLogStore } = require('./crash-log-store');
 const { createRequestLogStoreFromEnv } = require('./request-log-store');
-const { classifyMessageInput } = require('./message-utils');
+const {
+  classifyMessageInput,
+  isLikelyWebPageUrl,
+  extractTextFallbackFromUrlMessage,
+  inferLikelyWebUrlFromText
+} = require('./message-utils');
 const { composeComicSheet } = require('../../engine/src/compose');
 const packageJson = require('../../package.json');
 
@@ -63,6 +68,9 @@ let crashStoreMode = 'unknown';
 const BOT_DISPLAY_NAME = 'Web2Comic';
 const BOT_SHORT_DESCRIPTION = 'AI comic maker from text or URL.';
 const BOT_PROCESS_START_TIME = new Date().toISOString();
+const BOT_TEST_MODE = String(process.env.RENDER_BOT_TEST_MODE || process.env.RENDER_BOT_FAKE_GENERATOR || '')
+  .trim()
+  .toLowerCase() === 'true';
 const BOT_RAW_VERSION = String(packageJson && packageJson.version ? packageJson.version : '0.0.0');
 const BOT_VERSION = (() => {
   const m = BOT_RAW_VERSION.match(/^(\d+)\.(\d+)/);
@@ -157,6 +165,13 @@ async function safeNotifyUser(chatId, text) {
   }
 }
 
+function normalizeUpdateSource(update, message) {
+  const raw = String(update?.source || message?.source || '').trim().toLowerCase();
+  if (!raw) return '';
+  if (raw === 'test') return 'test';
+  return raw;
+}
+
 async function safeRecordInteraction(chatId, payload, userMeta = {}) {
   try {
     const requestPayload = payload || {};
@@ -210,10 +225,32 @@ async function notifyDeploymentReady() {
   await safeNotifyUser(notifyChatId, lines.join('\n'));
 }
 
+async function seedAdminRuntimeSecretsFromEnv() {
+  if (!configStore || typeof configStore.ensureUser !== 'function') return;
+  const adminId = Number((adminChatIds || [])[0] || 0);
+  if (!Number.isFinite(adminId) || adminId <= 0) return;
+  const user = configStore.ensureUser(adminId);
+  if (!user || typeof user !== 'object') return;
+  if (!user.secrets || typeof user.secrets !== 'object') user.secrets = {};
+  let changed = 0;
+  for (const key of SECRET_KEYS) {
+    const current = String(user.secrets[key] || '').trim();
+    const envVal = String(process.env[key] || '').trim();
+    if (!current && envVal) {
+      user.secrets[key] = envVal;
+      changed += 1;
+    }
+  }
+  if (changed > 0) {
+    await configStore.save();
+    console.log(`[render-bot] seeded ${changed} provider key(s) into admin runtime profile`);
+  }
+}
+
 const chatQueues = new Map();
 
 const STYLE_PRESETS = {
-  classic: 'clean comic panel art, readable characters, coherent scene progression',
+  classic: 'clean illustrated art, readable characters, coherent scene progression',
   noir: 'film noir comic style, dramatic shadows, high contrast, moody scenes',
   manga: 'manga-inspired comic art, expressive characters, dynamic framing',
   superhero: 'american superhero comic style, dynamic action poses, bold colors',
@@ -244,6 +281,29 @@ const PROVIDER_DEFAULT_MODELS = {
   }
 };
 
+const PROVIDER_MODEL_CATALOG = {
+  gemini: {
+    text: ['gemini-2.5-flash'],
+    image: ['gemini-2.0-flash-exp-image-generation']
+  },
+  openai: {
+    text: ['gpt-4o-mini'],
+    image: ['dall-e-2']
+  },
+  openrouter: {
+    text: ['openai/gpt-oss-20b:free'],
+    image: ['google/gemini-2.5-flash-image-preview']
+  },
+  cloudflare: {
+    text: ['@cf/meta/llama-3.1-8b-instruct'],
+    image: ['@cf/black-forest-labs/flux-1-schnell']
+  },
+  huggingface: {
+    text: ['mistralai/Mistral-7B-Instruct-v0.2'],
+    image: ['black-forest-labs/FLUX.1-schnell']
+  }
+};
+
 const PROVIDER_REQUIRED_KEYS = {
   gemini: ['GEMINI_API_KEY'],
   openai: ['OPENAI_API_KEY'],
@@ -252,12 +312,6 @@ const PROVIDER_REQUIRED_KEYS = {
   huggingface: ['HUGGINGFACE_INFERENCE_API_TOKEN']
 };
 const PROMPT_MANUAL_URL = 'https://github.com/ApartsinProjects/Web2Comics/blob/engine/render/docs/deployment-runbook.md';
-const COMMAND_ALIASES = {
-  '/credentials': '/keys',
-  '/reset_default': '/reset_config',
-  '/reset': '/reset_config',
-  '/vserion': '/version'
-};
 
 function getMissingProviderKeys(chatId, providerName) {
   const provider = String(providerName || '').trim().toLowerCase();
@@ -333,6 +387,31 @@ function extractMessageInputText(message) {
   return merged || base;
 }
 
+function buildTestSourceEchoText(message, incoming) {
+  const chatId = Number(message?.chat?.id || 0);
+  const userId = Number(message?.from?.id || chatId || 0);
+  const username = String(message?.from?.username || message?.chat?.username || '').trim();
+  const payload = String(extractMessageInputText(message) || '').trim().slice(0, 1400);
+  const kind = String(incoming?.kind || 'text');
+  const command = String(incoming?.command || '').trim();
+  const lines = [
+    '[test-source] incoming message',
+    `chat: ${chatId || '-'}`,
+    `user: ${userId || '-'}${username ? ` (@${username})` : ''}`,
+    `kind: ${kind}${command ? ` ${command}` : ''}`,
+    `text: ${payload || '(empty)'}`
+  ];
+  return lines.join('\n');
+}
+
+function formatProviderFallbackMessage(info) {
+  const from = String(info?.from || '-/-').trim();
+  const to = String(info?.to || 'gemini/gemini').trim();
+  const reason = String(info?.reason || 'provider_failure').trim();
+  const shortReason = reason === 'missing_credentials' ? 'missing credentials' : 'provider/model failure';
+  return `Provider issue detected (${shortReason}). Switched from ${from} to ${to}.`;
+}
+
 function isShortTextPrompt(text) {
   const t = String(text || '').trim();
   if (!t) return false;
@@ -361,59 +440,44 @@ function commandHelp(chatId) {
     '',
     'Send plain text or URL to generate a comic.',
     '',
-    'Basic:',
-    '/help',
-    '/about',
-    '/version',
-    '/explain',
-    '/user',
-    '/config',
-    '/presets',
-    '',
-    'Generate:',
-    '/invent <story>',
-    '',
-    'Creative controls:',
-    '/panels <count>',
-    '/objective',
-    '/objective <name>',
-    '/style <preset-or-your-style>',
-    '/new_style <name> <text>',
-    '/set_style <text>',
-    '/language <code>',
-    '/mode <default|media_group|single>',
-    '/crazyness <0..2>',
-    '/detail <low|medium|high>',
-    '/concurrency <1..5>',
-    '/retries <0..3>',
-    '',
-    'Providers and keys:',
-    '/vendor <name>',
-    '/text_vendor <name>',
-    '/image_vendor <name>',
-    '/keys',
-    '/setkey <KEY> <VALUE>',
-    '/unsetkey <KEY>',
-    '',
-    'Advanced config:',
-    '/list_options',
-    '/options <path>',
-    '/choose <path> <number>',
-    '/set <path> <value>',
-    '/prompts',
-    '/set_prompt story <text>',
-    '/set_prompt panel <text>',
-    '/set_prompt objective <name> <text>',
-    '',
-    'Maintenance:',
-    '/reset_config',
-    '/restart',
-    '',
-    'Compatibility aliases:',
-    '/credentials -> /keys',
-    '/reset_default -> /reset_config',
-    '/reset -> /reset_config',
-    '/vserion -> /version',
+    'Commands:',
+    '/start - show welcome message.',
+    '/help - show this command reference.',
+    '/welcome - show welcome message again.',
+    '/about - creator and project links.',
+    '/version - bot version and timestamps.',
+    '/user - show your Telegram user id.',
+    '/config - show your active configuration.',
+    '/explain - explain the compact generation summary line.',
+    '/debug <on|off> - toggle image prompt debug messages.',
+    '/invent <story> - expand your seed story with AI and generate comic.',
+    '/random - generate a fully random story and make a comic.',
+    '/panels <count> - set panel count.',
+    '/objective [name] - list or set objective.',
+    '/style <preset-or-your-style> - set visual style.',
+    '/new_style <name> <text> - save a custom named style.',
+    '/language <code> - set output language.',
+    '/mode <default|media_group|single> - set delivery mode.',
+    '/consistency <on|off> - toggle reference-style consistency flow.',
+    '/crazyness <0..2> - set invention creativity temperature.',
+    '/detail <low|medium|high> - set detail level.',
+    '/concurrency <1..5> - set image generation parallelism.',
+    '/retries <0..3> - set provider retry attempts.',
+    '/vendor <name> - set both text and image providers.',
+    '/text_vendor <name> - set text provider only.',
+    '/image_vendor <name> - set image provider only.',
+    '/models [text|image] [model] - list or set models for current vendor.',
+    '/keys - show provider key status.',
+    '/setkey <KEY> <VALUE> - store runtime credential.',
+    '/unsetkey <KEY> - remove runtime credential.',
+    '/list_options - list config paths with predefined options.',
+    '/options <path> - show options for one path.',
+    '/prompts - show active prompt templates.',
+    '/set_prompt story <text> - customize story prompt.',
+    '/set_prompt panel <text> - customize panel prompt suffix.',
+    '/set_prompt objective <name> <text> - customize objective prompt override.',
+    '/reset_config - clear your config overrides.',
+    '/restart - reset your user state and config to defaults.',
     '',
     'Provider key links (Gemini free first):',
     '- Gemini: https://aistudio.google.com/apikey',
@@ -427,50 +491,18 @@ function commandHelp(chatId) {
   if (isAdminChat(chatId)) {
     lines.push('');
     lines.push('Admin commands:');
-    lines.push('/peek  - list latest generated comics');
-    lines.push('/peek <n> or /peek<n>  - show one comic from that list');
-    lines.push('/log, /log <n>, /log<n>  - list latest interaction logs');
-    lines.push('/users  - list known users');
-    lines.push('/ban  - list banned users');
-    lines.push('/ban <user_id|username>  - ban user');
-    lines.push('/unban <user_id|username>  - unban user');
-    lines.push('/share <user_id>  - allow user to use your runtime keys');
-    lines.push('/watermark <on|off>  - set global panel watermark');
+    lines.push('/peek - list latest generated comics.');
+    lines.push('/peek <n> or /peek<n> - show one comic from the latest list.');
+    lines.push('/log, /log <n>, /log<n> - list latest interaction logs.');
+    lines.push('/users - list known users.');
+    lines.push('/ban - list banned users.');
+    lines.push('/ban <user_id|username> - ban user.');
+    lines.push('/unban <user_id|username> - unban user.');
+    lines.push('/share <user_id> - allow a user to use your runtime keys.');
+    lines.push('/watermark <on|off> - set global panel watermark.');
+    lines.push('/echo <on|off> - test mode input echo.');
   }
   return lines.join('\n');
-}
-
-function presetsMessage(chatId) {
-  const userStyles = (() => {
-    const cfg = configStore.getEffectiveConfig(chatId);
-    const styles = cfg && cfg.generation && typeof cfg.generation.user_styles === 'object'
-      ? cfg.generation.user_styles
-      : {};
-    return styles && typeof styles === 'object' ? styles : {};
-  })();
-  const userStyleNames = Object.keys(userStyles);
-  return [
-    'Friendly presets:',
-    `- vendor: ${Object.keys(PROVIDER_DEFAULT_MODELS).join(', ')}`,
-    `- language: ${getOptions('generation.output_language').join(', ')}`,
-    `- objective: ${getOptions('generation.objective').join(', ')}`,
-    `- mode: ${getOptions('generation.delivery_mode').join(', ')}`,
-    `- crazyness: ${getOptions('generation.invent_temperature').join(', ')}`,
-    `- panels: ${getOptions('generation.panel_count').join(', ')}`,
-    `- detail: ${getOptions('generation.detail_level').join(', ')}`,
-    `- style: ${Object.keys(STYLE_PRESETS).join(', ')}`,
-    userStyleNames.length ? `- your styles: ${userStyleNames.join(', ')}` : '- your styles: none (use /new_style <name> <text>)',
-    '',
-    'Examples:',
-    '/vendor gemini',
-    '/language en',
-    '/mode media_group',
-    '/crazyness 1.2',
-    '/panels 4',
-    '/objective summarize',
-    '/style manga',
-    '/new_style retro-noir high contrast inked comic, moody lighting, halftone texture'
-  ].join('\n');
 }
 
 function keysStatusMessage(chatId) {
@@ -495,8 +527,47 @@ function normalizeStyleName(raw) {
 
 function normalizeCommandToken(rawToken) {
   const token = String(rawToken || '').trim().toLowerCase();
-  if (!token) return '';
-  return COMMAND_ALIASES[token] || token;
+  return token;
+}
+
+function listModelsForProvider(providerName, kind, includeCurrent = '') {
+  const provider = String(providerName || '').trim().toLowerCase();
+  const section = String(kind || '').trim().toLowerCase();
+  const fromCatalog = (((PROVIDER_MODEL_CATALOG[provider] || {})[section]) || []).map((v) => String(v || '').trim()).filter(Boolean);
+  const uniq = new Set(fromCatalog);
+  const current = String(includeCurrent || '').trim();
+  if (current) uniq.add(current);
+  return Array.from(uniq);
+}
+
+function buildModelsStatusMessage(chatId, target = '') {
+  const textProvider = String(configStore.getCurrent(chatId, 'providers.text.provider') || '').trim().toLowerCase();
+  const imageProvider = String(configStore.getCurrent(chatId, 'providers.image.provider') || '').trim().toLowerCase();
+  const textModel = String(configStore.getCurrent(chatId, 'providers.text.model') || '').trim();
+  const imageModel = String(configStore.getCurrent(chatId, 'providers.image.model') || '').trim();
+
+  const lines = [
+    'Model selector (current vendor only):',
+    `- text: ${textProvider || '-'} / ${textModel || '-'}`,
+    `- image: ${imageProvider || '-'} / ${imageModel || '-'}`,
+    ''
+  ];
+
+  const includeText = !target || target === 'text';
+  const includeImage = !target || target === 'image';
+  if (includeText) {
+    const models = listModelsForProvider(textProvider, 'text', textModel);
+    lines.push(`Text models for ${textProvider || '-'}: ${models.length ? models.join(', ') : 'none'}`);
+  }
+  if (includeImage) {
+    const models = listModelsForProvider(imageProvider, 'image', imageModel);
+    lines.push(`Image models for ${imageProvider || '-'}: ${models.length ? models.join(', ') : 'none'}`);
+  }
+  lines.push('');
+  lines.push('Usage: /models');
+  lines.push('Usage: /models text <model>');
+  lines.push('Usage: /models image <model>');
+  return lines.join('\n');
 }
 
 function setConfigPathValue(chatId, pathKey, rawValue) {
@@ -534,10 +605,10 @@ function onboardingMessage(chatId) {
     '1) Get key: https://aistudio.google.com/apikey',
     '2) How-to: https://github.com/ApartsinProjects/Web2Comics/tree/engine/render',
     '3) Set it: /setkey GEMINI_API_KEY <YOUR_KEY>',
-    '4) Verify: /credentials',
+    '4) Verify: /keys',
     '',
     'Once connected, useful commands:',
-    '/help  /config  /presets  /vendor <name>  /panels <count>  /style <preset>'
+    '/help  /config  /vendor <name>  /panels <count>  /style <preset>'
   ];
   if (isAdminChat(chatId)) {
     lines.push('');
@@ -548,30 +619,15 @@ function onboardingMessage(chatId) {
 }
 
 function formatUsersMessage() {
-  const users = (configStore && configStore.state && configStore.state.users) || {};
-  const rows = Object.entries(users)
-    .map(([id, record]) => {
-      const uid = String(id || '').trim() || 'unknown';
-      const username = String(record?.profile?.user?.username || '').trim();
-      const first = String(record?.profile?.user?.first_name || '').trim();
-      const last = String(record?.profile?.user?.last_name || '').trim();
-      const chatUsername = String(record?.profile?.chat?.username || '').trim();
-      const display = username
-        ? `@${username}`
-        : ((`${first} ${last}`.trim()) || (chatUsername ? `@${chatUsername}` : 'unknown'));
-      const lastSeen = String(record?.lastSeenAt || '').trim();
-      return { uid, display, lastSeen };
-    })
-    .sort((a, b) => {
-      const ta = Date.parse(a.lastSeen || '');
-      const tb = Date.parse(b.lastSeen || '');
-      if (Number.isFinite(tb) && Number.isFinite(ta) && tb !== ta) return tb - ta;
-      return String(a.uid).localeCompare(String(b.uid));
-    });
+  const rows = typeof configStore.listKnownUsers === 'function' ? configStore.listKnownUsers() : [];
   if (!rows.length) return 'No known users yet.';
   const lines = [`Known users: ${rows.length}`];
   rows.forEach((r, idx) => {
-    lines.push(`${idx + 1}. ${r.uid} | ${r.display}`);
+    const meta = [];
+    if (r.username) meta.push(`@${r.username}`);
+    if (r.name) meta.push(r.name);
+    if (!r.username && r.chatUsername) meta.push(`chat:@${r.chatUsername}`);
+    lines.push(`${idx + 1}. ${r.uid} | ${meta.length ? meta.join(' | ') : r.label}`);
   });
   return lines.join('\n');
 }
@@ -622,6 +678,8 @@ function buildPromptCatalog(cfg) {
     'Rules:',
     '- Keep captions concise, factual, and sequential.',
     '- Keep each image_prompt visual and concrete for a single panel scene.',
+    '- For every image_prompt, explicitly require text-free artwork (no words/letters/numbers/signs/logos/UI text/speech bubbles/watermarks).',
+    '- Every image_prompt must avoid panel numbering (for example "Panel 1", "1/8") and must not ask for any text elements to be shown in the image.',
     '- Do not invent facts not present in source text.'
   ];
   const activeObjectiveOverride = String(cfg?.generation?.objective_prompt_overrides?.[objective] || '').trim();
@@ -635,15 +693,14 @@ function buildPromptCatalog(cfg) {
   storyPrompt.push('Source title: <source title>', 'Source label: <source label>', 'Source text:', '<source text>');
 
   const panelPrompt = [
-    'Comic panel <index>/<total>',
     'Story title: <storyboard.title>',
     'Story summary: <storyboard.description short summary>',
-    'Panel caption: <panel.caption>',
     'Panel visual brief: <panel.image_prompt>',
     `Style: ${cfg?.generation?.style_prompt || '-'}`,
     'Create one clear scene, no collage.',
-    'Do not render caption text inside the image.',
-    'No words, letters, subtitles, labels, or text overlays in the artwork.'
+    'STRICT NO-TEXT RULE: do not render any text in the image.',
+    'No words, letters, numbers, symbols, subtitles, labels, signs, logos, UI text, speech bubbles, captions, or watermarks.',
+    'If any text appears, regenerate mentally and output a text-free scene.'
   ];
   const customPanelPrompt = String(cfg?.generation?.custom_panel_prompt || '').trim();
   if (customPanelPrompt) {
@@ -655,6 +712,8 @@ function buildPromptCatalog(cfg) {
     'Expand the seed into an engaging short narrative that is easy to storyboard into comic panels.',
     'Add at least two unexpected but coherent twists.',
     'Keep characters and timeline consistent.',
+    `Objective: ${cfg?.generation?.objective || 'summarize'}`,
+    `Style: ${cfg?.generation?.style_prompt || '-'}`,
     'Return plain text only (no JSON, no markdown headings).',
     'Seed story:',
     '<seed>'
@@ -752,7 +811,18 @@ function listOptionPathsMessage() {
   ].join('\n');
 }
 
-async function sendPanelWithRetry(chatId, panel, index) {
+function buildPanelPromptDebugMessage(panel) {
+  const idx = Number(panel?.index || 0);
+  const total = Number(panel?.total || 0);
+  const head = (idx > 0 && total > 0) ? `${idx}(${total})` : (idx > 0 ? String(idx) : '?');
+  const prompt = String(panel?.imagePromptUsed || '').trim();
+  return `Image prompt ${head}:\n${prompt || '(missing)'}`;
+}
+
+async function sendPanelWithRetry(chatId, panel, index, debugPromptsEnabled = false) {
+  if (debugPromptsEnabled) {
+    await sendLongMessage(chatId, buildPanelPromptDebugMessage(panel));
+  }
   let last = null;
   for (let attempt = 1; attempt <= 3; attempt += 1) {
     try {
@@ -766,7 +836,19 @@ async function sendPanelWithRetry(chatId, panel, index) {
   throw new Error(`Failed sending panel ${index + 1}: ${String(last?.message || last)}`);
 }
 
-function createOrderedPanelSender(chatId, alreadySent = new Set()) {
+function normalizePanelMessages(panelMessages = []) {
+  return (Array.isArray(panelMessages) ? panelMessages : [])
+    .filter(Boolean)
+    .slice()
+    .sort((a, b) => {
+      const ai = Number(a?.index || 0);
+      const bi = Number(b?.index || 0);
+      if (Number.isFinite(ai) && Number.isFinite(bi) && ai > 0 && bi > 0) return ai - bi;
+      return 0;
+    });
+}
+
+function createOrderedPanelSender(chatId, alreadySent = new Set(), debugPromptsEnabled = false) {
   const pending = new Map();
   let nextIndex = 1;
   while (alreadySent.has(nextIndex)) nextIndex += 1;
@@ -780,7 +862,7 @@ function createOrderedPanelSender(chatId, alreadySent = new Set()) {
       while (pending.has(nextIndex)) {
         const panel = pending.get(nextIndex);
         pending.delete(nextIndex);
-        await sendPanelWithRetry(chatId, panel, nextIndex - 1);
+        await sendPanelWithRetry(chatId, panel, nextIndex - 1, debugPromptsEnabled);
         alreadySent.add(nextIndex);
         nextIndex += 1;
         while (alreadySent.has(nextIndex)) nextIndex += 1;
@@ -812,9 +894,14 @@ async function sendMediaGroupWithRetry(chatId, panels) {
   throw new Error(`Failed sending media group: ${String(last?.message || last)}`);
 }
 
-async function sendSingleFormattedComic(chatId, panelResult, sourceMode, cfg) {
-  const panels = Array.isArray(panelResult?.panelMessages) ? panelResult.panelMessages : [];
+async function sendSingleFormattedComic(chatId, panelResult, sourceMode, cfg, debugPromptsEnabled = false) {
+  const panels = normalizePanelMessages(panelResult?.panelMessages);
   if (!panels.length) return;
+  if (debugPromptsEnabled) {
+    for (let i = 0; i < panels.length; i += 1) {
+      await sendLongMessage(chatId, buildPanelPromptDebugMessage(panels[i]));
+    }
+  }
   const caption = [
     `Panels: ${panels.length}`,
     ...panels.map((p, idx) => `${idx + 1}. ${String(p.caption || '').replace(/\s+/g, ' ').slice(0, 160)}`)
@@ -836,27 +923,32 @@ async function sendSingleFormattedComic(chatId, panelResult, sourceMode, cfg) {
       outputConfig: cfg?.output || {},
       outputPath: outPath
     });
-    await sendPanelWithRetry(chatId, { imagePath: outPath, caption: caption.slice(0, 1000) }, 0);
+    await sendPanelWithRetry(chatId, { imagePath: outPath, caption: caption.slice(0, 1000) }, 0, false);
   } catch (_) {
-    await sendPanelWithRetry(chatId, { imagePath: firstPath, caption: caption.slice(0, 1000) }, 0);
+    await sendPanelWithRetry(chatId, { imagePath: firstPath, caption: caption.slice(0, 1000) }, 0, false);
   }
 }
 
-async function sendPanelSequence(chatId, panelResult, sourceModeLabel, configLine = '', alreadySent = new Set(), deliveryMode = 'default', cfg = null) {
+async function sendPanelSequence(chatId, panelResult, sourceModeLabel, configLine = '', alreadySent = new Set(), deliveryMode = 'default', cfg = null, debugPromptsEnabled = false) {
   const sourceMode = String(sourceModeLabel || 'text').toLowerCase();
   const selectedMode = normalizeDeliveryMode(deliveryMode);
-  const panels = Array.isArray(panelResult?.panelMessages) ? panelResult.panelMessages.slice() : [];
+  const panels = normalizePanelMessages(panelResult?.panelMessages);
   if (String(configLine || '').trim()) {
     await api.sendMessage(chatId, configLine);
   }
   const remaining = panels.filter((p, idx) => !alreadySent.has(Number(p?.index || idx + 1)));
   if (selectedMode === 'media_group' && remaining.length) {
+    if (debugPromptsEnabled) {
+      for (let i = 0; i < remaining.length; i += 1) {
+        await sendLongMessage(chatId, buildPanelPromptDebugMessage(remaining[i]));
+      }
+    }
     await sendMediaGroupWithRetry(chatId, remaining);
   } else if (selectedMode === 'single' && panels.length) {
-    await sendSingleFormattedComic(chatId, panelResult, sourceMode, cfg);
+    await sendSingleFormattedComic(chatId, panelResult, sourceMode, cfg, debugPromptsEnabled);
   } else {
     for (let i = 0; i < remaining.length; i += 1) {
-      await sendPanelWithRetry(chatId, remaining[i], i);
+      await sendPanelWithRetry(chatId, remaining[i], i, debugPromptsEnabled);
     }
   }
   await api.sendMessage(chatId, [
@@ -879,14 +971,13 @@ function listGeneratedRows(history) {
     .slice(0, 10);
 }
 
-function resolveHistoryUsername(chatId) {
-  const userKey = configStore.normalizeUserKey(chatId);
-  const user = configStore.state?.users?.[userKey] || null;
-  const fromUser = String(user?.profile?.user?.username || '').trim();
-  if (fromUser) return fromUser;
-  const fromChat = String(user?.profile?.chat?.username || '').trim();
-  if (fromChat) return fromChat;
-  return '';
+function resolveHistoryUserLabel(chatId) {
+  if (!configStore || typeof configStore.getUserSummary !== 'function') {
+    return `id:${String(chatId || '-')}`;
+  }
+  const summary = configStore.getUserSummary(chatId);
+  if (summary && summary.label) return summary.label;
+  return `id:${String(chatId || '-')}`;
 }
 
 function formatPeekName(entry) {
@@ -902,8 +993,7 @@ function formatPeekMessage(history) {
 
   const lines = ['Last 10 generated comics:'];
   rows.forEach((h, idx) => {
-    const username = resolveHistoryUsername(h?.chatId);
-    const userLabel = username ? `@${username}` : `id:${String(h?.chatId || '-')}`;
+    const userLabel = resolveHistoryUserLabel(h?.chatId);
     lines.push(`${idx + 1}. ${String(h?.timestamp || '-')} | ${userLabel} | ${formatPeekName(h)}`);
   });
   lines.push('Use /peek <number> to view one item.');
@@ -918,8 +1008,7 @@ function formatPeekSingleMessage(history, selected) {
     return `Invalid comic index. Use /peek, then choose 1-${rows.length}.`;
   }
   const row = rows[idx - 1];
-  const username = resolveHistoryUsername(row?.chatId);
-  const userLabel = username ? `@${username}` : `id:${String(row?.chatId || '-')}`;
+  const userLabel = resolveHistoryUserLabel(row?.chatId);
   const img = row?.result?.outputPath ? String(row.result.outputPath) : '-';
   return [
     `Comic ${idx} of ${rows.length}`,
@@ -944,7 +1033,7 @@ function formatLogMessage(history, limit = 10) {
     const ok = Boolean(h?.result?.ok);
     const err = String(h?.result?.error || '').trim();
     lines.push(`${idx + 1}. ${String(h.timestamp || '-')}`);
-    lines.push(`user: ${String(h.chatId || '-')}`);
+    lines.push(`user: ${resolveHistoryUserLabel(h.chatId)}`);
     lines.push(`type: ${type} ok:${ok ? '1' : '0'}`);
     lines.push(`msg: ${String(h.requestText || '').slice(0, 160)}`);
     if (err) lines.push(`err: ${err.slice(0, 160)}`);
@@ -967,6 +1056,30 @@ async function handleCommand(chatId, text) {
 
   if (command === '/help') {
     await api.sendMessage(chatId, commandHelp(chatId));
+    return true;
+  }
+
+  if (command === '/welcome') {
+    await api.sendMessage(chatId, onboardingMessage(chatId));
+    await api.sendMessage(chatId, 'Need the full command list? /help');
+    return true;
+  }
+
+  if (command === '/debug') {
+    const value = String(parts[1] || '').trim().toLowerCase();
+    const current = Boolean(configStore.getCurrent(chatId, 'generation.debug_prompts'));
+    if (!value || (value !== 'on' && value !== 'off')) {
+      await api.sendMessage(chatId, [
+        'Usage: /debug <on|off>',
+        'Explanation: when enabled, print image prompt used for each panel before sending images.',
+        'Allowed: on, off',
+        `Current: ${current ? 'on' : 'off'}`
+      ].join('\n'));
+      return true;
+    }
+    const enabled = value === 'on';
+    await configStore.setConfigValue(chatId, 'generation.debug_prompts', enabled);
+    await api.sendMessage(chatId, `Updated generation.debug_prompts = ${enabled ? 'on' : 'off'}`);
     return true;
   }
 
@@ -1002,11 +1115,6 @@ async function handleCommand(chatId, text) {
 
   if (command === '/config') {
     await api.sendMessage(chatId, configStore.formatConfigSummary(chatId));
-    return true;
-  }
-
-  if (command === '/presets') {
-    await api.sendMessage(chatId, presetsMessage(chatId));
     return true;
   }
 
@@ -1082,7 +1190,12 @@ async function handleCommand(chatId, text) {
     }
     const target = String(parts[1] || '').trim();
     if (!target) {
-      await api.sendMessage(chatId, 'Usage: /unban <user_id|username>');
+      await api.sendMessage(chatId, [
+        'Usage: /unban <user_id|username>',
+        'Explanation: remove a user from the blacklist by id or username.',
+        'Allowed: numeric user id or @username (without @ also works).',
+        formatBanlistMessage()
+      ].join('\n'));
       return true;
     }
     try {
@@ -1104,7 +1217,14 @@ async function handleCommand(chatId, text) {
   if (command === '/vendor' || command === '/text_vendor' || command === '/image_vendor') {
     const vendor = String(parts[1] || '').trim().toLowerCase();
     if (!vendor) {
-      await api.sendMessage(chatId, `Usage: ${command} <${Object.keys(PROVIDER_DEFAULT_MODELS).join('|')}>`);
+      const currentText = String(configStore.getCurrent(chatId, 'providers.text.provider') || '-');
+      const currentImage = String(configStore.getCurrent(chatId, 'providers.image.provider') || '-');
+      await api.sendMessage(chatId, [
+        `Usage: ${command} <${Object.keys(PROVIDER_DEFAULT_MODELS).join('|')}>`,
+        'Explanation: switch provider defaults for text/image generation.',
+        `Allowed: ${Object.keys(PROVIDER_DEFAULT_MODELS).join(', ')}`,
+        `Current: text=${currentText}, image=${currentImage}`
+      ].join('\n'));
       return true;
     }
     const missingKeys = getMissingProviderKeys(chatId, vendor);
@@ -1127,11 +1247,56 @@ async function handleCommand(chatId, text) {
     return true;
   }
 
+  if (command === '/models') {
+    const target = String(parts[1] || '').trim().toLowerCase();
+    if (!target) {
+      await api.sendMessage(chatId, buildModelsStatusMessage(chatId));
+      return true;
+    }
+    if (target !== 'text' && target !== 'image') {
+      await api.sendMessage(chatId, [
+        'Usage: /models [text|image] [model]',
+        'Explanation: list or set model for current vendor only.',
+        buildModelsStatusMessage(chatId)
+      ].join('\n\n'));
+      return true;
+    }
+    const value = parts.slice(2).join(' ').trim();
+    if (!value) {
+      await api.sendMessage(chatId, buildModelsStatusMessage(chatId, target));
+      return true;
+    }
+
+    const providerPath = target === 'text' ? 'providers.text.provider' : 'providers.image.provider';
+    const modelPath = target === 'text' ? 'providers.text.model' : 'providers.image.model';
+    const provider = String(configStore.getCurrent(chatId, providerPath) || '').trim().toLowerCase();
+    const currentModel = String(configStore.getCurrent(chatId, modelPath) || '').trim();
+    const allowed = listModelsForProvider(provider, target, currentModel);
+    if (!valueExists(allowed, value)) {
+      await api.sendMessage(chatId, [
+        `Model not allowed for current ${target} vendor '${provider || '-'}'.`,
+        `Allowed: ${allowed.join(', ') || 'none'}`,
+        `Current: ${currentModel || '-'}`
+      ].join('\n'));
+      return true;
+    }
+    const selected = allowed.find((m) => String(m).toLowerCase() === String(value).toLowerCase()) || value;
+    const updated = await configStore.setConfigValue(chatId, modelPath, selected);
+    await api.sendMessage(chatId, `Updated ${modelPath} = ${updated}`);
+    return true;
+  }
+
   if (command === '/language') {
     const value = String(parts[1] || '').trim().toLowerCase();
     const options = getOptions('generation.output_language');
     if (!value || !valueExists(options, value)) {
-      await api.sendMessage(chatId, `Usage: /language <code>\nAllowed: ${options.join(', ')}`);
+      const current = String(configStore.getCurrent(chatId, 'generation.output_language') || 'auto');
+      await api.sendMessage(chatId, [
+        'Usage: /language <code>',
+        'Explanation: set caption/storyboard output language.',
+        `Allowed: ${options.join(', ')}`,
+        `Current: ${current}`
+      ].join('\n'));
       return true;
     }
     const current = await setConfigPathValue(chatId, 'generation.output_language', value);
@@ -1145,7 +1310,12 @@ async function handleCommand(chatId, text) {
     const options = getOptions('generation.delivery_mode');
     if (!raw || !value || !valueExists(options, value)) {
       const current = String(configStore.getCurrent(chatId, 'generation.delivery_mode') || 'default');
-      await api.sendMessage(chatId, `Usage: /mode <name>\nCurrent: ${current}\nAllowed: ${options.join(', ')}`);
+      await api.sendMessage(chatId, [
+        'Usage: /mode <name>',
+        'Explanation: choose how panel outputs are delivered.',
+        `Allowed: ${options.join(', ')}`,
+        `Current: ${current}`
+      ].join('\n'));
       return true;
     }
     const current = await setConfigPathValue(chatId, 'generation.delivery_mode', value);
@@ -1153,42 +1323,82 @@ async function handleCommand(chatId, text) {
     return true;
   }
 
+  if (command === '/consistency') {
+    const options = getOptions('generation.consistency');
+    const value = String(parts[1] || '').trim().toLowerCase();
+    const current = Boolean(configStore.getCurrent(chatId, 'generation.consistency'));
+    if (!value) {
+      await api.sendMessage(chatId, [
+        'Usage: /consistency <on|off>',
+        'Explanation: generate a style reference image and reuse it for panel consistency.',
+        `Allowed: ${options.join(', ')}`,
+        `Current: ${current ? 'on' : 'off'}`
+      ].join('\n'));
+      return true;
+    }
+    if (!valueExists(options, value)) {
+      await api.sendMessage(chatId, [
+        'Usage: /consistency <on|off>',
+        'Explanation: toggle style-consistency flow.',
+        `Allowed: ${options.join(', ')}`,
+        `Current: ${current ? 'on' : 'off'}`
+      ].join('\n'));
+      return true;
+    }
+    const updated = await setConfigPathValue(chatId, 'generation.consistency', value);
+    await api.sendMessage(chatId, `Updated generation.consistency = ${updated ? 'on' : 'off'}`);
+    return true;
+  }
+
   if (command === '/panels') {
     const value = String(parts[1] || '').trim();
     const options = getOptions('generation.panel_count');
+    const current = String(configStore.getCurrent(chatId, 'generation.panel_count') || '-');
     if (!value || !valueExists(options, value)) {
-      await api.sendMessage(chatId, `Usage: /panels <count>\nAllowed: ${options.join(', ')}`);
+      await api.sendMessage(chatId, [
+        'Usage: /panels <count>',
+        'Explanation: set how many panels to generate.',
+        `Allowed: ${options.join(', ')}`,
+        `Current: ${current}`
+      ].join('\n'));
       return true;
     }
-    const current = await setConfigPathValue(chatId, 'generation.panel_count', value);
-    await api.sendMessage(chatId, `Updated generation.panel_count = ${current}`);
+    const updated = await setConfigPathValue(chatId, 'generation.panel_count', value);
+    await api.sendMessage(chatId, `Updated generation.panel_count = ${updated}`);
     return true;
   }
 
   if (command === '/objective') {
     const value = String(parts[1] || '').trim().toLowerCase();
     const options = getOptions('generation.objective');
+    const current = String(configStore.getCurrent(chatId, 'generation.objective') || '').trim() || '-';
     if (!value) {
-      const current = String(configStore.getCurrent(chatId, 'generation.objective') || '').trim() || '-';
       await api.sendMessage(chatId, [
+        'Usage: /objective <name>',
+        'Explanation: set storyboard objective.',
         `Current objective: ${current}`,
         'Available objectives:',
-        options.join(', '),
-        'Use: /objective <name>'
+        options.join(', ')
       ].join('\n'));
       return true;
     }
     if (!valueExists(options, value)) {
-      await api.sendMessage(chatId, `Usage: /objective <name>\nAllowed: ${options.join(', ')}`);
+      await api.sendMessage(chatId, [
+        'Usage: /objective <name>',
+        'Explanation: set storyboard objective.',
+        `Allowed: ${options.join(', ')}`,
+        `Current: ${current}`
+      ].join('\n'));
       return true;
     }
-    const current = await setConfigPathValue(chatId, 'generation.objective', value);
-    await api.sendMessage(chatId, `Updated generation.objective = ${current}`);
+    const updated = await setConfigPathValue(chatId, 'generation.objective', value);
+    await api.sendMessage(chatId, `Updated generation.objective = ${updated}`);
     return true;
   }
 
   if (command === '/style') {
-    const preset = normalizeStyleName(parts[1] || '');
+    const styleInput = parts.slice(1).join(' ').trim();
+    const preset = normalizeStyleName(styleInput);
     const userStyles = (() => {
       const cfg = configStore.getEffectiveConfig(chatId);
       const styles = cfg && cfg.generation && typeof cfg.generation.user_styles === 'object'
@@ -1196,21 +1406,24 @@ async function handleCommand(chatId, text) {
         : {};
       return styles && typeof styles === 'object' ? styles : {};
     })();
-    if (!preset) {
+    const currentStylePrompt = String(configStore.getCurrent(chatId, 'generation.style_prompt') || '').trim() || '-';
+    if (!styleInput) {
       const customNames = Object.keys(userStyles);
       const allowed = customNames.length
         ? `${Object.keys(STYLE_PRESETS).join(', ')} | your styles: ${customNames.join(', ')}`
         : `${Object.keys(STYLE_PRESETS).join(', ')} | your styles: none`;
-      await api.sendMessage(chatId, `Usage: /style <preset-or-your-style>\nAllowed: ${allowed}`);
+      await api.sendMessage(chatId, [
+        'Usage: /style <preset-or-your-style>',
+        'Explanation: choose a predefined/custom style, or pass free-form style text.',
+        `Allowed: ${allowed}`,
+        `Current: ${currentStylePrompt}`
+      ].join('\n'));
       return true;
     }
     const prompt = STYLE_PRESETS[preset] || String(userStyles[preset] || '').trim();
     if (!prompt) {
-      const dynamic = Object.keys(userStyles);
-      const allowed = dynamic.length
-        ? `${Object.keys(STYLE_PRESETS).join(', ')}, ${dynamic.join(', ')}`
-        : Object.keys(STYLE_PRESETS).join(', ');
-      await api.sendMessage(chatId, `Usage: /style <preset>\nAllowed: ${allowed}`);
+      await configStore.setConfigValue(chatId, 'generation.style_prompt', styleInput);
+      await api.sendMessage(chatId, 'Updated generation.style_prompt');
       return true;
     }
     await configStore.setConfigValue(chatId, 'generation.style_prompt', prompt);
@@ -1223,22 +1436,19 @@ async function handleCommand(chatId, text) {
     const styleName = normalizeStyleName(rawName);
     const stylePrompt = parts.slice(2).join(' ').trim();
     if (!styleName || !/^[a-z0-9][a-z0-9-]{1,40}$/.test(styleName) || !stylePrompt) {
-      await api.sendMessage(chatId, 'Usage: /new_style <name> <text>\nName: lowercase letters/numbers/dash, 2-41 chars.');
+      const cfg = configStore.getEffectiveConfig(chatId);
+      const styles = cfg && cfg.generation && typeof cfg.generation.user_styles === 'object' ? cfg.generation.user_styles : {};
+      const names = Object.keys(styles || {});
+      await api.sendMessage(chatId, [
+        'Usage: /new_style <name> <text>',
+        'Explanation: create your own named style prompt.',
+        'Allowed: name is lowercase letters/numbers/dash, 2-41 chars.',
+        `Current styles: ${names.length ? names.join(', ') : 'none'}`
+      ].join('\n'));
       return true;
     }
     await configStore.setConfigValue(chatId, `generation.user_styles.${styleName}`, stylePrompt);
     await api.sendMessage(chatId, `Saved style '${styleName}'. Use it with /style ${styleName}`);
-    return true;
-  }
-
-  if (command === '/set_style') {
-    const customStyle = parts.slice(1).join(' ').trim();
-    if (!customStyle) {
-      await api.sendMessage(chatId, 'Usage: /set_style <text>');
-      return true;
-    }
-    await configStore.setConfigValue(chatId, 'generation.style_prompt', customStyle);
-    await api.sendMessage(chatId, 'Updated generation.style_prompt');
     return true;
   }
 
@@ -1247,7 +1457,13 @@ async function handleCommand(chatId, text) {
     if (kind === 'story') {
       const textValue = parts.slice(2).join(' ').trim();
       if (!textValue) {
-        await api.sendMessage(chatId, 'Usage: /set_prompt story <text>');
+        const current = String(configStore.getCurrent(chatId, 'generation.custom_story_prompt') || '').trim() || '-';
+        await api.sendMessage(chatId, [
+          'Usage: /set_prompt story <text>',
+          'Explanation: override story-building prompt.',
+          'Allowed: any non-empty text.',
+          `Current: ${current}`
+        ].join('\n'));
         return true;
       }
       await configStore.setConfigValue(chatId, 'generation.custom_story_prompt', textValue);
@@ -1257,7 +1473,13 @@ async function handleCommand(chatId, text) {
     if (kind === 'panel') {
       const textValue = parts.slice(2).join(' ').trim();
       if (!textValue) {
-        await api.sendMessage(chatId, 'Usage: /set_prompt panel <text>');
+        const current = String(configStore.getCurrent(chatId, 'generation.custom_panel_prompt') || '').trim() || '-';
+        await api.sendMessage(chatId, [
+          'Usage: /set_prompt panel <text>',
+          'Explanation: override panel image prompt suffix.',
+          'Allowed: any non-empty text.',
+          `Current: ${current}`
+        ].join('\n'));
         return true;
       }
       await configStore.setConfigValue(chatId, 'generation.custom_panel_prompt', textValue);
@@ -1269,26 +1491,42 @@ async function handleCommand(chatId, text) {
       const textValue = parts.slice(3).join(' ').trim();
       const objectives = getOptions('generation.objective').map((v) => String(v).toLowerCase());
       if (!objectiveName || !textValue || !objectives.includes(objectiveName)) {
-        await api.sendMessage(chatId, `Usage: /set_prompt objective <${getOptions('generation.objective').join('|')}> <text>`);
+        const currentObjective = String(configStore.getCurrent(chatId, 'generation.objective') || '').trim() || '-';
+        await api.sendMessage(chatId, [
+          `Usage: /set_prompt objective <${getOptions('generation.objective').join('|')}> <text>`,
+          'Explanation: set objective-specific story prompt override.',
+          `Allowed objectives: ${getOptions('generation.objective').join(', ')}`,
+          `Current objective: ${currentObjective}`
+        ].join('\n'));
         return true;
       }
       await configStore.setConfigValue(chatId, `generation.objective_prompt_overrides.${objectiveName}`, textValue);
       await api.sendMessage(chatId, `Updated objective prompt override for ${objectiveName}`);
       return true;
     }
-    await api.sendMessage(chatId, 'Usage: /set_prompt <story|panel|objective> ...');
+    await api.sendMessage(chatId, [
+      'Usage: /set_prompt <story|panel|objective> ...',
+      'Explanation: customize internal prompt templates.',
+      'Allowed: story, panel, objective.'
+    ].join('\n'));
     return true;
   }
 
   if (command === '/detail') {
     const value = String(parts[1] || '').trim().toLowerCase();
     const options = getOptions('generation.detail_level');
+    const current = String(configStore.getCurrent(chatId, 'generation.detail_level') || '-');
     if (!value || !valueExists(options, value)) {
-      await api.sendMessage(chatId, `Usage: /detail <level>\nAllowed: ${options.join(', ')}`);
+      await api.sendMessage(chatId, [
+        'Usage: /detail <level>',
+        'Explanation: set storyboard/image detail level.',
+        `Allowed: ${options.join(', ')}`,
+        `Current: ${current}`
+      ].join('\n'));
       return true;
     }
-    const current = await setConfigPathValue(chatId, 'generation.detail_level', value);
-    await api.sendMessage(chatId, `Updated generation.detail_level = ${current}`);
+    const updated = await setConfigPathValue(chatId, 'generation.detail_level', value);
+    await api.sendMessage(chatId, `Updated generation.detail_level = ${updated}`);
     return true;
   }
 
@@ -1296,36 +1534,54 @@ async function handleCommand(chatId, text) {
     const value = String(parts[1] || '').trim();
     const options = getOptions('generation.invent_temperature');
     const parsed = Number.parseFloat(value);
+    const current = String(configStore.getCurrent(chatId, 'generation.invent_temperature') || '0.95');
     if (!value || !Number.isFinite(parsed) || parsed < 0 || parsed > 2) {
-      await api.sendMessage(chatId, `Usage: /crazyness <0..2>\nAllowed presets: ${options.join(', ')}`);
+      await api.sendMessage(chatId, [
+        'Usage: /crazyness <0..2>',
+        'Explanation: set creativity/temperature for story invention.',
+        `Allowed presets: ${options.join(', ')}`,
+        `Current: ${current}`
+      ].join('\n'));
       return true;
     }
-    const current = await setConfigPathValue(chatId, 'generation.invent_temperature', value);
-    await api.sendMessage(chatId, `Updated generation.invent_temperature = ${current}`);
+    const updated = await setConfigPathValue(chatId, 'generation.invent_temperature', value);
+    await api.sendMessage(chatId, `Updated generation.invent_temperature = ${updated}`);
     return true;
   }
 
   if (command === '/concurrency') {
     const value = String(parts[1] || '').trim();
     const options = getOptions('runtime.image_concurrency');
+    const current = String(configStore.getCurrent(chatId, 'runtime.image_concurrency') || '-');
     if (!value || !valueExists(options, value)) {
-      await api.sendMessage(chatId, `Usage: /concurrency <n>\nAllowed: ${options.join(', ')}`);
+      await api.sendMessage(chatId, [
+        'Usage: /concurrency <n>',
+        'Explanation: max parallel panel image generations.',
+        `Allowed: ${options.join(', ')}`,
+        `Current: ${current}`
+      ].join('\n'));
       return true;
     }
-    const current = await setConfigPathValue(chatId, 'runtime.image_concurrency', value);
-    await api.sendMessage(chatId, `Updated runtime.image_concurrency = ${current}`);
+    const updated = await setConfigPathValue(chatId, 'runtime.image_concurrency', value);
+    await api.sendMessage(chatId, `Updated runtime.image_concurrency = ${updated}`);
     return true;
   }
 
   if (command === '/retries') {
     const value = String(parts[1] || '').trim();
     const options = getOptions('runtime.retries');
+    const current = String(configStore.getCurrent(chatId, 'runtime.retries') || '-');
     if (!value || !valueExists(options, value)) {
-      await api.sendMessage(chatId, `Usage: /retries <n>\nAllowed: ${options.join(', ')}`);
+      await api.sendMessage(chatId, [
+        'Usage: /retries <n>',
+        'Explanation: retry attempts for provider calls.',
+        `Allowed: ${options.join(', ')}`,
+        `Current: ${current}`
+      ].join('\n'));
       return true;
     }
-    const current = await setConfigPathValue(chatId, 'runtime.retries', value);
-    await api.sendMessage(chatId, `Updated runtime.retries = ${current}`);
+    const updated = await setConfigPathValue(chatId, 'runtime.retries', value);
+    await api.sendMessage(chatId, `Updated runtime.retries = ${updated}`);
     return true;
   }
 
@@ -1350,52 +1606,6 @@ async function handleCommand(chatId, text) {
     return true;
   }
 
-  if (command === '/choose') {
-    const pathKey = String(parts[1] || '').trim();
-    const idx = Number.parseInt(parts[2] || '', 10);
-    const options = getOptions(pathKey);
-    if (!pathKey) {
-      await api.sendMessage(chatId, [
-        'Usage: /choose <path> <number>',
-        '',
-        listOptionPathsMessage(),
-        '',
-        'Example: /choose generation.objective 2',
-        'Tip: run /options <path> first.'
-      ].join('\n'));
-      return true;
-    }
-    if (!Number.isFinite(idx) || idx < 1 || idx > options.length) {
-      await api.sendMessage(chatId, [
-        `Usage: /choose ${pathKey} <number>`,
-        formatOptionsMessage(pathKey, configStore.getCurrent(chatId, pathKey))
-      ].join('\n\n'));
-      return true;
-    }
-    const chosen = options[idx - 1];
-    const parsed = parseUserValue(pathKey, chosen);
-    const current = await configStore.setConfigValue(chatId, pathKey, parsed);
-    await api.sendMessage(chatId, `Updated ${pathKey} = ${String(current)}`);
-    return true;
-  }
-
-  if (command === '/set') {
-    const pathKey = String(parts[1] || '').trim();
-    const rawValue = parts.slice(2).join(' ').trim();
-    if (!pathKey || !rawValue) {
-      await api.sendMessage(chatId, 'Usage: /set <path> <value>');
-      return true;
-    }
-    try {
-      const parsed = parseUserValue(pathKey, rawValue);
-      const current = await configStore.setConfigValue(chatId, pathKey, parsed);
-      await api.sendMessage(chatId, `Updated ${pathKey} = ${String(current)}`);
-    } catch (error) {
-      await api.sendMessage(chatId, `Set failed: ${error.message}`);
-    }
-    return true;
-  }
-
   if (command === '/keys') {
     await api.sendMessage(chatId, keysStatusMessage(chatId));
     return true;
@@ -1405,7 +1615,12 @@ async function handleCommand(chatId, text) {
     const key = String(parts[1] || '').trim();
     const value = parts.slice(2).join(' ').trim();
     if (!key || !value) {
-      await api.sendMessage(chatId, `Usage: /setkey <KEY> <VALUE>\nAllowed: ${SECRET_KEYS.join(', ')}`);
+      await api.sendMessage(chatId, [
+        'Usage: /setkey <KEY> <VALUE>',
+        'Explanation: store provider credentials for your user.',
+        `Allowed: ${SECRET_KEYS.join(', ')}`,
+        keysStatusMessage(chatId)
+      ].join('\n'));
       return true;
     }
     try {
@@ -1421,7 +1636,12 @@ async function handleCommand(chatId, text) {
   if (command === '/unsetkey') {
     const key = String(parts[1] || '').trim();
     if (!key) {
-      await api.sendMessage(chatId, 'Usage: /unsetkey <KEY>');
+      await api.sendMessage(chatId, [
+        'Usage: /unsetkey <KEY>',
+        'Explanation: remove one runtime credential.',
+        `Allowed: ${SECRET_KEYS.join(', ')}`,
+        keysStatusMessage(chatId)
+      ].join('\n'));
       return true;
     }
     await configStore.unsetSecret(chatId, key);
@@ -1451,7 +1671,12 @@ async function handleCommand(chatId, text) {
     }
     const target = Number.parseInt(String(parts[1] || '').trim(), 10);
     if (!Number.isFinite(target) || target <= 0) {
-      await api.sendMessage(chatId, 'Usage: /share <user_id>');
+      await api.sendMessage(chatId, [
+        'Usage: /share <user_id>',
+        'Explanation: share your runtime keys with another user id.',
+        'Allowed: positive numeric Telegram user id.',
+        `Current admin user id: ${chatId}`
+      ].join('\n'));
       return true;
     }
     await configStore.setSharedFrom(String(target), String(chatId));
@@ -1469,13 +1694,23 @@ async function handleCommand(chatId, text) {
       return true;
     }
     const raw = String(parts[1] || '').trim().toLowerCase();
+    const current = Boolean(configStore.getGlobalCurrent('generation.panel_watermark'));
     if (!raw) {
-      const current = Boolean(configStore.getGlobalCurrent('generation.panel_watermark'));
-      await api.sendMessage(chatId, `Usage: /watermark <on|off>\nCurrent global watermark: ${current ? 'on' : 'off'}`);
+      await api.sendMessage(chatId, [
+        'Usage: /watermark <on|off>',
+        'Explanation: admin global toggle for panel watermark.',
+        'Allowed: on, off',
+        `Current global watermark: ${current ? 'on' : 'off'}`
+      ].join('\n'));
       return true;
     }
     if (raw !== 'on' && raw !== 'off') {
-      await api.sendMessage(chatId, 'Usage: /watermark <on|off>');
+      await api.sendMessage(chatId, [
+        'Usage: /watermark <on|off>',
+        'Explanation: admin global toggle for panel watermark.',
+        'Allowed: on, off',
+        `Current global watermark: ${current ? 'on' : 'off'}`
+      ].join('\n'));
       return true;
     }
     const enabled = raw === 'on';
@@ -1484,15 +1719,51 @@ async function handleCommand(chatId, text) {
     return true;
   }
 
+  if (command === '/echo') {
+    if (!isAdminChat(chatId)) {
+      await api.sendMessage(chatId, 'Access denied.');
+      return true;
+    }
+    if (!BOT_TEST_MODE) {
+      await api.sendMessage(chatId, 'Echo command is available only in test mode.');
+      return true;
+    }
+    const raw = String(parts[1] || '').trim().toLowerCase();
+    const current = String(configStore.getMeta('echo_input_enabled') || '').toLowerCase() === 'true';
+    if (!raw) {
+      await api.sendMessage(chatId, [
+        'Usage: /echo <on|off>',
+        'Explanation: test mode input echo for webhook diagnostics.',
+        'Allowed: on, off',
+        `Current: ${current ? 'on' : 'off'}`
+      ].join('\n'));
+      return true;
+    }
+    if (raw !== 'on' && raw !== 'off') {
+      await api.sendMessage(chatId, [
+        'Usage: /echo <on|off>',
+        'Explanation: test mode input echo for webhook diagnostics.',
+        'Allowed: on, off',
+        `Current: ${current ? 'on' : 'off'}`
+      ].join('\n'));
+      return true;
+    }
+    const enabled = raw === 'on';
+    await configStore.setMetaValue('echo_input_enabled', enabled);
+    await api.sendMessage(chatId, `Echo mode: ${enabled ? 'on' : 'off'} (test mode)`);
+    return true;
+  }
+
   return false;
 }
 
-async function processMessage(message) {
+async function processMessage(message, context = {}) {
   const chatId = Number(message?.chat?.id || 0);
   const text = extractMessageInputText(message);
   const incomingUsername = String(message?.from?.username || message?.chat?.username || '').trim();
   if (!chatId) return;
   const incoming = classifyIncoming(text);
+  const updateSource = String(context?.source || '').trim().toLowerCase();
   const userMeta = {
     id: Number(message?.from?.id || chatId || 0),
     username: incomingUsername
@@ -1558,45 +1829,73 @@ async function processMessage(message) {
       await api.sendMessage(chatId, onboardingMessage(chatId));
     }
 
-    if (incoming.kind === 'command' && incoming.command === '/invent') {
-      const seed = text.replace(/^\/invent\b/i, '').trim();
-      if (!seed) {
-        await api.sendMessage(chatId, 'Usage: /invent <story seed>');
-        runBackgroundTask('record invent missing seed', () => safeRecordInteraction(chatId, {
-          kind: incoming.kind,
-          command: incoming.command,
-          requestText: text,
-          result: { ok: false, type: 'command', error: 'missing_seed' },
-          config: configStore.getEffectiveConfig(chatId)
-        }, userMeta));
-        return;
+    const echoEnabled = BOT_TEST_MODE && String(configStore.getMeta('echo_input_enabled') || '').toLowerCase() === 'true';
+    if (echoEnabled && !(incoming.kind === 'command' && incoming.command === '/echo')) {
+      await api.sendMessage(chatId, `Echo input (${incoming.kind || 'text'}): ${String(text || '').slice(0, 1200)}`);
+    }
+    if (updateSource === 'test') {
+      const adminTargets = Array.from(new Set(adminChatIds.filter((id) => Number.isFinite(Number(id)) && Number(id) > 0)));
+      const echoText = buildTestSourceEchoText(message, incoming);
+      for (const adminId of adminTargets) {
+        await safeNotifyUser(adminId, echoText);
+      }
+    }
+
+    if (incoming.kind === 'command' && (incoming.command === '/invent' || incoming.command === '/random')) {
+      let seed = '';
+      if (incoming.command === '/invent') {
+        seed = text.replace(/^\/invent\b/i, '').trim();
+        if (!seed) {
+          await api.sendMessage(chatId, 'Usage: /invent <story seed>');
+          runBackgroundTask('record invent missing seed', () => safeRecordInteraction(chatId, {
+            kind: incoming.kind,
+            command: incoming.command,
+            requestText: text,
+            result: { ok: false, type: 'command', error: 'missing_seed' },
+            config: configStore.getEffectiveConfig(chatId)
+          }, userMeta));
+          return;
+        }
+      } else {
+        const randomHint = text.replace(/^\/random\b/i, '').trim();
+        seed = randomHint
+          ? `Create a fully random, surprising short story inspired by: ${randomHint}`
+          : 'Create a fully random, surprising short story with unexpected twists and memorable characters.';
       }
 
       await api.sendChatAction(chatId, 'upload_photo');
-      await api.sendMessage(chatId, 'Inventing an expanded story...');
+      await api.sendMessage(chatId, incoming.command === '/random' ? 'Generating a random story...' : 'Inventing an expanded story...');
 
       const effectiveConfigPath = configStore.writeEffectiveConfigFile(chatId, path.join(runtime.outDir, 'effective-config.yml'));
       const effectiveConfig = configStore.getEffectiveConfig(chatId);
       configStore.applySecretsToEnv(chatId);
-      const inventedStory = await inventStoryText(seed, effectiveConfigPath);
+      const inventedStory = await inventStoryText(seed, effectiveConfigPath, {
+        onFallback: async (info) => {
+          await safeNotifyUser(chatId, formatProviderFallbackMessage(info));
+        }
+      });
       await sendLongMessage(chatId, formatInventedStoryMessage(inventedStory));
-      await api.sendMessage(chatId, 'Invented story ready. Generating your comic...');
+      await api.sendMessage(chatId, incoming.command === '/random' ? 'Random story ready. Generating your comic...' : 'Invented story ready. Generating your comic...');
       const configLine = compactConfigString(effectiveConfig);
       await api.sendMessage(chatId, configLine);
       const deliveryMode = normalizeDeliveryMode(effectiveConfig?.generation?.delivery_mode || 'default');
+      const debugPromptsEnabled = Boolean(effectiveConfig?.generation?.debug_prompts);
       const alreadySent = new Set();
-      const orderedSender = createOrderedPanelSender(chatId, alreadySent);
+      const orderedSender = createOrderedPanelSender(chatId, alreadySent, debugPromptsEnabled);
       const generationId = createGenerationId(chatId);
       const result = await generatePanelsWithRuntimeConfig(inventedStory, runtime, effectiveConfigPath, {
         userId: chatId,
         generationId,
+        onFallback: async (info) => {
+          await safeNotifyUser(chatId, formatProviderFallbackMessage(info));
+        },
         onPanelReady: (deliveryMode === 'default')
           ? async (panelMessage) => {
               await orderedSender(panelMessage);
             }
           : undefined
       });
-      await sendPanelSequence(chatId, result, 'invent', '', alreadySent, deliveryMode, effectiveConfig);
+      await sendPanelSequence(chatId, result, 'invent', '', alreadySent, deliveryMode, effectiveConfig, debugPromptsEnabled);
       runBackgroundTask('record invent success', () => safeRecordInteraction(chatId, {
         kind: incoming.kind,
         command: incoming.command,
@@ -1626,19 +1925,45 @@ async function processMessage(message) {
       return;
     }
 
+    if (incoming.kind === 'command') {
+      await api.sendMessage(chatId, 'Unrecognized command.');
+      runBackgroundTask('record unknown command', () => safeRecordInteraction(chatId, {
+        kind: incoming.kind,
+        command: incoming.command,
+        requestText: text,
+        result: { ok: false, type: 'command', error: 'unrecognized_command' },
+        config: configStore.getEffectiveConfig(chatId)
+      }, userMeta));
+      return;
+    }
+
     const effectiveConfigPath = configStore.writeEffectiveConfigFile(chatId, path.join(runtime.outDir, 'effective-config.yml'));
     const effectiveConfig = configStore.getEffectiveConfig(chatId);
     configStore.applySecretsToEnv(chatId);
     let generationInput = text;
+    let parsedInput = classifyMessageInput(generationInput);
     let shortPromptExpanded = false;
     let inventedStoryPreview = '';
-    if (incoming.kind === 'text' && isShortTextPrompt(text)) {
+    const shortTextInput = incoming.kind === 'text' && isShortTextPrompt(text);
+    if (shortTextInput && parsedInput.kind !== 'url') {
+      const inferredUrl = inferLikelyWebUrlFromText(text);
+      if (inferredUrl) {
+        generationInput = inferredUrl;
+        parsedInput = classifyMessageInput(generationInput);
+      }
+    }
+    const hasWebPageUrl = parsedInput.kind === 'url' && isLikelyWebPageUrl(parsedInput.value);
+    if (shortTextInput && parsedInput.kind !== 'url') {
       shortPromptExpanded = true;
       await api.sendMessage(
         chatId,
         'Your prompt is too short, so we need to invent a longer story first. I am using AI to expand it.'
       );
-      const inventedStory = await inventStoryText(text, effectiveConfigPath);
+      const inventedStory = await inventStoryText(text, effectiveConfigPath, {
+        onFallback: async (info) => {
+          await safeNotifyUser(chatId, formatProviderFallbackMessage(info));
+        }
+      });
       inventedStoryPreview = String(inventedStory || '').slice(0, 1000);
       await api.sendMessage(chatId, formatInventedStoryMessage(inventedStory));
       generationInput = inventedStory;
@@ -1654,19 +1979,69 @@ async function processMessage(message) {
     const configLine = compactConfigString(effectiveConfig);
     await api.sendMessage(chatId, configLine);
     const deliveryMode = normalizeDeliveryMode(effectiveConfig?.generation?.delivery_mode || 'default');
+    const debugPromptsEnabled = Boolean(effectiveConfig?.generation?.debug_prompts);
     const alreadySent = new Set();
-    const orderedSender = createOrderedPanelSender(chatId, alreadySent);
+    const orderedSender = createOrderedPanelSender(chatId, alreadySent, debugPromptsEnabled);
     const generationId = createGenerationId(chatId);
-    const result = await generatePanelsWithRuntimeConfig(generationInput, runtime, effectiveConfigPath, {
-      userId: chatId,
-      generationId,
-      onPanelReady: (deliveryMode === 'default')
-        ? async (panelMessage) => {
-            await orderedSender(panelMessage);
+    let result;
+    try {
+      result = await generatePanelsWithRuntimeConfig(generationInput, runtime, effectiveConfigPath, {
+        userId: chatId,
+        generationId,
+        onFallback: async (info) => {
+          await safeNotifyUser(chatId, formatProviderFallbackMessage(info));
+        },
+        onPanelReady: (deliveryMode === 'default')
+          ? async (panelMessage) => {
+              await orderedSender(panelMessage);
+            }
+          : undefined
+      });
+    } catch (firstError) {
+      if (!hasWebPageUrl) throw firstError;
+      const fallbackText = extractTextFallbackFromUrlMessage(generationInput);
+      const fallbackParsed = classifyMessageInput(fallbackText);
+      if (fallbackText && fallbackParsed.kind !== 'url') {
+        await api.sendMessage(chatId, "Can't extract from HTML, trying text.");
+        result = await generatePanelsWithRuntimeConfig(fallbackText, runtime, effectiveConfigPath, {
+          userId: chatId,
+          generationId: createGenerationId(chatId),
+          onFallback: async (info) => {
+            await safeNotifyUser(chatId, formatProviderFallbackMessage(info));
+          },
+          onPanelReady: (deliveryMode === 'default')
+            ? async (panelMessage) => {
+                await orderedSender(panelMessage);
+              }
+            : undefined
+        });
+      } else {
+        await api.sendMessage(chatId, "Can't extract from HTML, inventing a story from your input.");
+        const seed = String(text || generationInput || '').trim() || String(parsedInput.value || '').trim();
+        const inventedStory = await inventStoryText(seed, effectiveConfigPath, {
+          onFallback: async (info) => {
+            await safeNotifyUser(chatId, formatProviderFallbackMessage(info));
           }
-        : undefined
-    });
-    await sendPanelSequence(chatId, result, result.kind === 'url' ? 'url' : 'text', '', alreadySent, deliveryMode, effectiveConfig);
+        });
+        shortPromptExpanded = true;
+        inventedStoryPreview = String(inventedStory || '').slice(0, 1000);
+        await sendLongMessage(chatId, formatInventedStoryMessage(inventedStory));
+        await api.sendMessage(chatId, 'Invented story ready. Generating your comic...');
+        result = await generatePanelsWithRuntimeConfig(inventedStory, runtime, effectiveConfigPath, {
+          userId: chatId,
+          generationId: createGenerationId(chatId),
+          onFallback: async (info) => {
+            await safeNotifyUser(chatId, formatProviderFallbackMessage(info));
+          },
+          onPanelReady: (deliveryMode === 'default')
+            ? async (panelMessage) => {
+                await orderedSender(panelMessage);
+              }
+            : undefined
+        });
+      }
+    }
+    await sendPanelSequence(chatId, result, result.kind === 'url' ? 'url' : 'text', '', alreadySent, deliveryMode, effectiveConfig, debugPromptsEnabled);
     runBackgroundTask('record generation success', () => safeRecordInteraction(chatId, {
       kind: incoming.kind,
       command: incoming.command,
@@ -1697,13 +2072,14 @@ async function processMessage(message) {
 
 function enqueueUpdate(update) {
   const chatId = Number(update?.message?.chat?.id || 0);
+  const updateSource = normalizeUpdateSource(update, update?.message);
   const key = chatId > 0 ? String(chatId) : 'global';
   const current = chatQueues.get(key) || Promise.resolve();
   const next = current
     .then(async () => {
       if (!update?.message) return;
       await Promise.race([
-        processMessage(update.message),
+        processMessage(update.message, { source: updateSource }),
         new Promise((_, reject) => setTimeout(() => reject(new Error(`Request timed out after ${jobTimeoutMs}ms`)), jobTimeoutMs))
       ]);
     })
@@ -1782,7 +2158,27 @@ async function startServer() {
     persistenceMode.impl
   );
   await configStore.load();
+  const deployDefaultProvider = String(process.env.RENDER_BOT_DEFAULT_PROVIDER || '').trim().toLowerCase();
+  if (deployDefaultProvider && PROVIDER_DEFAULT_MODELS[deployDefaultProvider]) {
+    const defaults = PROVIDER_DEFAULT_MODELS[deployDefaultProvider];
+    await configStore.setGlobalConfigValue('providers.text.provider', deployDefaultProvider);
+    await configStore.setGlobalConfigValue('providers.text.model', defaults.text);
+    await configStore.setGlobalConfigValue('providers.image.provider', deployDefaultProvider);
+    await configStore.setGlobalConfigValue('providers.image.model', defaults.image);
+    console.log(`[render-bot] deployment default provider enforced: ${deployDefaultProvider}`);
+  }
+  const deployDefaultObjective = String(process.env.RENDER_BOT_DEFAULT_OBJECTIVE || '').trim().toLowerCase();
+  if (deployDefaultObjective) {
+    const allowedObjectives = getOptions('generation.objective').map((v) => String(v || '').trim().toLowerCase());
+    if (allowedObjectives.includes(deployDefaultObjective)) {
+      await configStore.setGlobalConfigValue('generation.objective', deployDefaultObjective);
+      console.log(`[render-bot] deployment default objective enforced: ${deployDefaultObjective}`);
+    } else {
+      console.log(`[render-bot] deployment default objective ignored (unsupported): ${deployDefaultObjective}`);
+    }
+  }
   await configStore.ensureMetaValue('bot_created_at', new Date().toISOString());
+  await seedAdminRuntimeSecretsFromEnv();
   configStore.applySecretsToEnv('global');
   const requestStore = createRequestLogStoreFromEnv();
   requestLogStore = requestStore.impl;

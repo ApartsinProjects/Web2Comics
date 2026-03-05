@@ -17,6 +17,122 @@ let globalOwnerId = '';
 let globalServiceId = '';
 let globalRenderApiKey = '';
 
+async function fetchTextWithTimeout(url, init, timeoutMs, label) {
+  const ms = Math.max(1000, Number(timeoutMs || 45000));
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), ms);
+  try {
+    const res = await fetch(url, { ...(init || {}), signal: controller.signal });
+    const text = await res.text();
+    return { res, text };
+  } catch (error) {
+    throw new Error(`${label || 'request'} failed: ${String(error?.message || error)}`);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function verifyGeminiKey(apiKey) {
+  const model = 'gemini-2.5-flash';
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+  const { res, text } = await fetchTextWithTimeout(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      contents: [{ parts: [{ text: 'ping' }] }],
+      generationConfig: { maxOutputTokens: 8 }
+    })
+  }, 30000, 'Gemini auth');
+  if (!res.ok) throw new Error(`Gemini key invalid (${res.status}): ${text.slice(0, 300)}`);
+}
+
+async function verifyOpenAIKey(apiKey) {
+  const { res, text } = await fetchTextWithTimeout('https://api.openai.com/v1/models', {
+    method: 'GET',
+    headers: { Authorization: `Bearer ${apiKey}` }
+  }, 30000, 'OpenAI auth');
+  if (!res.ok) throw new Error(`OpenAI key invalid (${res.status}): ${text.slice(0, 300)}`);
+}
+
+async function verifyOpenRouterKey(apiKey) {
+  const { res, text } = await fetchTextWithTimeout('https://openrouter.ai/api/v1/models', {
+    method: 'GET',
+    headers: { Authorization: `Bearer ${apiKey}` }
+  }, 30000, 'OpenRouter auth');
+  if (!res.ok) throw new Error(`OpenRouter key invalid (${res.status}): ${text.slice(0, 300)}`);
+}
+
+async function verifyCloudflareAI(accountId, apiToken) {
+  const model = '@cf/meta/llama-3.1-8b-instruct';
+  const url = `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/run/${model}`;
+  const { res, text } = await fetchTextWithTimeout(url, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${apiToken}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({ prompt: 'ping' })
+  }, 30000, 'Cloudflare Workers AI auth');
+  if (!res.ok) throw new Error(`Cloudflare AI token invalid (${res.status}): ${text.slice(0, 300)}`);
+}
+
+async function verifyHuggingFaceKey(apiKey) {
+  const { res, text } = await fetchTextWithTimeout('https://huggingface.co/api/whoami-v2', {
+    method: 'GET',
+    headers: { Authorization: `Bearer ${apiKey}` }
+  }, 30000, 'Hugging Face auth');
+  if (!res.ok) throw new Error(`Hugging Face token invalid (${res.status}): ${text.slice(0, 300)}`);
+}
+
+async function verifyAllProviderCredentials(providerEnv, options = {}) {
+  const strictAll = Boolean(options.strictAll);
+  const checks = [];
+  const key = (k) => String(providerEnv?.[k] || '').trim();
+
+  checks.push({
+    name: 'gemini',
+    enabled: Boolean(key('GEMINI_API_KEY')),
+    run: () => verifyGeminiKey(key('GEMINI_API_KEY'))
+  });
+  checks.push({
+    name: 'openai',
+    enabled: Boolean(key('OPENAI_API_KEY')),
+    run: () => verifyOpenAIKey(key('OPENAI_API_KEY'))
+  });
+  checks.push({
+    name: 'openrouter',
+    enabled: Boolean(key('OPENROUTER_API_KEY')),
+    run: () => verifyOpenRouterKey(key('OPENROUTER_API_KEY'))
+  });
+  checks.push({
+    name: 'cloudflare',
+    enabled: Boolean(key('CLOUDFLARE_ACCOUNT_ID') && key('CLOUDFLARE_API_TOKEN')),
+    run: () => verifyCloudflareAI(key('CLOUDFLARE_ACCOUNT_ID'), key('CLOUDFLARE_API_TOKEN'))
+  });
+  checks.push({
+    name: 'huggingface',
+    enabled: Boolean(key('HUGGINGFACE_INFERENCE_API_TOKEN')),
+    run: () => verifyHuggingFaceKey(key('HUGGINGFACE_INFERENCE_API_TOKEN'))
+  });
+
+  const failures = [];
+  for (const check of checks) {
+    if (!check.enabled) {
+      if (strictAll) failures.push(`${check.name}: missing credentials`);
+      continue;
+    }
+    try {
+      await check.run();
+      console.log(`[deploy] provider credential check ok: ${check.name}`);
+    } catch (error) {
+      failures.push(`${check.name}: ${String(error?.message || error)}`);
+    }
+  }
+  if (failures.length) {
+    throw new Error(`Provider credential sanity failed:\n- ${failures.join('\n- ')}`);
+  }
+}
+
 async function setTelegramWebhook(token, secret, publicBaseUrl) {
   const url = `${String(publicBaseUrl || '').replace(/\/+$/, '')}/telegram/webhook/${secret}`;
   const apiUrl = `https://api.telegram.org/bot${token}/setWebhook`;
@@ -268,6 +384,14 @@ function normalizeIdCsv(...values) {
   return Array.from(uniq).join(',');
 }
 
+function resolveAllowedChatIds(args, envValue, yamlValue, notifyChatId) {
+  const explicit = firstNonEmpty(args['allowed-chat-ids'], envValue, yamlValue);
+  const allowAllFlag = parseBool(args['allow-all-chats'] || process.env.RENDER_ALLOW_ALL_CHATS);
+  const token = String(explicit || '').trim().toLowerCase();
+  if (allowAllFlag || token === 'all' || token === '*') return '';
+  return normalizeIdCsv(explicit, notifyChatId);
+}
+
 async function main() {
   globalStage = 'load-env';
   const repoRoot = path.resolve(__dirname, '../..');
@@ -356,8 +480,10 @@ async function main() {
     firstNonEmpty(args['telegram-test-chat-id'], process.env.TELEGRAM_TEST_CHAT_ID, tgYaml.allowed_chat_ids),
     notifyChatId
   );
-  const allowedChatIds = normalizeIdCsv(
-    firstNonEmpty(args['allowed-chat-ids'], process.env.COMICBOT_ALLOWED_CHAT_IDS, tgYaml.allowed_chat_ids),
+  const allowedChatIds = resolveAllowedChatIds(
+    args,
+    process.env.COMICBOT_ALLOWED_CHAT_IDS,
+    tgYaml.allowed_chat_ids,
     notifyChatId
   );
   const adminChatIds = normalizeIdCsv(
@@ -389,6 +515,12 @@ async function main() {
     .map(([k, v]) => `${k}:${String(v || '').trim() ? 'set' : 'missing'}`)
     .join(', ');
   console.log(`[deploy] provider key status -> ${providerKeyStatus}`);
+  if (!parseBool(args['skip-provider-auth-check'] || process.env.RENDER_SKIP_PROVIDER_AUTH_CHECK)) {
+    globalStage = 'provider-credential-sanity';
+    await verifyAllProviderCredentials(providerEnv, { strictAll: requireAllKeys });
+  } else {
+    console.log('[deploy] provider credential sanity check skipped');
+  }
 
   const render = new RenderApiClient(renderApiKey);
 
@@ -489,6 +621,8 @@ async function main() {
     RENDER_BOT_OUT_DIR: 'render/out',
     RENDER_BOT_FETCH_TIMEOUT_MS: '45000',
     RENDER_BOT_DEBUG_ARTIFACTS: 'false',
+    RENDER_BOT_DEFAULT_PROVIDER: firstNonEmpty(args['default-provider'], process.env.RENDER_BOT_DEFAULT_PROVIDER, 'gemini'),
+    RENDER_BOT_DEFAULT_OBJECTIVE: firstNonEmpty(args['default-objective'], process.env.RENDER_BOT_DEFAULT_OBJECTIVE, 'explain-like-im-five'),
     TELEGRAM_NOTIFY_ON_START: 'true',
     TELEGRAM_NOTIFY_CHAT_ID: notifyChatId,
     TELEGRAM_TEST_CHAT_ID: telegramTestChatId,

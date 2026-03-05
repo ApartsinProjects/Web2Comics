@@ -3,6 +3,7 @@ const path = require('path');
 const os = require('os');
 const fs = require('fs');
 const { spawn } = require('child_process');
+const { getOptions } = require('../src/options');
 let updateSeq = 1;
 
 function getFreePort() {
@@ -127,6 +128,137 @@ function extractMultipartField(raw, fieldName) {
 }
 
 describe('render bot comprehensive interaction suite', () => {
+  it('uses Gemini as default provider/models for a fresh user', async () => {
+    const tg = await startFakeTelegramServer();
+    const botPort = await getFreePort();
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'render-bot-default-provider-'));
+    const bot = await startBotProcess(botPort, `http://127.0.0.1:${tg.port}/botTEST_TOKEN`, path.join(tmpDir, 'state.json'));
+
+    try {
+      const before = sentMessages(tg.calls).length;
+      const res = await postUpdate(botPort, { chat: { id: 777 }, text: '/config' });
+      expect(res.status).toBe(200);
+      await waitFor(() => sentMessages(tg.calls).length > before, 8000, 100);
+      const msg = sentMessages(tg.calls)
+        .slice(before)
+        .map((c) => String(c.body.text || ''))
+        .join('\n');
+      expect(msg).toContain('- providers.text.provider: gemini');
+      expect(msg).toContain('- providers.text.model: gemini-2.5-flash');
+      expect(msg).toContain('- providers.image.provider: gemini');
+      expect(msg).toContain('- providers.image.model: gemini-2.0-flash-exp-image-generation');
+    } finally {
+      await bot.stop();
+      await tg.close();
+    }
+  }, 30000);
+
+  it('runs generation matrix across delivery modes and key settings', async () => {
+    const tg = await startFakeTelegramServer();
+    const botPort = await getFreePort();
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'render-bot-generation-matrix-'));
+    const bot = await startBotProcess(botPort, `http://127.0.0.1:${tg.port}/botTEST_TOKEN`, path.join(tmpDir, 'state.json'));
+
+    const messageTexts = (sliceFrom = 0) => sentMessages(tg.calls).slice(sliceFrom).map((c) => String(c.body.text || ''));
+
+    async function command(text, expectedSubstring) {
+      const before = sentMessages(tg.calls).length;
+      const res = await postUpdate(botPort, { chat: { id: 777 }, text });
+      expect(res.status).toBe(200);
+      await waitFor(() => sentMessages(tg.calls).length > before, 10000, 100);
+      if (expectedSubstring) {
+        const msgs = messageTexts(before);
+        expect(msgs.some((m) => m.includes(expectedSubstring))).toBe(true);
+      }
+    }
+
+    async function generateOne(tag, expected = {}) {
+      const beforeMsg = sentMessages(tg.calls).length;
+      const beforePhoto = tg.calls.filter((c) => c.url.endsWith('/sendPhoto')).length;
+      const beforeGroup = tg.calls.filter((c) => c.url.endsWith('/sendMediaGroup')).length;
+      const res = await postUpdate(botPort, { chat: { id: 777 }, text: `matrix generation ${tag}` });
+      expect(res.status).toBe(200);
+      await waitFor(() => messageTexts(beforeMsg).some((m) => m.includes('Done: text -> comic panels')), 15000, 100);
+
+      const msgs = messageTexts(beforeMsg);
+      const configLine = msgs.find((m) => m.startsWith('t:')) || '';
+      expect(configLine).toContain(`m:${expected.mode || 'default'}`);
+      if (expected.objective) expect(configLine).toContain(`o:${expected.objective}`);
+      if (expected.language) expect(configLine).toContain(`l:${expected.language}`);
+      if (expected.panels) expect(configLine).toContain(`p:${expected.panels}`);
+      if (expected.detail) expect(configLine).toContain(`d:${expected.detail}`);
+      if (expected.concurrency) expect(configLine).toContain(`c:${expected.concurrency}`);
+      if (expected.retries != null) expect(configLine).toContain(`r:${expected.retries}`);
+
+      const afterPhoto = tg.calls.filter((c) => c.url.endsWith('/sendPhoto')).length;
+      const afterGroup = tg.calls.filter((c) => c.url.endsWith('/sendMediaGroup')).length;
+      const mode = expected.mode || 'default';
+      if (mode === 'default') {
+        expect(afterPhoto - beforePhoto).toBeGreaterThanOrEqual(3);
+      } else if (mode === 'media_group') {
+        expect(afterGroup - beforeGroup).toBeGreaterThanOrEqual(1);
+      } else if (mode === 'single') {
+        expect(afterPhoto - beforePhoto).toBeGreaterThanOrEqual(1);
+        expect(afterGroup).toBe(beforeGroup);
+      }
+    }
+
+    try {
+      const objectives = getOptions('generation.objective');
+      const languages = getOptions('generation.output_language');
+      const panelCounts = getOptions('generation.panel_count');
+      const detailLevels = getOptions('generation.detail_level');
+      const consistencyModes = getOptions('generation.consistency');
+      const concurrencies = getOptions('runtime.image_concurrency');
+      const retries = getOptions('runtime.retries');
+
+      for (const mode of getOptions('generation.delivery_mode')) {
+        await command(`/mode ${mode}`, `Updated generation.delivery_mode = ${mode}`);
+        await generateOne(`mode-${mode}`, { mode });
+      }
+
+      await command('/mode default', 'Updated generation.delivery_mode = default');
+
+      for (const objective of objectives) {
+        await command(`/objective ${objective}`);
+        await generateOne(`objective-${objective}`, { mode: 'default', objective });
+      }
+
+      for (const language of languages) {
+        await command(`/language ${language}`, `Updated generation.output_language = ${language}`);
+        await generateOne(`language-${language}`, { mode: 'default', language });
+      }
+
+      for (const panels of panelCounts) {
+        await command(`/panels ${panels}`);
+        await generateOne(`panels-${panels}`, { mode: 'default', panels });
+      }
+
+      for (const detail of detailLevels) {
+        await command(`/detail ${detail}`, `Updated generation.detail_level = ${detail}`);
+        await generateOne(`detail-${detail}`, { mode: 'default', detail });
+      }
+
+      for (const consistency of consistencyModes) {
+        await command(`/consistency ${consistency}`);
+        await generateOne(`consistency-${consistency}`, { mode: 'default' });
+      }
+
+      for (const c of concurrencies) {
+        await command(`/concurrency ${c}`, `Updated runtime.image_concurrency = ${c}`);
+        await generateOne(`concurrency-${c}`, { mode: 'default', concurrency: c });
+      }
+
+      for (const r of retries) {
+        await command(`/retries ${r}`, `Updated runtime.retries = ${r}`);
+        await generateOne(`retries-${r}`, { mode: 'default', retries: r });
+      }
+    } finally {
+      await bot.stop();
+      await tg.close();
+    }
+  }, 180000);
+
   it('handles text and URL telegram messages and sends comic images', async () => {
     const tg = await startFakeTelegramServer();
     const botPort = await getFreePort();
@@ -174,47 +306,55 @@ describe('render bot comprehensive interaction suite', () => {
     try {
       await runCommandAndExpect('/help', 'aistudio.google.com/apikey');
       await runCommandAndExpect('/help', '/invent <story>');
+      await runCommandAndExpect('/welcome', 'Welcome to Web2Comic.');
       await runCommandAndExpect('/about', 'Alexander (Sasha) Apartsin');
       await runCommandAndExpect('/version', 'version:');
       await runCommandAndExpect('/version', 'created:');
       await runCommandAndExpect('/version', 'start:');
-      await runCommandAndExpect('/vserion', 'version:');
+      await runCommandAndExpect('/version', 'version:');
       await runCommandAndExpect('/explain', 'Generation summary line format:');
       await runCommandAndExpect('/explain', 'm:<delivery_mode>');
       const helpMsgs = sentMessages(tg.calls).map((c) => String(c.body.text || ''));
       expect(helpMsgs.some((m) => m.includes('/peek'))).toBe(false);
-      await runCommandAndExpect('/presets', 'Friendly presets');
       await runCommandAndExpect('/vendor gemini', 'Provider updated: gemini');
+      await runCommandAndExpect('/models', 'Model selector (current vendor only):');
+      await runCommandAndExpect('/models text', 'Text models for gemini:');
+      await runCommandAndExpect('/models image', 'Image models for gemini:');
+      await runCommandAndExpect('/models text gemini-2.5-flash', 'Updated providers.text.model = gemini-2.5-flash');
+      await runCommandAndExpect('/models image gemini-2.0-flash-exp-image-generation', 'Updated providers.image.model = gemini-2.0-flash-exp-image-generation');
       await runCommandAndExpect('/language en', 'Updated generation.output_language = en');
       await runCommandAndExpect('/mode media_group', 'Updated generation.delivery_mode = media_group');
+      await runCommandAndExpect('/debug on', 'Updated generation.debug_prompts = on');
+      await runCommandAndExpect('/consistency on', 'Updated generation.consistency = on');
       await runCommandAndExpect('/panels 4', 'Updated generation.panel_count = 4');
       await runCommandAndExpect('/objective', 'Available objectives:');
+      await runCommandAndExpect('/objective summarize', 'Updated generation.objective = summarize');
       await runCommandAndExpect('/objective summarize', 'Updated generation.objective = summarize');
       await runCommandAndExpect('/crazyness 1.2', 'Updated generation.invent_temperature = 1.2');
       await runCommandAndExpect('/detail low', 'Updated generation.detail_level = low');
       await runCommandAndExpect('/new_style my-style bold inks, dramatic shadows', "Saved style 'my-style'");
       await runCommandAndExpect('/style my-style', 'Updated style preset = my-style');
-      await runCommandAndExpect('/set_style cinematic hand-drawn frames', 'Updated generation.style_prompt');
+      await runCommandAndExpect('/style cinematic hand-drawn frames', 'Updated generation.style_prompt');
       await runCommandAndExpect('/set_prompt story Focus on cause and effect', 'Updated generation.custom_story_prompt');
       await runCommandAndExpect('/set_prompt panel Keep faces expressive', 'Updated generation.custom_panel_prompt');
       await runCommandAndExpect('/set_prompt objective summarize Keep it extra concise', 'Updated objective prompt override for summarize');
       await runCommandAndExpect('/prompts', 'Prompt catalog');
       await runCommandAndExpect('/prompts', 'Story summary: <storyboard.description short summary>');
       await runCommandAndExpect('/prompts', 'Panel visual brief: <panel.image_prompt>');
+      await runCommandAndExpect('/prompts', 'must avoid panel numbering');
       await runCommandAndExpect('/concurrency 2', 'Updated runtime.image_concurrency = 2');
       await runCommandAndExpect('/retries 1', 'Updated runtime.retries = 1');
       await runCommandAndExpect('/options', 'Config paths with predefined options:');
       await runCommandAndExpect('/options generation.objective', 'Options for `generation.objective`');
-      await runCommandAndExpect('/choose', 'Config paths with predefined options:');
-      await runCommandAndExpect('/choose generation.objective 2', 'Updated generation.objective = fun');
-      await runCommandAndExpect('/set generation.output_language he', 'Updated generation.output_language = he');
-      await runCommandAndExpect('/credentials', 'Provider key status');
+      await runCommandAndExpect('/objective fun', 'Updated generation.objective = fun');
+      await runCommandAndExpect('/language he', 'Updated generation.output_language = he');
+      await runCommandAndExpect('/keys', 'Provider key status');
       await runCommandAndExpect('/setkey GEMINI_API_KEY SUPER_SECRET_TOKEN_123', 'Stored key GEMINI_API_KEY in runtime state.');
       const latest = sentMessages(tg.calls).pop();
       expect(String(latest.body.text || '').includes('SUPER_SECRET_TOKEN_123')).toBe(false);
       await runCommandAndExpect('/unsetkey GEMINI_API_KEY', 'Removed runtime override for GEMINI_API_KEY');
       await runCommandAndExpect('/restart', 'Your bot state was restarted to defaults.');
-      await runCommandAndExpect('/reset_default', 'Runtime config overrides were reset to base config.');
+      await runCommandAndExpect('/reset_config', 'Runtime config overrides were reset to base config.');
     } finally {
       await bot.stop();
       await tg.close();
@@ -321,7 +461,7 @@ describe('render bot comprehensive interaction suite', () => {
     try {
       await command(1796415913, '/setkey GEMINI_API_KEY ADMIN_SHARED_KEY_1');
       await command(1796415913, '/share 888');
-      const creds = await command(888, '/credentials');
+      const creds = await command(888, '/keys');
       expect(creds.some((m) => m.includes('GEMINI_API_KEY: set (shared:1796415913)'))).toBe(true);
     } finally {
       await bot.stop();
@@ -423,11 +563,11 @@ describe('render bot comprehensive interaction suite', () => {
       const allowedAfterShare = await command(888, '/text_vendor openai');
       expect(allowedAfterShare.some((m) => m.includes('Provider updated: openai'))).toBe(true);
 
-      const sharedCreds = await command(888, '/credentials');
+      const sharedCreds = await command(888, '/keys');
       expect(sharedCreds.some((m) => m.includes('OPENAI_API_KEY: set (shared:1796415913)'))).toBe(true);
 
       await command(888, '/setkey OPENAI_API_KEY USER_OWN_OPENAI_KEY_456');
-      const ownCreds = await command(888, '/credentials');
+      const ownCreds = await command(888, '/keys');
       expect(ownCreds.some((m) => m.includes('OPENAI_API_KEY: set (runtime)'))).toBe(true);
 
       const allowedWithOwn = await command(888, '/text_vendor openai');
@@ -454,12 +594,12 @@ describe('render bot comprehensive interaction suite', () => {
 
     try {
       await command(777, '/setkey GEMINI_API_KEY USER777_SECRET_ABC');
-      const keyStatus777 = await command(777, '/credentials');
+      const keyStatus777 = await command(777, '/keys');
       expect(keyStatus777.some((m) => m.includes('GEMINI_API_KEY: set'))).toBe(true);
 
-      const first888 = await command(888, '/credentials');
+      const first888 = await command(888, '/keys');
       expect(first888.some((m) => m.includes('free Gemini'))).toBe(true);
-      expect(first888.some((m) => m.includes('/help  /config  /presets'))).toBe(true);
+      expect(first888.some((m) => m.includes('/help  /config  /vendor'))).toBe(true);
       expect(first888.some((m) => m.includes('GEMINI_API_KEY: set (env)'))).toBe(true);
 
       await command(777, '/panels 8');
@@ -533,6 +673,12 @@ describe('render bot comprehensive interaction suite', () => {
     expect(raw.users['888'].profile.user.first_name).toBe('John');
     expect(raw.users['888'].profile.user.language_code).toBe('en');
     expect(raw.users['888'].profile.chat.username).toBe('profile_chat');
+    expect(Array.isArray(raw.users['888'].identity.usernames)).toBe(true);
+    expect(raw.users['888'].identity.usernames).toContain('profile_user');
+    expect(Array.isArray(raw.users['888'].identity.chatUsernames)).toBe(true);
+    expect(raw.users['888'].identity.chatUsernames).toContain('profile_chat');
+    expect(Array.isArray(raw.users['888'].identity.names)).toBe(true);
+    expect(raw.users['888'].identity.names).toContain('John Doe');
   }, 30000);
 
   it('supports hidden /peek list and selection variants for latest generated comics', async () => {
@@ -618,7 +764,7 @@ describe('render bot comprehensive interaction suite', () => {
     try {
       for (let i = 1; i <= 7; i += 1) {
         const chatId = i % 2 === 0 ? 777 : 888;
-        await send(chatId, `/set output.width ${1200 + i}`);
+        await send(chatId, '/user');
       }
       await new Promise((r) => setTimeout(r, 700));
 
@@ -673,7 +819,7 @@ describe('render bot comprehensive interaction suite', () => {
       await command('/setkey GEMINI_API_KEY SECRET777');
       await command('/panels 8');
       await command('/restart');
-      const creds = await command('/credentials');
+      const creds = await command('/keys');
       expect(creds.some((m) => m.includes('GEMINI_API_KEY: set (env)'))).toBe(true);
       const cfg = await command('/config');
       expect(cfg.some((m) => m.includes('generation.panel_count: 8'))).toBe(true);
@@ -784,3 +930,4 @@ describe('render bot comprehensive interaction suite', () => {
     }
   }, 60000);
 });
+

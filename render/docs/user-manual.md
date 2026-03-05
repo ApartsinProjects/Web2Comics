@@ -20,13 +20,14 @@ Panel captions are prefixed as `X(Y)`:
 - `/config` current runtime config
 - `/presets` common options
 - `/user` show your Telegram id
-- `/keys` or `/credentials` key status
+- `/keys` key status
 
 ## Generation Controls
 - `/vendor <name>`
 - `/text_vendor <name>`
 - `/image_vendor <name>`
 - `/language <code>`
+- `/consistency <on|off>` enable style-consistency flow (supported image models only)
 - `/crazyness <0..2>` control story-invention temperature (higher = wilder twists)
 - `/panels <count>`
 - `/objective` list objectives
@@ -46,10 +47,9 @@ Panel captions are prefixed as `X(Y)`:
 ## Options UI In Chat
 - `/list_options` list all config paths with predefined options
 - `/options <path>` show numbered options for one path
-- `/choose <path> <number>` choose by index
-- `/set <path> <value>` set value directly
+- Apply options via dedicated commands (`/objective`, `/panels`, `/mode`, `/vendor`, `/models`, `/language`, etc.)
 
-If `/options` or `/choose` is called without required args, the bot explains usage and lists valid paths/options.
+If `/options` is called without required args, the bot explains usage and lists valid paths/options.
 
 ## Story Modes
 - Normal text: generate directly
@@ -65,15 +65,22 @@ For each panel image, the bot sends context that includes:
 
 This keeps panel visuals coherent across the full story.
 
+## Consistency Mode
+- Default: `off`
+- Command: `/consistency on` or `/consistency off`
+- When enabled, after storyboard generation the bot first creates one summary style-reference image.
+- Then each panel uses prompt text that explicitly asks to follow that reference style and passes the summary image as reference input.
+- This is used only when the active image provider/model supports image-as-input; otherwise the bot falls back to normal panel generation.
+
 ## Panel Output Details
-- Each panel image has a subtle bottom-right watermark: `made with Web2Comics`
+- Watermark is configurable and defaults to `off`
 - Bot messages/photos are forwardable (content protection is disabled)
 
 ## Reset And Recovery
 - `/reset_config` clear runtime overrides
-- `/reset_default` same as reset config
 - `/restart` reset user state and re-onboard
 - `/unsetkey <KEY>` remove runtime key override
 
 ## Hidden/Admin Features
 Standard users do not see admin commands in `/help`.
+

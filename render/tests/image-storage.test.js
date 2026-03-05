@@ -121,7 +121,8 @@ describe('image storage manager', () => {
     expect(out.imageCount).toBe(2);
     expect(out.totalBytes).toBeGreaterThan(0);
     expect(out.images[0].key).toContain('images/');
-    expect(out.images[0].key).toContain('images/users/777/generations/gen-abc/');
+    expect(out.images[0].key).toContain('images/users/777/');
+    expect(out.images[0].key).toContain('/gen-abc/');
 
     const bytes = await manager.fetchImageBytesByKey(out.images[0].key);
     expect(Buffer.isBuffer(bytes)).toBe(true);
@@ -129,8 +130,16 @@ describe('image storage manager', () => {
   });
 
   it('derives hierarchical R2 key from user/generation path', () => {
-    const key = deriveHierarchicalImageKey('images', 'C:\\tmp\\users\\777\\generations\\gen-1\\panel-3.png');
-    expect(key).toBe('images/users/777/generations/gen-1/panel-3.png');
+    const key = deriveHierarchicalImageKey('images', 'C:\\tmp\\users\\777\\generations\\g-777-2026-03-05T12-34-56-789Z-abc123\\panel-3.png');
+    expect(key).toBe('images/users/777/2026-03-05/g-777-2026-03-05T12-34-56-789Z-abc123/panel-3.png');
+  });
+
+  it('falls back to file mtime date when generation id has no date', () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'img-store-key-date-'));
+    const imagePath = path.join(tmp, 'users', '999', 'generations', 'gen-abc', 'panel-1.png');
+    writeTiny(imagePath);
+    const key = deriveHierarchicalImageKey('images', imagePath);
+    expect(key).toMatch(/^images\/users\/999\/\d{4}-\d{2}-\d{2}\/gen-abc\/panel-1\.png$/);
   });
 
   it('enforces hard max capacity of 5GB', async () => {

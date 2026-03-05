@@ -4,30 +4,109 @@ const { loadLocalEnvFiles } = require('./env');
 const { loadConfig } = require('./config');
 const { loadSource } = require('./input');
 const { buildStoryboardPrompt, parseStoryboardResponse } = require('./prompts');
-const { generateTextWithProvider, generateImageWithProvider } = require('./providers');
+const { generateTextWithProvider, generateImageWithProvider, supportsImageReferenceInput } = require('./providers');
 const { composeComicSheet } = require('./compose');
 
-function buildPanelImagePrompt(panel, index, total, settings, storyboard) {
+function isConsistencyEnabled(settings) {
+  const raw = settings && settings.consistency;
+  if (raw == null) return false;
+  if (typeof raw === 'boolean') return raw;
+  const v = String(raw).trim().toLowerCase();
+  return v === '1' || v === 'true' || v === 'yes' || v === 'on';
+}
+
+function buildStyleReferencePrompt(storyboard, settings) {
+  const title = String(storyboard?.title || 'Comic Summary').trim();
+  const summary = buildStorySummaryContext(storyboard);
+  const objective = String(settings?.objective || 'summarize').trim();
+  const style = String(settings?.style_prompt || '').trim();
+  const language = String(settings?.output_language || 'en').trim();
+  const detail = String(settings?.detail_level || 'low').trim();
+  const objectiveOverride = String(settings?.objective_prompt_overrides?.[objective] || '').trim();
+  const customStoryPrompt = String(settings?.custom_story_prompt || '').trim();
+  const customPanelPrompt = String(settings?.custom_panel_prompt || '').trim();
+  const out = [
+    'Create one reference image that defines a consistent visual style for the full comic.',
+    `Story title: ${title}`,
+    `Story summary: ${summary || 'No summary provided.'}`,
+    `Objective: ${objective}`,
+    `Style: ${style}`,
+    `Output language: ${language}`,
+    `Detail level: ${detail}`,
+    'Show key characters and setting mood in one scene.'
+  ];
+  if (objectiveOverride) {
+    out.push(`Objective-specific guidance: ${objectiveOverride}`);
+  }
+  if (customStoryPrompt) {
+    out.push(`Custom story guidance: ${customStoryPrompt}`);
+  }
+  if (customPanelPrompt) {
+    out.push(`Custom panel guidance: ${customPanelPrompt}`);
+  }
+  out.push(
+    'STRICT NO-TEXT RULE: no letters, words, numbers, symbols, labels, signs, logos, UI text, subtitles, speech bubbles, captions, or watermarks.'
+  );
+  return out.join('\n');
+}
+
+function buildPanelImagePrompt(panel, index, total, settings, storyboard, opts = {}) {
   const storyTitle = String(storyboard?.title || '').trim();
-  const storySummary = String(storyboard?.description || '').trim().replace(/\s+/g, ' ');
+  const storySummary = buildStorySummaryContext(storyboard, panel);
   const shortSummary = storySummary.length > 280 ? `${storySummary.slice(0, 280)}...` : storySummary;
   const panelSpecificPrompt = String(panel?.image_prompt || '').trim();
   const out = [
-    `Comic panel ${index + 1}/${total}`,
     `Story title: ${storyTitle || 'Comic Summary'}`,
     `Story summary: ${shortSummary || 'No summary provided.'}`,
-    `Panel caption: ${panel.caption}`,
     `Panel visual brief: ${panelSpecificPrompt || panel.caption}`,
     `Style: ${settings.style_prompt}`,
     'Create one clear scene, no collage.',
-    'Do not render caption text inside the image.',
-    'No words, letters, subtitles, labels, or text overlays in the artwork.'
+    'STRICT NO-TEXT RULE: do not render any text in the image.',
+    'No words, letters, numbers, symbols, subtitles, labels, signs, logos, UI text, speech bubbles, captions, or watermarks.',
+    'If any text appears, regenerate mentally and output a text-free scene.'
   ];
+  if (opts && opts.hasStyleReferenceImage) {
+    out.push('Use the style of the provided summary reference image. Keep rendering style consistent with it.');
+  }
   const customPanelPrompt = String(settings.custom_panel_prompt || '').trim();
   if (customPanelPrompt) {
     out.push(`Custom user panel prompt: ${customPanelPrompt}`);
   }
   return out.join('\n');
+}
+
+function buildStorySummaryContext(storyboard, panel = null) {
+  const explicit = String(storyboard?.description || '').trim().replace(/\s+/g, ' ');
+  if (explicit) return explicit;
+
+  const panelCaptions = Array.isArray(storyboard?.panels)
+    ? storyboard.panels
+      .map((p) => String(p?.caption || '').trim())
+      .filter(Boolean)
+      .slice(0, 4)
+    : [];
+  if (panelCaptions.length) return panelCaptions.join(' ');
+
+  const panelCaption = String(panel?.caption || '').trim();
+  if (panelCaption) return panelCaption;
+
+  return 'No summary provided.';
+}
+
+async function generateConsistencyReferenceImage(config, storyboard) {
+  const consistencyOn = isConsistencyEnabled(config?.generation);
+  if (!consistencyOn) return { enabled: false, used: false, reason: 'disabled' };
+  if (!supportsImageReferenceInput(config?.providers?.image || {})) {
+    return { enabled: true, used: false, reason: 'provider_not_supported' };
+  }
+
+  const prompt = buildStyleReferencePrompt(storyboard, config.generation || {});
+  const image = await withRetries(
+    () => generateImageWithProvider(config.providers.image, prompt, config.runtime),
+    config.runtime.retries,
+    'Consistency summary image'
+  );
+  return { enabled: true, used: true, reason: 'ok', prompt, image };
 }
 
 async function mapWithConcurrency(items, concurrency, mapper) {
@@ -118,6 +197,7 @@ async function runComicEngine(options) {
   const storyboardRawText = generatedStoryboard.storyboardRawText;
   const storyboard = generatedStoryboard.storyboard;
   if (effectiveTitle) storyboard.title = effectiveTitle;
+  const consistencyRef = await generateConsistencyReferenceImage(config, storyboard);
 
   const panelImages = await mapWithConcurrency(
     storyboard.panels,
@@ -125,8 +205,11 @@ async function runComicEngine(options) {
     async (panel, index) => withRetries(
       () => generateImageWithProvider(
         config.providers.image,
-        buildPanelImagePrompt(panel, index, storyboard.panels.length, config.generation, storyboard),
-        config.runtime
+        buildPanelImagePrompt(panel, index, storyboard.panels.length, config.generation, storyboard, {
+          hasStyleReferenceImage: Boolean(consistencyRef.used)
+        }),
+        config.runtime,
+        consistencyRef.used ? { referenceImage: consistencyRef.image } : {}
       ),
       config.runtime.retries,
       `Panel image ${index + 1}`
@@ -150,7 +233,12 @@ async function runComicEngine(options) {
     imageBytes: composed.bytes,
     width: composed.width,
     height: composed.height,
-    elapsedMs: Date.now() - startedAt
+    elapsedMs: Date.now() - startedAt,
+    consistency: {
+      enabled: Boolean(consistencyRef.enabled),
+      used: Boolean(consistencyRef.used),
+      reason: String(consistencyRef.reason || '')
+    }
   };
 
   if (options.debugDir) {
@@ -194,16 +282,21 @@ async function runComicEnginePanels(options) {
   const storyboardRawText = generatedStoryboard.storyboardRawText;
   const storyboard = generatedStoryboard.storyboard;
   if (effectiveTitle) storyboard.title = effectiveTitle;
+  const consistencyRef = await generateConsistencyReferenceImage(config, storyboard);
 
   const panelImages = await mapWithConcurrency(
     storyboard.panels,
     config.runtime.image_concurrency,
     async (panel, index) => {
+      const imagePrompt = buildPanelImagePrompt(panel, index, storyboard.panels.length, config.generation, storyboard, {
+        hasStyleReferenceImage: Boolean(consistencyRef.used)
+      });
       const image = await withRetries(
         () => generateImageWithProvider(
           config.providers.image,
-          buildPanelImagePrompt(panel, index, storyboard.panels.length, config.generation, storyboard),
-          config.runtime
+          imagePrompt,
+          config.runtime,
+          consistencyRef.used ? { referenceImage: consistencyRef.image } : {}
         ),
         config.runtime.retries,
         `Panel image ${index + 1}`
@@ -213,6 +306,7 @@ async function runComicEnginePanels(options) {
           index,
           total: storyboard.panels.length,
           panel,
+          imagePrompt,
           image
         });
       }
@@ -227,7 +321,13 @@ async function runComicEnginePanels(options) {
     panelCount: storyboard.panels.length,
     elapsedMs: Date.now() - startedAt,
     storyboard,
-    panelImages
+    panelImages,
+    consistency: {
+      enabled: Boolean(consistencyRef.enabled),
+      used: Boolean(consistencyRef.used),
+      reason: String(consistencyRef.reason || '')
+    },
+    consistencyReferenceImage: consistencyRef.used ? consistencyRef.image : null
   };
 
   if (options.debugDir) {
@@ -249,6 +349,10 @@ async function runComicEnginePanels(options) {
 module.exports = {
   runComicEngine,
   runComicEnginePanels,
+  isConsistencyEnabled,
+  buildStyleReferencePrompt,
+  buildStorySummaryContext,
+  generateConsistencyReferenceImage,
   buildPanelImagePrompt,
   mapWithConcurrency,
   withRetries,

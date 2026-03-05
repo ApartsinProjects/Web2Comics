@@ -5,6 +5,8 @@ describe('render options', () => {
     expect(parseUserValue('generation.panel_count', '6')).toBe(6);
     expect(parseUserValue('runtime.retries', '2')).toBe(2);
     expect(parseUserValue('generation.invent_temperature', '1.25')).toBe(1.25);
+    expect(parseUserValue('generation.consistency', 'on')).toBe(true);
+    expect(parseUserValue('generation.consistency', 'off')).toBe(false);
   });
 
   it('returns options list', () => {
@@ -13,5 +15,6 @@ describe('render options', () => {
     expect(opts.includes('summarize')).toBe(true);
     expect(getOptions('generation.invent_temperature').includes('0.95')).toBe(true);
     expect(getOptions('generation.delivery_mode').includes('media_group')).toBe(true);
+    expect(getOptions('generation.consistency').includes('on')).toBe(true);
   });
 });

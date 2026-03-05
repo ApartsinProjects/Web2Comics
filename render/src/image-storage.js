@@ -10,6 +10,23 @@ function safeNumber(value, fallback) {
   return Number.isFinite(n) ? n : fallback;
 }
 
+function safeDatePartFromValue(raw) {
+  const m = String(raw || '').match(/\b(\d{4}-\d{2}-\d{2})\b/);
+  return m ? m[1] : '';
+}
+
+function fallbackDatePartFromPath(filePath) {
+  try {
+    const stat = fs.statSync(String(filePath || ''));
+    if (stat && stat.mtime instanceof Date && !Number.isNaN(stat.mtime.getTime())) {
+      return stat.mtime.toISOString().slice(0, 10);
+    }
+  } catch (_) {
+    // Ignore and use current date fallback.
+  }
+  return new Date().toISOString().slice(0, 10);
+}
+
 function deriveHierarchicalImageKey(prefix, filePath) {
   const normalized = String(filePath || '').replace(/\\/g, '/');
   const m = normalized.match(/\/users\/([^/]+)\/generations\/([^/]+)\/([^/]+)$/i);
@@ -18,7 +35,9 @@ function deriveHierarchicalImageKey(prefix, filePath) {
   const generationPart = String(m[2] || '').trim();
   const fileName = String(m[3] || '').trim();
   if (!userPart || !generationPart || !fileName) return '';
-  return `${prefix}/users/${userPart}/generations/${generationPart}/${fileName}`;
+  const datePart = safeDatePartFromValue(generationPart) || fallbackDatePartFromPath(filePath);
+  const timeStampPart = generationPart;
+  return `${prefix}/users/${userPart}/${datePart}/${timeStampPart}/${fileName}`;
 }
 
 class ImageStorageManager {

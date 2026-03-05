@@ -12,6 +12,9 @@ const {
   resolveInventLanguage,
   resolveInventTemperature,
   resolvePanelWatermarkEnabled,
+  isProviderOrModelFailure,
+  shouldFallbackToGemini,
+  shouldPreemptiveFallbackToGemini,
   sanitizeInventedStoryText,
   applyPanelWatermark
 } = require('../src/generate');
@@ -173,5 +176,54 @@ describe('render generate helpers', () => {
     const metaB = await sharp(marked).metadata();
     expect(metaB.width).toBe(metaA.width);
     expect(metaB.height).toBe(metaA.height);
+  });
+
+  it('detects provider/model style failures for fallback', () => {
+    expect(isProviderOrModelFailure(new Error('Cloudflare text failed (401): Authentication error'))).toBe(true);
+    expect(isProviderOrModelFailure(new Error('Unsupported image provider: custom'))).toBe(true);
+    expect(isProviderOrModelFailure(new Error('network timeout while reading file'))).toBe(false);
+  });
+
+  it('enables gemini fallback for non-gemini provider errors when GEMINI_API_KEY exists', () => {
+    const prev = process.env.GEMINI_API_KEY;
+    process.env.GEMINI_API_KEY = 'x';
+    try {
+      const cfg = {
+        providers: {
+          text: { provider: 'cloudflare' },
+          image: { provider: 'cloudflare' }
+        }
+      };
+      expect(shouldFallbackToGemini(cfg, new Error('Cloudflare text failed (401): Authentication error'))).toBe(true);
+      expect(shouldFallbackToGemini(cfg, new Error('random error'))).toBe(false);
+    } finally {
+      if (prev == null) delete process.env.GEMINI_API_KEY;
+      else process.env.GEMINI_API_KEY = prev;
+    }
+  });
+
+  it('enables preemptive fallback when selected provider is missing required env', () => {
+    const prevGem = process.env.GEMINI_API_KEY;
+    const prevCfAcc = process.env.CLOUDFLARE_ACCOUNT_ID;
+    const prevCfTok = process.env.CLOUDFLARE_API_TOKEN;
+    process.env.GEMINI_API_KEY = 'x';
+    delete process.env.CLOUDFLARE_ACCOUNT_ID;
+    delete process.env.CLOUDFLARE_API_TOKEN;
+    try {
+      const cfg = {
+        providers: {
+          text: { provider: 'cloudflare' },
+          image: { provider: 'cloudflare' }
+        }
+      };
+      expect(shouldPreemptiveFallbackToGemini(cfg)).toBe(true);
+    } finally {
+      if (prevGem == null) delete process.env.GEMINI_API_KEY;
+      else process.env.GEMINI_API_KEY = prevGem;
+      if (prevCfAcc == null) delete process.env.CLOUDFLARE_ACCOUNT_ID;
+      else process.env.CLOUDFLARE_ACCOUNT_ID = prevCfAcc;
+      if (prevCfTok == null) delete process.env.CLOUDFLARE_API_TOKEN;
+      else process.env.CLOUDFLARE_API_TOKEN = prevCfTok;
+    }
   });
 });
