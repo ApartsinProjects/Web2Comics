@@ -311,6 +311,7 @@ function commandHelp(chatId) {
     '',
     'Commands:',
     '/help',
+    '/about',
     '/config',
     '/list_options',
     '/options <path>',
@@ -353,8 +354,13 @@ function commandHelp(chatId) {
   if (isAdminChat(chatId)) {
     lines.push('');
     lines.push('Admin commands:');
-    lines.push('/peek, /peek <n>, /peek<n>  - list latest generated comics');
+    lines.push('/peek  - list latest generated comics');
+    lines.push('/peek <n> or /peek<n>  - show one comic from that list');
     lines.push('/log, /log <n>, /log<n>  - list latest interaction logs');
+    lines.push('/users  - list known users');
+    lines.push('/ban  - list banned users');
+    lines.push('/ban <user_id|username>  - ban user');
+    lines.push('/unban <user_id|username>  - unban user');
     lines.push('/share <user_id>  - allow user to use your runtime keys');
   }
   return lines.join('\n');
@@ -438,8 +444,48 @@ function onboardingMessage(chatId) {
   if (isAdminChat(chatId)) {
     lines.push('');
     lines.push('Admin commands:');
-    lines.push('/peek  /peek<n>  /log  /log<n>  /share <user_id>');
+    lines.push('/peek  /peek<n>  /log  /log<n>  /users  /ban  /unban  /share <user_id>');
   }
+  return lines.join('\n');
+}
+
+function formatUsersMessage() {
+  const users = (configStore && configStore.state && configStore.state.users) || {};
+  const rows = Object.entries(users)
+    .map(([id, record]) => {
+      const uid = String(id || '').trim() || 'unknown';
+      const username = String(record?.profile?.user?.username || '').trim();
+      const first = String(record?.profile?.user?.first_name || '').trim();
+      const last = String(record?.profile?.user?.last_name || '').trim();
+      const chatUsername = String(record?.profile?.chat?.username || '').trim();
+      const display = username
+        ? `@${username}`
+        : ((`${first} ${last}`.trim()) || (chatUsername ? `@${chatUsername}` : 'unknown'));
+      const lastSeen = String(record?.lastSeenAt || '').trim();
+      return { uid, display, lastSeen };
+    })
+    .sort((a, b) => {
+      const ta = Date.parse(a.lastSeen || '');
+      const tb = Date.parse(b.lastSeen || '');
+      if (Number.isFinite(tb) && Number.isFinite(ta) && tb !== ta) return tb - ta;
+      return String(a.uid).localeCompare(String(b.uid));
+    });
+  if (!rows.length) return 'No known users yet.';
+  const lines = [`Known users: ${rows.length}`];
+  rows.forEach((r, idx) => {
+    lines.push(`${idx + 1}. ${r.uid} | ${r.display}`);
+  });
+  return lines.join('\n');
+}
+
+function formatBanlistMessage() {
+  const banlist = configStore.getBanlist();
+  const ids = Array.isArray(banlist?.ids) ? banlist.ids : [];
+  const usernames = Array.isArray(banlist?.usernames) ? banlist.usernames : [];
+  if (!ids.length && !usernames.length) return 'Banned users: none.';
+  const lines = ['Banned users:'];
+  if (ids.length) lines.push(`ids: ${ids.join(', ')}`);
+  if (usernames.length) lines.push(`usernames: ${usernames.map((u) => `@${u}`).join(', ')}`);
   return lines.join('\n');
 }
 
@@ -494,7 +540,9 @@ function buildPromptCatalog(cfg) {
     'Comic panel <index>/<total>',
     'Caption: <panel.caption>',
     `Style: ${cfg?.generation?.style_prompt || '-'}`,
-    'Create one clear scene, no collage, no extra text overlays unless implied by caption.'
+    'Create one clear scene, no collage.',
+    'Do not render caption text inside the image.',
+    'No words, letters, subtitles, labels, or text overlays in the artwork.'
   ];
   const customPanelPrompt = String(cfg?.generation?.custom_panel_prompt || '').trim();
   if (customPanelPrompt) {
@@ -569,26 +617,36 @@ function compactConfigString(cfg) {
   ].join(' ');
 }
 
-async function sendPanelSequence(chatId, panelResult, modeLabel, configLine = '') {
+function listOptionPathsMessage() {
+  const paths = allOptionPaths();
+  return [
+    'Config paths with predefined options:',
+    ...paths.map((key) => `- ${key}`)
+  ].join('\n');
+}
+
+async function sendPanelWithRetry(chatId, panel, index) {
+  let last = null;
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    try {
+      await api.sendPhoto(chatId, panel.imagePath, panel.caption || '');
+      return;
+    } catch (error) {
+      last = error;
+      if (attempt < 3) await new Promise((r) => setTimeout(r, 250 * attempt));
+    }
+  }
+  throw new Error(`Failed sending panel ${index + 1}: ${String(last?.message || last)}`);
+}
+
+async function sendPanelSequence(chatId, panelResult, modeLabel, configLine = '', alreadySent = new Set()) {
   const mode = String(modeLabel || 'text').toLowerCase();
   const panels = Array.isArray(panelResult?.panelMessages) ? panelResult.panelMessages.slice() : [];
   if (String(configLine || '').trim()) {
     await api.sendMessage(chatId, configLine);
   }
-  const sendPanelWithRetry = async (panel, index) => {
-    let last = null;
-    for (let attempt = 1; attempt <= 3; attempt += 1) {
-      try {
-        await api.sendPhoto(chatId, panel.imagePath, panel.caption || '');
-        return;
-      } catch (error) {
-        last = error;
-        if (attempt < 3) await new Promise((r) => setTimeout(r, 250 * attempt));
-      }
-    }
-    throw new Error(`Failed sending panel ${index + 1}: ${String(last?.message || last)}`);
-  };
   for (let i = 0; i < panels.length; i += 1) {
+    if (alreadySent.has(Number(panels[i]?.index || i + 1))) continue;
     await sendPanelWithRetry(panels[i], i);
   }
   await api.sendMessage(chatId, [
@@ -599,9 +657,8 @@ async function sendPanelSequence(chatId, panelResult, modeLabel, configLine = ''
   await api.sendMessage(chatId, 'Use /help for options and customizations.');
 }
 
-function formatPeekMessage(history, limit = 10) {
-  const size = Math.max(1, Math.min(50, Number(limit) || 10));
-  const rows = (Array.isArray(history) ? history : [])
+function listGeneratedRows(history) {
+  return (Array.isArray(history) ? history : [])
     .filter((h) => {
       const result = h?.result || {};
       const type = String(result.type || '').toLowerCase();
@@ -609,19 +666,58 @@ function formatPeekMessage(history, limit = 10) {
     })
     .slice()
     .sort((a, b) => Date.parse(String(b?.timestamp || '')) - Date.parse(String(a?.timestamp || '')))
-    .slice(0, size);
+    .slice(0, 10);
+}
+
+function resolveHistoryUsername(chatId) {
+  const userKey = configStore.normalizeUserKey(chatId);
+  const user = configStore.state?.users?.[userKey] || null;
+  const fromUser = String(user?.profile?.user?.username || '').trim();
+  if (fromUser) return fromUser;
+  const fromChat = String(user?.profile?.chat?.username || '').trim();
+  if (fromChat) return fromChat;
+  return '';
+}
+
+function formatPeekName(entry) {
+  const storyboardTitle = String(entry?.result?.storyboard?.title || '').trim();
+  if (storyboardTitle) return storyboardTitle;
+  const requestText = String(entry?.requestText || '').trim();
+  return requestText ? requestText.slice(0, 90) : 'Untitled comic';
+}
+
+function formatPeekMessage(history) {
+  const rows = listGeneratedRows(history);
   if (!rows.length) return 'No generated comics yet.';
 
-  const lines = [`Last ${size} generated comics:`];
+  const lines = ['Last 10 generated comics:'];
   rows.forEach((h, idx) => {
-    const img = h?.result?.outputPath ? String(h.result.outputPath) : '-';
-    lines.push(`${idx + 1}. ${String(h.timestamp || '-')}`);
-    lines.push(`user: ${String(h.chatId || '-')}`);
-    lines.push(`msg: ${String(h.requestText || '').slice(0, 160)}`);
-    lines.push(`cfg: ${summarizeConfig(h.config)}`);
-    lines.push(`image: ${img}`);
+    const username = resolveHistoryUsername(h?.chatId);
+    const userLabel = username ? `@${username}` : `id:${String(h?.chatId || '-')}`;
+    lines.push(`${idx + 1}. ${String(h?.timestamp || '-')} | ${userLabel} | ${formatPeekName(h)}`);
   });
+  lines.push('Use /peek <number> to view one item.');
   return lines.join('\n');
+}
+
+function formatPeekSingleMessage(history, selected) {
+  const rows = listGeneratedRows(history);
+  if (!rows.length) return 'No generated comics yet.';
+  const idx = Number(selected);
+  if (!Number.isFinite(idx) || idx < 1 || idx > rows.length) {
+    return `Invalid comic index. Use /peek, then choose 1-${rows.length}.`;
+  }
+  const row = rows[idx - 1];
+  const username = resolveHistoryUsername(row?.chatId);
+  const userLabel = username ? `@${username}` : `id:${String(row?.chatId || '-')}`;
+  const img = row?.result?.outputPath ? String(row.result.outputPath) : '-';
+  return [
+    `Comic ${idx} of ${rows.length}`,
+    `date: ${String(row?.timestamp || '-')}`,
+    `user: ${userLabel}`,
+    `name: ${formatPeekName(row)}`,
+    `image: ${img}`
+  ].join('\n');
 }
 
 function formatLogMessage(history, limit = 10) {
@@ -664,6 +760,16 @@ async function handleCommand(chatId, text) {
     return true;
   }
 
+  if (command === '/about') {
+    await api.sendMessage(chatId, [
+      `${BOT_DISPLAY_NAME}`,
+      `Creator: Alexander (Sasha) Apartsin`,
+      `Project: https://github.com/ApartsinProjects/Web2Comics`,
+      `Site: https://www.apartsin.com`
+    ].join('\n'));
+    return true;
+  }
+
   if (command === '/user') {
     await api.sendMessage(chatId, `Your user id: ${chatId}`);
     return true;
@@ -688,10 +794,14 @@ async function handleCommand(chatId, text) {
   if (command === '/peek' || peekTokenMatch) {
     const fromToken = peekTokenMatch ? Number(peekTokenMatch[1]) : NaN;
     const fromArg = Number(parts[1]);
-    const limit = Number.isFinite(fromArg) && fromArg > 0
+    const selected = Number.isFinite(fromArg) && fromArg > 0
       ? fromArg
-      : (Number.isFinite(fromToken) && fromToken > 0 ? fromToken : 10);
-    await api.sendMessage(chatId, formatPeekMessage(configStore.getHistory(), limit));
+      : (Number.isFinite(fromToken) && fromToken > 0 ? fromToken : NaN);
+    if (Number.isFinite(selected) && selected > 0) {
+      await api.sendMessage(chatId, formatPeekSingleMessage(configStore.getHistory(), selected));
+      return true;
+    }
+    await api.sendMessage(chatId, formatPeekMessage(configStore.getHistory()));
     return true;
   }
 
@@ -706,6 +816,63 @@ async function handleCommand(chatId, text) {
       ? fromArg
       : (Number.isFinite(fromToken) && fromToken > 0 ? fromToken : 10);
     await api.sendMessage(chatId, formatLogMessage(configStore.getHistory(), limit));
+    return true;
+  }
+
+  if (command === '/users') {
+    if (!isAdminChat(chatId)) {
+      await api.sendMessage(chatId, 'Access denied.');
+      return true;
+    }
+    await api.sendMessage(chatId, formatUsersMessage());
+    return true;
+  }
+
+  if (command === '/ban') {
+    if (!isAdminChat(chatId)) {
+      await api.sendMessage(chatId, 'Access denied.');
+      return true;
+    }
+    const target = String(parts[1] || '').trim();
+    if (!target) {
+      await api.sendMessage(chatId, formatBanlistMessage());
+      return true;
+    }
+    try {
+      const banned = await configStore.banIdentifier(target);
+      const lines = [`Added to blacklist: ${target}`];
+      if (banned.bannedId) lines.push(`id: ${banned.bannedId}`);
+      if (banned.bannedUsername) lines.push(`username: @${banned.bannedUsername}`);
+      await api.sendMessage(chatId, lines.join('\n'));
+    } catch (error) {
+      await api.sendMessage(chatId, `ban failed: ${error.message}`);
+    }
+    return true;
+  }
+
+  if (command === '/unban') {
+    if (!isAdminChat(chatId)) {
+      await api.sendMessage(chatId, 'Access denied.');
+      return true;
+    }
+    const target = String(parts[1] || '').trim();
+    if (!target) {
+      await api.sendMessage(chatId, 'Usage: /unban <user_id|username>');
+      return true;
+    }
+    try {
+      const removed = await configStore.unbanIdentifier(target);
+      if (!removed.changed) {
+        await api.sendMessage(chatId, `User is not in blacklist: ${target}`);
+        return true;
+      }
+      const lines = [`Removed from blacklist: ${target}`];
+      if (removed.removedId) lines.push(`id: ${removed.removedId}`);
+      if (removed.removedUsername) lines.push(`username: @${removed.removedUsername}`);
+      await api.sendMessage(chatId, lines.join('\n'));
+    } catch (error) {
+      await api.sendMessage(chatId, `unban failed: ${error.message}`);
+    }
     return true;
   }
 
@@ -762,7 +929,17 @@ async function handleCommand(chatId, text) {
   if (command === '/objective') {
     const value = String(parts[1] || '').trim().toLowerCase();
     const options = getOptions('generation.objective');
-    if (!value || !valueExists(options, value)) {
+    if (!value) {
+      const current = String(configStore.getCurrent(chatId, 'generation.objective') || '').trim() || '-';
+      await api.sendMessage(chatId, [
+        `Current objective: ${current}`,
+        'Available objectives:',
+        options.join(', '),
+        'Use: /objective <name>'
+      ].join('\n'));
+      return true;
+    }
+    if (!valueExists(options, value)) {
       await api.sendMessage(chatId, `Usage: /objective <name>\nAllowed: ${options.join(', ')}`);
       return true;
     }
@@ -869,16 +1046,20 @@ async function handleCommand(chatId, text) {
   }
 
   if (command === '/list_options') {
-    const lines = ['Config paths with predefined options:'];
-    allOptionPaths().forEach((key) => lines.push(`- ${key}`));
-    await api.sendMessage(chatId, lines.join('\n'));
+    await api.sendMessage(chatId, listOptionPathsMessage());
     return true;
   }
 
   if (command === '/options') {
     const pathKey = String(parts[1] || '').trim();
     if (!pathKey) {
-      await api.sendMessage(chatId, 'Usage: /options <path>');
+      await api.sendMessage(chatId, [
+        'Usage: /options <path>',
+        '',
+        listOptionPathsMessage(),
+        '',
+        'Example: /options generation.objective'
+      ].join('\n'));
       return true;
     }
     await api.sendMessage(chatId, formatOptionsMessage(pathKey, configStore.getCurrent(chatId, pathKey)));
@@ -889,8 +1070,22 @@ async function handleCommand(chatId, text) {
     const pathKey = String(parts[1] || '').trim();
     const idx = Number.parseInt(parts[2] || '', 10);
     const options = getOptions(pathKey);
-    if (!pathKey || !Number.isFinite(idx) || idx < 1 || idx > options.length) {
-      await api.sendMessage(chatId, 'Usage: /choose <path> <number>. Use /options <path> first.');
+    if (!pathKey) {
+      await api.sendMessage(chatId, [
+        'Usage: /choose <path> <number>',
+        '',
+        listOptionPathsMessage(),
+        '',
+        'Example: /choose generation.objective 2',
+        'Tip: run /options <path> first.'
+      ].join('\n'));
+      return true;
+    }
+    if (!Number.isFinite(idx) || idx < 1 || idx > options.length) {
+      await api.sendMessage(chatId, [
+        `Usage: /choose ${pathKey} <number>`,
+        formatOptionsMessage(pathKey, configStore.getCurrent(chatId, pathKey))
+      ].join('\n\n'));
       return true;
     }
     const chosen = options[idx - 1];
@@ -990,11 +1185,12 @@ async function handleCommand(chatId, text) {
 async function processMessage(message) {
   const chatId = Number(message?.chat?.id || 0);
   const text = String(message?.text || message?.caption || '').trim();
+  const incomingUsername = String(message?.from?.username || message?.chat?.username || '').trim();
   if (!chatId) return;
   const incoming = classifyIncoming(text);
   const userMeta = {
     id: Number(message?.from?.id || chatId || 0),
-    username: String(message?.from?.username || message?.chat?.username || '').trim()
+    username: incomingUsername
   };
   try {
     if (!text) {
@@ -1004,6 +1200,18 @@ async function processMessage(message) {
         command: '',
         requestText: '',
         result: { ok: false, type: 'unsupported', error: 'empty_message' },
+        config: configStore.getEffectiveConfig(chatId)
+      }, userMeta));
+      return;
+    }
+
+    if (configStore.isBanned(chatId, incomingUsername)) {
+      await api.sendMessage(chatId, 'Access denied: banned user.');
+      runBackgroundTask('record denied banned interaction', () => safeRecordInteraction(chatId, {
+        kind: incoming.kind,
+        command: incoming.command,
+        requestText: text,
+        result: { ok: false, type: 'denied', error: 'banned_user' },
         config: configStore.getEffectiveConfig(chatId)
       }, userMeta));
       return;
@@ -1067,9 +1275,16 @@ async function processMessage(message) {
       configStore.applySecretsToEnv(chatId);
       const inventedStory = await inventStoryText(seed, effectiveConfigPath);
       await api.sendMessage(chatId, 'Invented story ready. Generating your comic...');
-
-      const result = await generatePanelsWithRuntimeConfig(inventedStory, runtime, effectiveConfigPath);
-      await sendPanelSequence(chatId, result, 'invent', compactConfigString(effectiveConfig));
+      const configLine = compactConfigString(effectiveConfig);
+      await api.sendMessage(chatId, configLine);
+      const alreadySent = new Set();
+      const result = await generatePanelsWithRuntimeConfig(inventedStory, runtime, effectiveConfigPath, {
+        onPanelReady: async (panelMessage) => {
+          await sendPanelWithRetry(chatId, panelMessage, Number(panelMessage?.index || 1) - 1);
+          alreadySent.add(Number(panelMessage?.index || 0));
+        }
+      });
+      await sendPanelSequence(chatId, result, 'invent', '', alreadySent);
       runBackgroundTask('record invent success', () => safeRecordInteraction(chatId, {
         kind: incoming.kind,
         command: incoming.command,
@@ -1124,8 +1339,16 @@ async function processMessage(message) {
       await api.sendMessage(chatId, 'Generating your comic...');
     }
 
-    const result = await generatePanelsWithRuntimeConfig(generationInput, runtime, effectiveConfigPath);
-    await sendPanelSequence(chatId, result, result.kind === 'url' ? 'url' : 'text', compactConfigString(effectiveConfig));
+    const configLine = compactConfigString(effectiveConfig);
+    await api.sendMessage(chatId, configLine);
+    const alreadySent = new Set();
+    const result = await generatePanelsWithRuntimeConfig(generationInput, runtime, effectiveConfigPath, {
+      onPanelReady: async (panelMessage) => {
+        await sendPanelWithRetry(chatId, panelMessage, Number(panelMessage?.index || 1) - 1);
+        alreadySent.add(Number(panelMessage?.index || 0));
+      }
+    });
+    await sendPanelSequence(chatId, result, result.kind === 'url' ? 'url' : 'text', '', alreadySent);
     runBackgroundTask('record generation success', () => safeRecordInteraction(chatId, {
       kind: incoming.kind,
       command: incoming.command,

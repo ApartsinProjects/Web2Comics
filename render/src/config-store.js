@@ -31,7 +31,7 @@ class RuntimeConfigStore {
     this.baseConfigPath = path.resolve(baseConfigPath);
     this.persistence = persistence;
     this.baseConfig = loadConfig(this.baseConfigPath).config;
-    this.state = { users: {}, history: [] };
+    this.state = { users: {}, history: [], banlist: { ids: [], usernames: [] } };
     this.baseSecrets = {};
     this.saveQueue = Promise.resolve();
     SECRET_KEYS.forEach((key) => {
@@ -51,6 +51,12 @@ class RuntimeConfigStore {
       if (raw && typeof raw.users === 'object') {
         this.state.users = raw.users;
         this.state.history = Array.isArray(raw.history) ? raw.history : [];
+        this.state.banlist = (raw && raw.banlist && typeof raw.banlist === 'object')
+          ? {
+              ids: Array.isArray(raw.banlist.ids) ? raw.banlist.ids.map((v) => String(v).trim()).filter(Boolean) : [],
+              usernames: Array.isArray(raw.banlist.usernames) ? raw.banlist.usernames.map((v) => String(v).trim().toLowerCase()).filter(Boolean) : []
+            }
+          : { ids: [], usernames: [] };
       } else if (raw && (raw.overrides || raw.secrets)) {
         // Backward compatibility with old single-user shape.
         this.state.users = {
@@ -61,12 +67,14 @@ class RuntimeConfigStore {
           }
         };
         this.state.history = [];
+        this.state.banlist = { ids: [], usernames: [] };
       } else {
         this.state.users = {};
         this.state.history = [];
+        this.state.banlist = { ids: [], usernames: [] };
       }
     } catch (_) {
-      this.state = { users: {}, history: [] };
+      this.state = { users: {}, history: [], banlist: { ids: [], usernames: [] } };
     }
   }
 
@@ -81,6 +89,20 @@ class RuntimeConfigStore {
     const key = String(chatId || '').trim();
     if (!key) return 'global';
     return key;
+  }
+
+  normalizeUsername(username) {
+    return String(username || '').trim().replace(/^@+/, '').toLowerCase();
+  }
+
+  ensureBanlist() {
+    if (!this.state || typeof this.state !== 'object') this.state = {};
+    if (!this.state.banlist || typeof this.state.banlist !== 'object') {
+      this.state.banlist = { ids: [], usernames: [] };
+    }
+    if (!Array.isArray(this.state.banlist.ids)) this.state.banlist.ids = [];
+    if (!Array.isArray(this.state.banlist.usernames)) this.state.banlist.usernames = [];
+    return this.state.banlist;
   }
 
   ensureUser(chatId) {
@@ -238,6 +260,105 @@ class RuntimeConfigStore {
 
   getHistory() {
     return Array.isArray(this.state.history) ? this.state.history.slice() : [];
+  }
+
+  getBanlist() {
+    const b = this.ensureBanlist();
+    return {
+      ids: b.ids.slice(),
+      usernames: b.usernames.slice()
+    };
+  }
+
+  findUserIdByUsername(username) {
+    const target = this.normalizeUsername(username);
+    if (!target) return '';
+    const users = this.state && this.state.users ? this.state.users : {};
+    for (const [id, record] of Object.entries(users)) {
+      const fromUser = this.normalizeUsername(record?.profile?.user?.username || '');
+      const fromChat = this.normalizeUsername(record?.profile?.chat?.username || '');
+      if (target === fromUser || target === fromChat) return String(id);
+    }
+    return '';
+  }
+
+  isBanned(chatId, username) {
+    const b = this.ensureBanlist();
+    const id = this.normalizeUserKey(chatId);
+    const uname = this.normalizeUsername(username);
+    return b.ids.includes(id) || (uname ? b.usernames.includes(uname) : false);
+  }
+
+  async banIdentifier(identifier) {
+    const raw = String(identifier || '').trim();
+    if (!raw) throw new Error('Usage: /ban <user_id|username>');
+    const b = this.ensureBanlist();
+    const out = {
+      input: raw,
+      bannedId: '',
+      bannedUsername: '',
+      resolvedId: ''
+    };
+    if (/^\d+$/.test(raw)) {
+      const id = this.normalizeUserKey(raw);
+      if (!b.ids.includes(id)) b.ids.push(id);
+      out.bannedId = id;
+      await this.save();
+      return out;
+    }
+
+    const uname = this.normalizeUsername(raw);
+    if (!uname) throw new Error('Usage: /ban <user_id|username>');
+    if (!b.usernames.includes(uname)) b.usernames.push(uname);
+    out.bannedUsername = uname;
+    const resolved = this.findUserIdByUsername(uname);
+    if (resolved) {
+      out.resolvedId = resolved;
+      if (!b.ids.includes(resolved)) b.ids.push(resolved);
+      out.bannedId = resolved;
+    }
+    await this.save();
+    return out;
+  }
+
+  async unbanIdentifier(identifier) {
+    const raw = String(identifier || '').trim();
+    if (!raw) throw new Error('Usage: /unban <user_id|username>');
+    const b = this.ensureBanlist();
+    const out = {
+      input: raw,
+      removedId: '',
+      removedUsername: '',
+      changed: false
+    };
+
+    if (/^\d+$/.test(raw)) {
+      const id = this.normalizeUserKey(raw);
+      const before = b.ids.length;
+      b.ids = b.ids.filter((v) => String(v) !== id);
+      out.changed = b.ids.length !== before;
+      out.removedId = id;
+      await this.save();
+      return out;
+    }
+
+    const uname = this.normalizeUsername(raw);
+    if (!uname) throw new Error('Usage: /unban <user_id|username>');
+    const beforeUsernames = b.usernames.length;
+    b.usernames = b.usernames.filter((v) => String(v) !== uname);
+    if (b.usernames.length !== beforeUsernames) out.changed = true;
+    out.removedUsername = uname;
+
+    const resolvedId = this.findUserIdByUsername(uname);
+    if (resolvedId) {
+      const beforeIds = b.ids.length;
+      b.ids = b.ids.filter((v) => String(v) !== resolvedId);
+      if (b.ids.length !== beforeIds) out.changed = true;
+      out.removedId = resolvedId;
+    }
+
+    await this.save();
+    return out;
   }
 
   async resetUser(chatId) {

@@ -7,6 +7,7 @@ Project documentation and user-facing reference pages for Web2Comics.
 - `ROOT_README.md` : release-oriented README snapshot used by packaging checks.
 - `INSTALL.md` : installation + first-run guide.
 - [`user-manual.html`](./user-manual.html) : end-user manual (popup, side panel, options, workflows).
+- [`telegram-bot.md`](./telegram-bot.md) : Telegram bot overview, deployment, and testing links.
 - `RELEASE_NOTES.md` : versioned release history.
 
 ## Product and Strategy Docs

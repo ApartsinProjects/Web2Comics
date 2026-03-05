@@ -171,12 +171,14 @@ describe('render bot comprehensive interaction suite', () => {
     try {
       await runCommandAndExpect('/help', 'aistudio.google.com/apikey');
       await runCommandAndExpect('/help', '/invent <story>');
+      await runCommandAndExpect('/about', 'Alexander (Sasha) Apartsin');
       const helpMsgs = sentMessages(tg.calls).map((c) => String(c.body.text || ''));
       expect(helpMsgs.some((m) => m.includes('/peek'))).toBe(false);
       await runCommandAndExpect('/presets', 'Friendly presets');
       await runCommandAndExpect('/vendor gemini', 'Provider updated: gemini');
       await runCommandAndExpect('/language en', 'Updated generation.output_language = en');
       await runCommandAndExpect('/panels 4', 'Updated generation.panel_count = 4');
+      await runCommandAndExpect('/objective', 'Available objectives:');
       await runCommandAndExpect('/objective summarize', 'Updated generation.objective = summarize');
       await runCommandAndExpect('/detail low', 'Updated generation.detail_level = low');
       await runCommandAndExpect('/set_style cinematic hand-drawn frames', 'Updated generation.style_prompt');
@@ -186,7 +188,9 @@ describe('render bot comprehensive interaction suite', () => {
       await runCommandAndExpect('/prompts', 'Prompt catalog');
       await runCommandAndExpect('/concurrency 2', 'Updated runtime.image_concurrency = 2');
       await runCommandAndExpect('/retries 1', 'Updated runtime.retries = 1');
+      await runCommandAndExpect('/options', 'Config paths with predefined options:');
       await runCommandAndExpect('/options generation.objective', 'Options for `generation.objective`');
+      await runCommandAndExpect('/choose', 'Config paths with predefined options:');
       await runCommandAndExpect('/choose generation.objective 2', 'Updated generation.objective = fun');
       await runCommandAndExpect('/set generation.output_language he', 'Updated generation.output_language = he');
       await runCommandAndExpect('/credentials', 'Provider key status');
@@ -224,12 +228,21 @@ describe('render bot comprehensive interaction suite', () => {
       expect(adminHelp.some((m) => m.includes('Admin commands:'))).toBe(true);
       expect(adminHelp.some((m) => m.includes('/share <user_id>'))).toBe(true);
       expect(adminHelp.some((m) => m.includes('/log'))).toBe(true);
+      expect(adminHelp.some((m) => m.includes('/users'))).toBe(true);
+      expect(adminHelp.some((m) => m.includes('/ban'))).toBe(true);
+      expect(adminHelp.some((m) => m.includes('/unban'))).toBe(true);
 
       const nonAdminHelp = await command(888, '/help');
       expect(nonAdminHelp.some((m) => m.includes('Admin commands:'))).toBe(false);
 
       const deny = await command(777, '/share 888');
       expect(deny.some((m) => m.includes('Access denied.'))).toBe(true);
+      const denyUsers = await command(777, '/users');
+      expect(denyUsers.some((m) => m.includes('Access denied.'))).toBe(true);
+
+      const users = await command(1796415913, '/users');
+      expect(users.some((m) => m.includes('Known users:'))).toBe(true);
+      expect(users.some((m) => m.includes('777'))).toBe(true);
     } finally {
       await bot.stop();
       await tg.close();
@@ -255,6 +268,68 @@ describe('render bot comprehensive interaction suite', () => {
       await command(1796415913, '/share 888');
       const creds = await command(888, '/credentials');
       expect(creds.some((m) => m.includes('GEMINI_API_KEY: set (shared:1796415913)'))).toBe(true);
+    } finally {
+      await bot.stop();
+      await tg.close();
+    }
+  }, 50000);
+
+  it('supports admin /ban and /unban by id or username', async () => {
+    const tg = await startFakeTelegramServer();
+    const botPort = await getFreePort();
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'render-bot-ban-'));
+    const bot = await startBotProcess(botPort, `http://127.0.0.1:${tg.port}/botTEST_TOKEN`, path.join(tmpDir, 'state.json'));
+
+    async function command(chatId, text, fromUsername = '') {
+      const before = sentMessages(tg.calls).length;
+      const res = await postUpdate(botPort, {
+        chat: { id: chatId, username: fromUsername || undefined },
+        from: { id: chatId, username: fromUsername || undefined },
+        text
+      });
+      expect(res.status).toBe(200);
+      await waitFor(() => sentMessages(tg.calls).length > before, 8000, 100);
+      return sentMessages(tg.calls).slice(before).map((c) => String(c.body.text || ''));
+    }
+
+    try {
+      const empty = await command(1796415913, '/ban');
+      expect(empty.some((m) => m.includes('Banned users: none'))).toBe(true);
+
+      const denied = await command(777, '/ban 888', 'user777');
+      expect(denied.some((m) => m.includes('Access denied.'))).toBe(true);
+
+      const byId = await command(1796415913, '/ban 888');
+      expect(byId.some((m) => m.includes('Added to blacklist: 888'))).toBe(true);
+
+      const blockedUser = await command(888, '/user', 'user888');
+      expect(blockedUser.some((m) => m.includes('Access denied: banned user.'))).toBe(true);
+
+      await command(777, '/help', 'target_username');
+      const byName = await command(1796415913, '/ban target_username');
+      expect(byName.some((m) => m.includes('Added to blacklist: target_username'))).toBe(true);
+      expect(byName.some((m) => m.includes('username: @target_username'))).toBe(true);
+
+      const blockedByName = await command(777, 'A normal story prompt', 'target_username');
+      expect(blockedByName.some((m) => m.includes('Access denied: banned user.'))).toBe(true);
+
+      const listed = await command(1796415913, '/ban');
+      expect(listed.some((m) => m.includes('Banned users:'))).toBe(true);
+      expect(listed.some((m) => m.includes('ids: 888'))).toBe(true);
+      expect(listed.some((m) => m.includes('@target_username'))).toBe(true);
+
+      const denyUnban = await command(777, '/unban 888', 'user777');
+      expect(denyUnban.some((m) => m.includes('Access denied'))).toBe(true);
+
+      const unbanById = await command(1796415913, '/unban 888');
+      expect(unbanById.some((m) => m.includes('Removed from blacklist: 888'))).toBe(true);
+      const userBack = await command(888, '/user', 'user888');
+      expect(userBack.some((m) => m.includes('Your user id: 888'))).toBe(true);
+
+      const unbanByName = await command(1796415913, '/unban target_username');
+      expect(unbanByName.some((m) => m.includes('Removed from blacklist: target_username'))).toBe(true);
+      const byNameBack = await command(777, '/help', 'target_username');
+      expect(byNameBack.some((m) => m.includes('Web2Comic'))).toBe(true);
     } finally {
       await bot.stop();
       await tg.close();
@@ -337,8 +412,8 @@ describe('render bot comprehensive interaction suite', () => {
       expect(cfg777.some((m) => m.includes('generation.panel_count: 8'))).toBe(true);
 
       const cfg888 = await command(888, '/config');
-      expect(cfg888.some((m) => m.includes('generation.panel_count: 3'))).toBe(true);
-      expect(cfg888.some((m) => m.includes('generation.panel_count: 8'))).toBe(false);
+      expect(cfg888.some((m) => m.includes('generation.panel_count: 8'))).toBe(true);
+      expect(cfg888.some((m) => m.includes('generation.panel_count: 3'))).toBe(false);
     } finally {
       await bot.stop();
       await tg.close();
@@ -405,7 +480,7 @@ describe('render bot comprehensive interaction suite', () => {
     expect(raw.users['888'].profile.chat.username).toBe('profile_chat');
   }, 30000);
 
-  it('supports hidden /peek with count variants for latest generated comics', async () => {
+  it('supports hidden /peek list and selection variants for latest generated comics', async () => {
     const tg = await startFakeTelegramServer();
     const botPort = await getFreePort();
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'render-bot-peek-'));
@@ -424,6 +499,7 @@ describe('render bot comprehensive interaction suite', () => {
       await waitFor(() => sentMessages(tg.calls)
         .map((c) => String(c.body.text || ''))
         .filter((m) => m.includes('Done: text -> comic panels')).length >= 6, 20000, 100);
+      await new Promise((r) => setTimeout(r, 600));
       const before = sentMessages(tg.calls).length;
       await send(777, '/peek');
       await waitFor(() => sentMessages(tg.calls)
@@ -436,34 +512,35 @@ describe('render bot comprehensive interaction suite', () => {
         .find((m) => m.includes('Last 10 generated comics:')) || '';
       expect(text).toContain('Last 10 generated comics:');
       expect((text.match(/^\d+\./gm) || []).length).toBe(6);
-      expect(text).toContain('user:');
-      expect(text).toContain('msg:');
-      expect(text).toContain('cfg:');
-      expect(text).toContain('image:');
+      expect(text).toContain('|');
+      expect(text).toContain('Use /peek <number> to view one item.');
 
       const beforePeek5 = sentMessages(tg.calls).length;
       await send(777, '/peek5');
       await waitFor(() => sentMessages(tg.calls)
         .slice(beforePeek5)
         .map((c) => String(c.body.text || ''))
-        .some((m) => m.includes('Last 5 generated comics:')), 10000, 100);
+        .some((m) => m.includes('Comic 5 of')), 10000, 100);
       const text5 = sentMessages(tg.calls)
         .slice(beforePeek5)
         .map((c) => String(c.body.text || ''))
-        .find((m) => m.includes('Last 5 generated comics:')) || '';
-      expect((text5.match(/^\d+\./gm) || []).length).toBe(5);
+        .find((m) => m.includes('Comic 5 of')) || '';
+      expect(text5).toContain('date:');
+      expect(text5).toContain('user:');
+      expect(text5).toContain('name:');
+      expect(text5).toContain('image:');
 
       const beforePeek3 = sentMessages(tg.calls).length;
       await send(777, '/peek 3');
       await waitFor(() => sentMessages(tg.calls)
         .slice(beforePeek3)
         .map((c) => String(c.body.text || ''))
-        .some((m) => m.includes('Last 3 generated comics:')), 10000, 100);
+        .some((m) => m.includes('Comic 3 of')), 10000, 100);
       const text3 = sentMessages(tg.calls)
         .slice(beforePeek3)
         .map((c) => String(c.body.text || ''))
-        .find((m) => m.includes('Last 3 generated comics:')) || '';
-      expect((text3.match(/^\d+\./gm) || []).length).toBe(3);
+        .find((m) => m.includes('Comic 3 of')) || '';
+      expect(text3).toContain('name:');
     } finally {
       await bot.stop();
       await tg.close();
@@ -541,7 +618,7 @@ describe('render bot comprehensive interaction suite', () => {
       const creds = await command('/credentials');
       expect(creds.some((m) => m.includes('GEMINI_API_KEY: set (env)'))).toBe(true);
       const cfg = await command('/config');
-      expect(cfg.some((m) => m.includes('generation.panel_count: 3'))).toBe(true);
+      expect(cfg.some((m) => m.includes('generation.panel_count: 8'))).toBe(true);
     } finally {
       await bot.stop();
       await tg.close();
@@ -577,12 +654,12 @@ describe('render bot comprehensive interaction suite', () => {
       const c888 = byChat.get('888') || [];
       expect(c777.length).toBeGreaterThanOrEqual(3);
       expect(c888.length).toBeGreaterThanOrEqual(3);
-      expect(c777[0]).toContain('1.');
-      expect(c777[1]).toContain('2.');
-      expect(c777[2]).toContain('3.');
-      expect(c888[0]).toContain('1.');
-      expect(c888[1]).toContain('2.');
-      expect(c888[2]).toContain('3.');
+      expect(c777[0]).toContain('1(3)');
+      expect(c777[1]).toContain('2(3)');
+      expect(c777[2]).toContain('3(3)');
+      expect(c888[0]).toContain('1(3)');
+      expect(c888[1]).toContain('2(3)');
+      expect(c888[2]).toContain('3(3)');
     } finally {
       await bot.stop();
       await tg.close();

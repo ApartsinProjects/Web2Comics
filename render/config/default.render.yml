@@ -10,8 +10,8 @@ input:
     - aside
 
 generation:
-  panel_count: 3
-  objective: summarize
+  panel_count: 8
+  objective: explain-like-im-five
   output_language: en
   detail_level: low
   style_prompt: "clean comic panel art, readable characters, coherent scene progression"

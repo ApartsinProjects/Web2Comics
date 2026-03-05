@@ -1,5 +1,6 @@
 const path = require('path');
 const http = require('http');
+const fs = require('fs');
 const { spawn } = require('child_process');
 const { S3Client, ListObjectsV2Command, GetObjectCommand } = require('@aws-sdk/client-s3');
 const { loadEnvFiles } = require('../src/env');
@@ -194,7 +195,20 @@ describe('full stack interfaces e2e', () => {
     const cfYaml = readCloudflareYaml(repoRoot);
     const awsYaml = readAwsYaml(repoRoot);
 
-    const serviceBase = firstNonEmpty(process.env.RENDER_PUBLIC_BASE_URL, 'https://web2comics-telegram-render-bot.onrender.com');
+    const deployMetadataPath = path.join(repoRoot, 'render/out/deploy-render-metadata.json');
+    let deployMetadata = {};
+    if (fs.existsSync(deployMetadataPath)) {
+      try {
+        deployMetadata = JSON.parse(fs.readFileSync(deployMetadataPath, 'utf8')) || {};
+      } catch (_) {
+        deployMetadata = {};
+      }
+    }
+    const serviceBase = firstNonEmpty(
+      process.env.RENDER_PUBLIC_BASE_URL,
+      deployMetadata.publicUrl,
+      'https://web2comics-telegram-render-bot.onrender.com'
+    );
     const webhookSecret = firstNonEmpty(process.env.TELEGRAM_WEBHOOK_SECRET, 'web2comics-render-webhook-secret-v1');
     const telegramToken = firstNonEmpty(process.env.TELEGRAM_BOT_TOKEN, tgYaml.bot_token);
     const chatId = firstNonEmpty(

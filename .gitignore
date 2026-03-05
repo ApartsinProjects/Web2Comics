@@ -2,3 +2,34 @@
 .env.e2e.local
 .env.local
 shared/recommended-model-set.local.json
+.telegram.yaml
+render/.env
+render/data/runtime-state.json
+
+.aws.yaml
+.cloudflare.tokens.yaml
+
+# Cloudflare Worker local artifacts
+.wrangler/
+cloudflare/.wrangler/
+cloudflare/.dev.vars
+
+.cloudflare.yaml
+
+# Local deps/build/test artifacts
+node_modules/
+playwright-report/
+test-results/
+artifacts/
+videos/
+engine/out/
+render/out/
+render/data/
+
+# Local tool/session state
+.vscode/
+.autoclaude/
+.claude_agent_farm_backups/
+.release/
+.release-check/
+.tmp-vitest.log

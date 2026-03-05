@@ -45,9 +45,9 @@ describe('render generate helpers', () => {
         cfg
       );
       expect(result.panelMessages.length).toBe(3);
-      expect(result.panelMessages[0].caption).toContain('1.');
-      expect(result.panelMessages[1].caption).toContain('2.');
-      expect(result.panelMessages[2].caption).toContain('3.');
+      expect(result.panelMessages[0].caption).toContain('1(3)');
+      expect(result.panelMessages[1].caption).toContain('2(3)');
+      expect(result.panelMessages[2].caption).toContain('3(3)');
       expect(fs.existsSync(result.panelMessages[0].imagePath)).toBe(true);
     } finally {
       if (previous == null) delete process.env.RENDER_BOT_FAKE_GENERATOR;

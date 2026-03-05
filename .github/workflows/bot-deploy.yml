@@ -76,6 +76,7 @@ jobs:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: |
           set -euo pipefail
+          npm run secrets:validate:deploy:ci
           EXTRA_ARGS=()
           EXTRA_ARGS+=(--target "${{ github.event.inputs.target }}")
           EXTRA_ARGS+=(--branch "${{ github.event.inputs.branch }}")

@@ -157,7 +157,7 @@ async function generateWithRuntimeConfig(text, runtime, effectiveConfigPath) {
   };
 }
 
-async function generatePanelsWithRuntimeConfig(text, runtime, effectiveConfigPath) {
+async function generatePanelsWithRuntimeConfig(text, runtime, effectiveConfigPath, options = {}) {
   if (isFakeGeneratorEnabled()) {
     await maybeFakeDelay();
     const parsed = classifyMessageInput(text);
@@ -170,12 +170,16 @@ async function generatePanelsWithRuntimeConfig(text, runtime, effectiveConfigPat
       const imagePath = path.join(runtime.outDir, `render-fake-${ts}-panel-${i + 1}.png`);
       writeTinyPng(imagePath);
       writtenPaths.push(imagePath);
-      const caption = `${i + 1}. Fake panel ${i + 1}`;
-      panelMessages.push({
+      const caption = `${i + 1}(${panelCount}) Fake panel ${i + 1}`;
+      const panelMessage = {
         index: i + 1,
         caption,
         imagePath
-      });
+      };
+      panelMessages.push(panelMessage);
+      if (typeof options.onPanelReady === 'function') {
+        await options.onPanelReady(panelMessage);
+      }
     }
     recordGeneratedImagesInBackground(runtime, writtenPaths);
     return {
@@ -200,44 +204,46 @@ async function generatePanelsWithRuntimeConfig(text, runtime, effectiveConfigPat
     ? path.join(runtime.outDir, path.basename(prep.outputPath, '.png') + '-debug')
     : '';
 
+  const panelMessages = [];
+  const writtenPaths = [];
+  const ts = new Date().toISOString().replace(/[:.]/g, '-');
+  fs.mkdirSync(runtime.outDir, { recursive: true });
+
   const detailed = await runComicEnginePanels({
     rootDir: runtime.repoRoot,
     inputPath: prep.inputPath,
     configPath: effectiveConfigPath,
     debugDir,
-    titleOverride: prep.titleOverride
+    titleOverride: prep.titleOverride,
+    onPanelReady: async ({ index, total, panel, image }) => {
+      const imagePath = path.join(runtime.outDir, `render-${prep.kind}-${ts}-panel-${index + 1}.png`);
+      fs.writeFileSync(imagePath, image.buffer);
+      writtenPaths.push(imagePath);
+      const captionText = String(panel?.caption || '').trim();
+      const beatText = String(panel?.beat || '').trim();
+      const caption = beatText
+        ? `${index + 1}(${total}) ${captionText}\n${beatText}`
+        : `${index + 1}(${total}) ${captionText}`;
+      const panelMessage = {
+        index: index + 1,
+        caption: caption.slice(0, 1000),
+        imagePath
+      };
+      panelMessages[index] = panelMessage;
+      if (typeof options.onPanelReady === 'function') {
+        await options.onPanelReady(panelMessage);
+      }
+    }
   });
-
-  const panelMessages = [];
-  const writtenPaths = [];
-  const ts = new Date().toISOString().replace(/[:.]/g, '-');
-  fs.mkdirSync(runtime.outDir, { recursive: true });
-  for (let i = 0; i < detailed.panelImages.length; i += 1) {
-    const panel = detailed.storyboard.panels[i] || {};
-    const image = detailed.panelImages[i];
-    const imagePath = path.join(runtime.outDir, `render-${prep.kind}-${ts}-panel-${i + 1}.png`);
-    fs.writeFileSync(imagePath, image.buffer);
-    writtenPaths.push(imagePath);
-    const captionText = String(panel.caption || '').trim();
-    const beatText = String(panel.beat || '').trim();
-    const caption = beatText
-      ? `${i + 1}. ${captionText}\n${beatText}`
-      : `${i + 1}. ${captionText}`;
-    panelMessages.push({
-      index: i + 1,
-      caption: caption.slice(0, 1000),
-      imagePath
-    });
-  }
 
   recordGeneratedImagesInBackground(runtime, writtenPaths);
 
   return {
-    panelCount: panelMessages.length,
+    panelCount: detailed.storyboard?.panels?.length || panelMessages.filter(Boolean).length,
     elapsedMs: detailed.elapsedMs,
     kind: prep.kind,
     summary: prep.summary,
-    panelMessages,
+    panelMessages: panelMessages.filter(Boolean),
     storyboard: detailed.storyboard || null
   };
 }

@@ -368,9 +368,9 @@ describe('render webhook bot REST + telegram flow', () => {
       const photos = chunk.filter((c) => c.url.endsWith('/sendPhoto'));
       expect(photos.length).toBeGreaterThanOrEqual(3);
       const captions = photos.slice(0, 3).map((c) => extractMultipartField(c.raw, 'caption'));
-      expect(captions[0]).toContain('1. Fake panel 1');
-      expect(captions[1]).toContain('2. Fake panel 2');
-      expect(captions[2]).toContain('3. Fake panel 3');
+      expect(captions[0]).toContain('1(3) Fake panel 1');
+      expect(captions[1]).toContain('2(3) Fake panel 2');
+      expect(captions[2]).toContain('3(3) Fake panel 3');
       const msgTexts = chunk.filter((c) => c.url.endsWith('/sendMessage')).map((c) => String(c.body.text || ''));
       expect(msgTexts.some((m) => m.includes('Generating your comic'))).toBe(true);
       expect(msgTexts.some((m) => m.includes('Done: url -> comic panels'))).toBe(true);
@@ -607,6 +607,10 @@ describe('render webhook bot REST + telegram flow', () => {
       expect(r5.status).toBe(200);
 
       await waitFor(() => tg.calls.filter((c) => c.url.endsWith('/sendPhoto')).length >= 12, 20000, 100);
+      await waitFor(() => tg.calls
+        .filter((c) => c.url.endsWith('/sendMessage'))
+        .map((c) => String(c.body.text || ''))
+        .some((m) => m.includes('Unsupported message format')), 20000, 100);
       const chunk = tg.calls.slice(startCalls);
       const texts = chunk.filter((c) => c.url.endsWith('/sendMessage')).map((c) => String(c.body.text || ''));
 
@@ -672,9 +676,9 @@ describe('render webhook bot REST + telegram flow', () => {
       const photos = chunk.filter((c) => c.url.endsWith('/sendPhoto'));
       expect(photos.length).toBeGreaterThanOrEqual(3);
       const captions = photos.slice(0, 3).map((c) => extractMultipartField(c.raw, 'caption'));
-      expect(captions[0]).toContain('1. Fake panel 1');
-      expect(captions[1]).toContain('2. Fake panel 2');
-      expect(captions[2]).toContain('3. Fake panel 3');
+      expect(captions[0]).toContain('1(3) Fake panel 1');
+      expect(captions[1]).toContain('2(3) Fake panel 2');
+      expect(captions[2]).toContain('3(3) Fake panel 3');
       const texts = chunk.filter((c) => c.url.endsWith('/sendMessage')).map((c) => String(c.body.text || ''));
       expect(texts.some((m) => m.includes('Inventing an expanded story'))).toBe(true);
       expect(texts.some((m) => m.includes('Invented story ready'))).toBe(true);
@@ -702,6 +706,10 @@ describe('render webhook bot REST + telegram flow', () => {
       });
       expect(res.status).toBe(200);
       await waitFor(() => tg.calls.filter((c) => c.url.endsWith('/sendPhoto')).length >= 4, 12000, 100);
+      await waitFor(() => tg.calls
+        .filter((c) => c.url.endsWith('/sendMessage'))
+        .map((c) => String(c.body.text || ''))
+        .some((m) => m.includes('Done: text -> comic panels')), 12000, 100);
       const doneMessages = tg.calls
         .filter((c) => c.url.endsWith('/sendMessage'))
         .map((c) => String(c.body.text || ''));

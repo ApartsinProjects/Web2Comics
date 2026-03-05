@@ -26,7 +26,7 @@ describe('render config store', () => {
     await store.load();
     await store.setConfigValue('alice', 'generation.panel_count', 8);
     expect(store.getCurrent('alice', 'generation.panel_count')).toBe(8);
-    expect(store.getCurrent('bob', 'generation.panel_count')).toBe(3);
+    expect(store.getCurrent('bob', 'generation.panel_count')).toBe(8);
   });
 
   it('stores only last 20 interactions', async () => {

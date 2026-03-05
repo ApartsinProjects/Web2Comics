@@ -12,6 +12,11 @@ const {
   validateProviderEnv
 } = require('./lib');
 
+let globalStage = 'init';
+let globalOwnerId = '';
+let globalServiceId = '';
+let globalRenderApiKey = '';
+
 async function setTelegramWebhook(token, secret, publicBaseUrl) {
   const url = `${String(publicBaseUrl || '').replace(/\/+$/, '')}/telegram/webhook/${secret}`;
   const apiUrl = `https://api.telegram.org/bot${token}/setWebhook`;
@@ -280,6 +285,7 @@ function normalizeIdCsv(...values) {
 }
 
 async function main() {
+  globalStage = 'load-env';
   const repoRoot = path.resolve(__dirname, '../..');
   const preArgs = parseArgs(process.argv.slice(2));
   const envOnly = parseBool(preArgs['env-only'] || process.env.BOT_SECRETS_ENV_ONLY);
@@ -291,6 +297,11 @@ async function main() {
   ]);
 
   const args = preArgs;
+  const metadataOut = firstNonEmpty(
+    args['metadata-out'],
+    process.env.RENDER_DEPLOY_METADATA_OUT,
+    path.join(repoRoot, 'render/out/deploy-render-metadata.json')
+  );
   const tgYaml = envOnly ? {} : readTelegramYaml(repoRoot);
   const cfYaml = envOnly ? {} : readCloudflareYaml(repoRoot);
   const awsYaml = envOnly ? {} : readAwsYaml(repoRoot);
@@ -301,6 +312,7 @@ async function main() {
     : (parseBool(args['require-all-keys'] || process.env.RENDER_REQUIRE_ALL_KEYS) || true);
 
   const renderApiKey = firstNonEmpty(args['render-api-key'], process.env.RENDER_API_KEY);
+  globalRenderApiKey = renderApiKey;
   const repoUrl = firstNonEmpty(args['repo-url'], process.env.RENDER_REPO_URL, 'https://github.com/ApartsinProjects/Web2Comics');
   const branch = firstNonEmpty(args.branch, process.env.RENDER_REPO_BRANCH, 'main');
   const defaultServiceName = testDeployment ? 'web2comics-telegram-render-bot-test' : 'web2comics-telegram-render-bot';
@@ -383,6 +395,7 @@ async function main() {
   const postgresVersion = firstNonEmpty(args['postgres-version'], process.env.RENDER_POSTGRES_VERSION, '16');
   const postgresRegion = firstNonEmpty(args['postgres-region'], process.env.RENDER_POSTGRES_REGION, region);
 
+  globalStage = 'validate-input';
   if (!renderApiKey) {
     throw new Error('Missing Render API key. Set RENDER_API_KEY or pass --render-api-key');
   }
@@ -410,6 +423,7 @@ async function main() {
 
   const render = new RenderApiClient(renderApiKey);
 
+  globalStage = 'provision-r2';
   if (providerEnv.CLOUDFLARE_API_TOKEN && providerEnv.CLOUDFLARE_ACCOUNT_ID && r2Env.R2_BUCKET) {
     const r2Out = await ensureCloudflareR2Bucket({
       token: providerEnv.CLOUDFLARE_API_TOKEN,
@@ -434,6 +448,7 @@ async function main() {
     console.log('[deploy] R2 S3 credentials incomplete; image/crash logs will use file fallback');
   }
 
+  globalStage = 'resolve-owner';
   let ownerId = ownerIdArg;
   if (!ownerId) {
     const owners = await render.listOwners();
@@ -442,6 +457,9 @@ async function main() {
     if (!ownerId) throw new Error('Unable to resolve ownerId from Render API.');
   }
 
+  globalOwnerId = ownerId;
+
+  globalStage = 'provision-postgres';
   let postgresId = postgresIdArg;
   if (!databaseUrl) {
     if (!postgresId) {
@@ -451,16 +469,29 @@ async function main() {
         postgresId = String((pgRecord.postgres && pgRecord.postgres.id) || pgRecord.id || '');
         console.log(`[deploy] postgres exists: ${postgresName}`);
       } else {
-        const createPgPayload = {
-          name: postgresName,
-          ownerId,
-          plan: postgresPlan,
-          version: postgresVersion,
-          region: postgresRegion
-        };
-        const createdPg = await render.createPostgres(createPgPayload);
-        postgresId = String((createdPg.postgres && createdPg.postgres.id) || createdPg.id || '');
-        console.log(`[deploy] created postgres: ${postgresName}`);
+        try {
+          const createPgPayload = {
+            name: postgresName,
+            ownerId,
+            plan: postgresPlan,
+            version: postgresVersion,
+            region: postgresRegion
+          };
+          const createdPg = await render.createPostgres(createPgPayload);
+          postgresId = String((createdPg.postgres && createdPg.postgres.id) || createdPg.id || '');
+          console.log(`[deploy] created postgres: ${postgresName}`);
+        } catch (error) {
+          const msg = String(error?.message || error);
+          const freeTierLimit = msg.toLowerCase().includes('more than one active free tier database');
+          if (!freeTierLimit) throw error;
+          const existingAny = await render.listPostgresByName('', ownerId);
+          const fallback = (Array.isArray(existingAny) ? existingAny : [])[0];
+          const fallbackId = String((fallback?.postgres && fallback.postgres.id) || fallback?.id || '').trim();
+          const fallbackName = String((fallback?.postgres && fallback.postgres.name) || fallback?.name || '').trim();
+          if (!fallbackId) throw error;
+          postgresId = fallbackId;
+          console.log(`[deploy] free postgres limit hit; reusing existing postgres: ${fallbackName || fallbackId}`);
+        }
       }
     }
 
@@ -473,6 +504,7 @@ async function main() {
     console.log('[deploy] using provided postgres url');
   }
 
+  globalStage = 'provision-service';
   const existing = await render.listServicesByName(serviceName, ownerId);
   let serviceRecord = existing.find((row) => String(row?.service?.name || '') === serviceName);
 
@@ -504,7 +536,9 @@ async function main() {
 
   const serviceId = String((serviceRecord.service && serviceRecord.service.id) || serviceRecord.id || '');
   if (!serviceId) throw new Error('Could not determine service ID.');
+  globalServiceId = serviceId;
 
+  globalStage = 'update-service-config';
   try {
     await render.updateService(serviceId, {
       serviceDetails: {
@@ -520,6 +554,7 @@ async function main() {
     console.log(`[deploy] warning: failed to update service commands: ${String(error?.message || error)}`);
   }
 
+  globalStage = 'sync-env-vars';
   const envVars = {
     TELEGRAM_BOT_TOKEN: telegramToken,
     TELEGRAM_WEBHOOK_SECRET: webhookSecret,
@@ -545,11 +580,13 @@ async function main() {
   await render.setServiceEnvVars(serviceId, envVars);
   console.log('[deploy] env vars synced');
 
+  globalStage = 'trigger-deploy';
   const triggerStartedAtMs = Date.now();
   const deployStart = await render.triggerDeploy(serviceId);
   console.log('[deploy] deploy triggered');
   const deployId = await resolveDeployId(render, serviceId, deployStart, triggerStartedAtMs);
   if (!deployId) throw new Error('Could not resolve deploy ID after trigger.');
+  globalStage = 'wait-deploy';
   const finalDeploy = await waitForDeploy(render, serviceId, deployId);
   const deployStatus = String(finalDeploy?.status || '').toLowerCase();
   if (deployStatus !== 'live') {
@@ -569,6 +606,7 @@ async function main() {
   }
   console.log('[deploy] deploy is live');
 
+  globalStage = 'resolve-public-url';
   let service = await render.getService(serviceId);
   const start = Date.now();
   while (!(service?.serviceDetails?.url) && (Date.now() - start < 180000)) {
@@ -584,7 +622,29 @@ async function main() {
     return;
   }
 
+  globalStage = 'set-telegram-webhook';
   const webhookUrl = await setTelegramWebhook(telegramToken, webhookSecret, publicUrl);
+
+  globalStage = 'write-deploy-metadata';
+  try {
+    const fs = require('fs');
+    fs.mkdirSync(path.dirname(metadataOut), { recursive: true });
+    fs.writeFileSync(metadataOut, JSON.stringify({
+      timestamp: new Date().toISOString(),
+      ownerId,
+      serviceId,
+      serviceName,
+      branch,
+      publicUrl,
+      webhookUrl,
+      webhookSecret,
+      telegramTestChatId,
+      notifyChatId
+    }, null, 2), 'utf8');
+    console.log(`[deploy] metadata written: ${metadataOut}`);
+  } catch (error) {
+    console.log(`[deploy] warning: failed to write metadata: ${String(error?.message || error)}`);
+  }
 
   console.log('');
   console.log('Deployment complete');
@@ -595,7 +655,21 @@ async function main() {
   console.log('Try in Telegram: /start');
 }
 
-main().catch((error) => {
-  console.error('[deploy] failed:', error && error.message ? error.message : String(error));
+main().catch(async (error) => {
+  console.error(`[deploy] failed at stage '${globalStage}':`, error && error.message ? error.message : String(error));
+  if (globalRenderApiKey && globalOwnerId && globalServiceId) {
+    try {
+      const render = new RenderApiClient(globalRenderApiKey);
+      const tail = await fetchRecentServiceLogs(render, globalOwnerId, globalServiceId);
+      if (tail.length) {
+        console.error('[deploy] diagnostic logs tail:');
+        tail.forEach((line) => console.error(line));
+      } else {
+        console.error('[deploy] diagnostic logs tail: none');
+      }
+    } catch (logError) {
+      console.error('[deploy] failed to fetch diagnostic logs:', String(logError?.message || logError));
+    }
+  }
   process.exit(1);
 });

@@ -26,18 +26,33 @@ function asBool(value, fallback = false) {
   return v === '1' || v === 'true' || v === 'yes' || v === 'on';
 }
 
-function cmd() {
-  return process.platform === 'win32' ? 'npm.cmd' : 'npm';
-}
-
 function runNpm(args, env = {}) {
-  const child = spawnSync(cmd(), args, {
+  const command = process.platform === 'win32'
+    ? `npm ${args.map((a) => `"${String(a).replace(/"/g, '\\"')}"`).join(' ')}`
+    : `npm ${args.map((a) => `'${String(a).replace(/'/g, "'\\''")}'`).join(' ')}`;
+  const child = spawnSync(command, {
     stdio: 'inherit',
     cwd: process.cwd(),
-    env: { ...process.env, ...(env || {}) }
+    env: { ...process.env, ...(env || {}) },
+    shell: true
   });
+  if (child.error) {
+    throw new Error(`Command spawn failed: npm ${args.join(' ')} :: ${String(child.error.message || child.error)}`);
+  }
   if (child.status !== 0) {
-    throw new Error(`Command failed: npm ${args.join(' ')}`);
+    throw new Error(`Command failed (exit=${child.status}): npm ${args.join(' ')}`);
+  }
+}
+
+function runStep(label, args, env = {}) {
+  const started = Date.now();
+  console.log(`[deploy:auto] step:start ${label}`);
+  try {
+    runNpm(args, env);
+    console.log(`[deploy:auto] step:ok ${label} (${Date.now() - started}ms)`);
+  } catch (error) {
+    console.error(`[deploy:auto] step:failed ${label} (${Date.now() - started}ms): ${String(error?.message || error)}`);
+    throw error;
   }
 }
 
@@ -118,6 +133,14 @@ function shouldRunCloudflareSmoke(args) {
   return asBool(args['with-cloudflare-smoke'], false);
 }
 
+function shouldRunRenderSanity(args) {
+  if (asBool(args['skip-sanity'], false)) return false;
+  if (Object.prototype.hasOwnProperty.call(args, 'with-render-sanity')) {
+    return asBool(args['with-render-sanity'], false);
+  }
+  return true;
+}
+
 function targetList(rawTarget) {
   const t = String(rawTarget || 'render').trim().toLowerCase();
   if (t === 'both') return ['render', 'cloudflare'];
@@ -131,6 +154,7 @@ function printSummary(args, targets) {
   console.log(`- skip prechecks: ${asBool(args['skip-prechecks'], false)}`);
   console.log(`- skip local tests: ${asBool(args['skip-local-tests'], false)}`);
   console.log(`- render smoke: ${shouldRunRenderSmoke(args)}`);
+  console.log(`- render sanity e2e: ${shouldRunRenderSanity(args)}`);
   console.log(`- cloudflare smoke: ${shouldRunCloudflareSmoke(args)}`);
 }
 
@@ -140,25 +164,33 @@ function main() {
   printSummary(args, targets);
 
   if (!asBool(args['skip-prechecks'], false)) {
-    runNpm(['run', 'test:render:predeploy']);
+    runStep('predeploy-checks', ['run', 'test:render:predeploy']);
   }
 
   if (!asBool(args['skip-local-tests'], false)) {
-    runNpm(['run', 'test:render:local']);
+    runStep('local-tests', ['run', 'test:render:local']);
   }
 
   if (targets.includes('render')) {
     const renderDeployArgs = buildRenderDeployArgs(args);
-    runNpm(['run', 'render:deploy:auto', '--', ...renderDeployArgs]);
+    runStep('render-deploy', ['run', 'render:deploy:auto', '--', ...renderDeployArgs]);
+    if (shouldRunRenderSanity(args)) {
+      const sanityArgs = ['run', 'render:deploy:sanity'];
+      const metadataIn = String(args['metadata-in'] || process.env.RENDER_DEPLOY_METADATA_OUT || '').trim();
+      if (metadataIn) {
+        sanityArgs.push('--', '--metadata-in', metadataIn);
+      }
+      runStep('render-sanity-e2e', sanityArgs);
+    }
     if (shouldRunRenderSmoke(args)) {
-      runNpm(['run', 'test:render:full-stack'], { RUN_FULL_STACK_E2E: 'true' });
+      runStep('render-full-stack-smoke', ['run', 'test:render:full-stack'], { RUN_FULL_STACK_E2E: 'true' });
     }
   }
 
   if (targets.includes('cloudflare')) {
-    runNpm(['run', 'deploy:cloudflare']);
+    runStep('cloudflare-deploy', ['run', 'deploy:cloudflare']);
     if (shouldRunCloudflareSmoke(args)) {
-      runNpm(['run', 'test:cloudflare:smoke']);
+      runStep('cloudflare-smoke', ['run', 'test:cloudflare:smoke']);
     }
   }
 

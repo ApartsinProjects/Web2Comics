@@ -64,6 +64,7 @@ jobs:
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
         run: |
           set -euo pipefail
+          npm run secrets:validate:tests:ci
 
           npm run test:render:local
           npm run test:render
@@ -84,4 +85,3 @@ jobs:
             npm run test:cloudflare
             npm run test:cloudflare:smoke
           fi
-

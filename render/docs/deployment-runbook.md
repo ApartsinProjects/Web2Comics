@@ -1,193 +1,115 @@
-# Render/Cloudflare Bot Deployment Runbook
+# Web2Comic Bot Deployment Runbook
 
-## 1) One-command automatic deployment
+## Scope
+This runbook covers deployment of the Telegram webhook bot in `render/src/webhook-bot.js` with persistent storage in Postgres + Cloudflare R2.
 
-Use the new wrapper script:
+## 1) Prerequisites
+- Node 20+
+- Repo checked out and dependencies installed (`npm ci`)
+- Telegram bot token from BotFather
+- Render API key + owner id
+- Cloudflare R2 bucket and S3 credentials
+- At least one text/image provider key (Gemini recommended)
 
-```bash
-npm run bot:deploy:auto -- --target render --branch engine --env-only
-```
+## 2) Required Secrets
+Set these in GitHub Secrets (recommended) or local env for manual deployment.
 
-Targets:
-- `--target render` (default)
-- `--target cloudflare`
-- `--target both`
-
-Useful flags:
-- `--with-render-smoke` run full-stack render smoke after deploy
-- `--with-cloudflare-smoke` run cloudflare smoke after deploy
-- `--skip-prechecks` skip `test:render:predeploy`
-- `--skip-local-tests` skip `test:render:local`
-- `--env-only` force secrets from environment only (recommended for CI/GitHub Actions)
-- `--allow-partial-keys` optional override if you intentionally deploy without a full provider-key set
-
-This wrapper calls the existing deployment automation:
-- Render: `render/scripts/deploy-render-webhook.js`
-- Cloudflare Worker: `cloudflare/scripts/deploy-worker.js`
-
-## 2) GitHub Secrets (primary method)
-
-Use repository/environment secrets as the source of truth.  
-Do not keep long-lived keys in tracked files.
-
-### Required GitHub secrets (minimum for Render deploy)
-- `RENDER_API_KEY`
-- `TELEGRAM_BOT_TOKEN`
-- `TELEGRAM_WEBHOOK_SECRET`
-- provider keys (strict sync default):
+- Core:
+  - `RENDER_API_KEY`
+  - `RENDER_OWNER_ID`
+  - `TELEGRAM_BOT_TOKEN`
+  - `TELEGRAM_WEBHOOK_SECRET`
+- Telegram routing/admin:
+  - `TELEGRAM_NOTIFY_CHAT_ID`
+  - `TELEGRAM_TEST_CHAT_ID`
+  - `TELEGRAM_ADMIN_CHAT_IDS`
+  - `COMICBOT_ALLOWED_CHAT_IDS`
+- Providers:
   - `GEMINI_API_KEY`
   - `OPENAI_API_KEY`
   - `OPENROUTER_API_KEY`
   - `HUGGINGFACE_INFERENCE_API_TOKEN`
   - `CLOUDFLARE_ACCOUNT_ID`
   - `CLOUDFLARE_API_TOKEN`
-
-### Recommended GitHub secrets
-- `TELEGRAM_NOTIFY_CHAT_ID`
-- `TELEGRAM_TEST_CHAT_ID`
-- `TELEGRAM_ADMIN_CHAT_IDS`
-- `COMICBOT_ALLOWED_CHAT_IDS`
-- `RENDER_OWNER_ID`
-- `DATABASE_URL` (if using pre-provisioned Postgres)
-- `CLOUDFLARE_ACCOUNT_ID`
-- `CLOUDFLARE_API_TOKEN`
-- `R2_S3_ENDPOINT`
-- `R2_BUCKET`
-- `R2_ACCESS_KEY_ID`
-- `R2_SECRET_ACCESS_KEY`
-- `RENDER_PUBLIC_BASE_URL` (for remote full-stack tests)
-- `TELEGRAM_TEST_CHAT_ID` (for smoke tests and deployment test routing)
-
-### GitHub workflows
-- Deploy: `.github/workflows/bot-deploy.yml`
-- Test: `.github/workflows/bot-tests.yml`
-
-Both workflows run with `BOT_SECRETS_ENV_ONLY=true`.
-
-## 3) Required keys and where to get them
-
-### Mandatory for Render deployment
-- Render API key
-  - Where to get: Render dashboard -> Account/Workspace API keys
-  - Used as: `RENDER_API_KEY`
-- Telegram bot token
-  - Where to get: BotFather (`/newbot`)
-  - Used as: `TELEGRAM_BOT_TOKEN`
-- At least one provider key (Gemini recommended)
-  - Gemini: https://aistudio.google.com/apikey -> `GEMINI_API_KEY`
-  - OpenAI: https://platform.openai.com/api-keys -> `OPENAI_API_KEY`
-  - OpenRouter: https://openrouter.ai/settings/keys -> `OPENROUTER_API_KEY`
-  - Hugging Face: https://huggingface.co/settings/tokens -> `HUGGINGFACE_INFERENCE_API_TOKEN`
-
-### Needed for R2-backed storage (recommended)
-- Cloudflare account token (R2 API access)
-  - Cloudflare dashboard -> API tokens
-  - Used as: `CLOUDFLARE_API_TOKEN`
-- Cloudflare account id
-  - Used as: `CLOUDFLARE_ACCOUNT_ID`
-- R2 S3 credentials
+- Storage/database:
+  - `R2_S3_ENDPOINT`
+  - `R2_BUCKET`
   - `R2_ACCESS_KEY_ID`
   - `R2_SECRET_ACCESS_KEY`
-  - `R2_S3_ENDPOINT` (format: `https://<account_id>.r2.cloudflarestorage.com`)
-  - `R2_BUCKET`
+  - `DATABASE_URL`
 
-## 4) Where keys are stored (tests vs deployment)
+## 3) Secret Validation
+Validate mapping and required env values before deploy:
 
-### Primary (recommended)
-- GitHub Secrets -> injected as environment variables in workflows and deploy runs.
+```bash
+npm run secrets:validate:deploy
+npm run secrets:validate:deploy:ci
+```
 
-### Optional local fallback (dev only)
-- `.env.e2e.local`, `.telegram.yaml`, `.cloudflare.yaml`, `.aws.yaml` are still supported for local developer convenience.
-- In CI/security mode use `BOT_SECRETS_ENV_ONLY=true` to disable YAML fallback.
+CI workflows also enforce these checks:
+- `.github/workflows/bot-deploy.yml`
+- `.github/workflows/bot-tests.yml`
 
-### Deployment-time storage on target platforms
-- Render deployment script writes service env vars directly to Render:
-  - telegram, provider keys, postgres, R2 vars, admin/allowed ids
-- Cloudflare deploy script writes worker secrets via `wrangler secret put`
+## 4) Deploy Commands
+Primary path:
 
-### Runtime storage
-- User config/secrets/state: Postgres (`RENDER_BOT_PG_URL`/`DATABASE_URL`)
-- Request/crash/image artifacts: R2 prefixes (`logs/requests`, `crash-logs`, `images`)
-
-## 5) Telegram admin ID provisioning
-
-Admin ID controls admin commands like `/peek` and `/share`.
-
-How to get Telegram user id:
-- Easiest: message the bot and run `/user`
-- Alternative: use `@userinfobot` in Telegram
-
-Where it is configured:
-- Deploy args: `--admin-chat-ids "123456789,..."` and `--allowed-chat-ids "..."`
-- Env vars / GitHub Secrets:
-  - `TELEGRAM_ADMIN_CHAT_IDS`
-  - `COMICBOT_ALLOWED_CHAT_IDS`
-
-## 6) Deployment flows
-
-### Render only (recommended primary)
 ```bash
 npm run bot:deploy:auto -- --target render --branch engine --env-only
 ```
 
-### Render + post-deploy smoke
+Useful variants:
+
 ```bash
 npm run bot:deploy:auto -- --target render --branch engine --env-only --with-render-smoke
-```
-
-### Cloudflare worker only
-```bash
 npm run bot:deploy:auto -- --target cloudflare --env-only --with-cloudflare-smoke
-```
-
-### Both targets
-```bash
 npm run bot:deploy:auto -- --target both --branch engine --env-only --with-render-smoke --with-cloudflare-smoke
 ```
 
-## 7) Test matrix by interface/API
+By default, `bot:deploy:auto` now runs a post-deploy sanity E2E check for Render (`render/scripts/postdeploy-sanity.js`).
+Skip it only when needed:
 
-### Local bot API (webhook + fake Telegram API)
 ```bash
-npm run test:render:local
+npm run bot:deploy:auto -- --target render --branch engine --env-only --skip-sanity
 ```
 
-### Full local render suite
-```bash
-npm run test:render
-```
+## 5) What Automation Performs
+- Creates/reuses Render service
+- Creates/reuses Render Postgres
+- Creates/reuses R2 bucket (if API token/account provided)
+- Verifies R2 read/write/delete
+- Syncs service environment variables
+- Deploys service and waits for live status
+- Registers Telegram webhook with `drop_pending_updates=true`
 
-### Live provider tests (Gemini)
-```bash
-set RUN_RENDER_REAL_GEMINI=1
-npm run test:render:gemini-real
-```
+## 6) Post-Deploy Checks
+- `GET /healthz` returns 200
+- Send `/help` and `/about` in Telegram
+- Send short text and verify:
+  - prompt expansion notice for very short prompts
+  - panel delivery starts as soon as panels are generated
+  - captions use `X(Y)` prefix format
+- Send URL and verify URL rendering flow works
+- Sanity script (automatic in deploy wrapper):
+  - health endpoint check
+  - webhook generation trigger
+  - R2 request-log marker detection
+  - R2 image growth (live provider path)
+  - Telegram `sendMessage` API probe
 
-### Render remote service + Telegram + R2 full-stack API path
-```bash
-set RUN_FULL_STACK_E2E=true
-npm run test:render:full-stack
-```
+## 7) Admin Provisioning
+Admin id controls hidden commands.
 
-### Cloudflare worker tests
-```bash
-npm run test:cloudflare
-npm run test:cloudflare:smoke
-```
+- Get user id: send `/user` to bot
+- Set admin list with `TELEGRAM_ADMIN_CHAT_IDS`
+- Admin commands include:
+  - `/peek`, `/peek<n>`
+  - `/log`, `/log<n>`
+  - `/users`
+  - `/ban`, `/ban <user_id|username>`
+  - `/unban <user_id|username>`
+  - `/share <user_id>`
 
-### R2 real integration tests
-```bash
-set RUN_R2_E2E=true
-npm run test:render:r2-real
-```
-
-## 8) Notes on automatic provisioning
-
-Render deploy automation already does:
-- create/reuse Render web service
-- create/reuse Render Postgres
-- create/reuse R2 bucket (if token/account available)
-- validate R2 S3 write/read/delete probe
-- sync env vars
-- trigger deploy and wait for `live`
-- register Telegram webhook with `drop_pending_updates=true`
+## 8) Rollback/Hotfix
+- Re-run deploy with previous branch/commit
+- Keep webhook secret stable unless rotation is required
+- If rotated, redeploy and re-register webhook immediately

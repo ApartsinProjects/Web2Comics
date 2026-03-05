@@ -16,6 +16,8 @@
 - Immediate webhook ACK, processing continues asynchronously.
 - Per-chat queue to avoid concurrent conflicts.
 - Per-user config + secrets persisted in Postgres.
+- Banned users are blocked before allowlist evaluation.
+- Panels are sent to Telegram progressively as they are generated.
 
 ## Secrets handling
 - Secrets are redacted in user-facing responses.
@@ -30,3 +32,9 @@
 - Start locally: `npm run render:start`
 - Register webhook: `npm run render:set-webhook -- --url <base-url>`
 - Auto deploy: `npm run render:deploy:auto`
+
+## Admin command operations
+- `/peek` list last generated comics, `/peek<n>` view one.
+- `/users` list known users.
+- `/ban` list blacklist, `/ban <user_id|username>` add block.
+- `/unban <user_id|username>` remove block.
