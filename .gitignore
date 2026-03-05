@@ -27,6 +27,7 @@ coverage/
 *.lcov
 engine/out/
 render/out/
+render/cfgs/
 render/data/
 comicbot/out/
 tmp/

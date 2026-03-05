@@ -187,6 +187,37 @@ describe('render webhook bot REST + telegram flow', () => {
     }
   }, 20000);
 
+  it('shows welcome message for a user joining first time', async () => {
+    const tg = await startFakeTelegramServer();
+    const botPort = await getFreePort();
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'render-bot-welcome-first-'));
+    const bot = await startBotProcess(
+      botPort,
+      `http://127.0.0.1:${tg.port}/botTEST_TOKEN`,
+      path.join(tmpDir, 'runtime-state.json')
+    );
+
+    try {
+      const before = tg.calls.filter((c) => c.url.endsWith('/sendMessage')).length;
+      const res = await postUpdate(botPort, {
+        chat: { id: 777 },
+        from: { id: 777, username: 'new_user', first_name: 'New' },
+        text: '/help'
+      });
+      expect(res.status).toBe(200);
+      await waitFor(() => tg.calls.filter((c) => c.url.endsWith('/sendMessage')).length >= before + 2, 10000, 100);
+      const chunk = tg.calls
+        .filter((c) => c.url.endsWith('/sendMessage'))
+        .slice(before)
+        .map((c) => String(c.body.text || ''));
+      expect(chunk.some((m) => m.includes('Welcome to Web2Comic.'))).toBe(true);
+      expect(chunk.some((m) => m.includes('Commands:'))).toBe(true);
+    } finally {
+      await bot.stop();
+      await tg.close();
+    }
+  }, 25000);
+
   it('help output includes one-line descriptions for all user commands', async () => {
     const tg = await startFakeTelegramServer();
     const botPort = await getFreePort();

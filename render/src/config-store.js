@@ -60,11 +60,20 @@ function formatConfigValue(value) {
 }
 
 class RuntimeConfigStore {
-  constructor(baseConfigPath, persistence) {
+  constructor(baseConfigPath, persistence, options = {}) {
     this.baseConfigPath = path.resolve(baseConfigPath);
     this.persistence = persistence;
+    this.cfgRootDir = path.resolve(String(options.cfgRootDir || path.join(process.cwd(), 'render/cfgs')));
+    this.adminChatIds = new Set(
+      String(options.adminChatIds || '')
+        .split(',')
+        .map((v) => String(v || '').trim())
+        .filter(Boolean)
+    );
     this.baseConfig = loadConfig(this.baseConfigPath).config;
-    this.state = { users: {}, history: [], banlist: { ids: [], usernames: [] }, globalOverrides: {}, meta: {} };
+    this.blacklistStore = options.blacklistStore || null;
+    this.knownUsersStore = options.knownUsersStore || null;
+    this.state = { users: {}, knownUsers: {}, history: [], banlist: { ids: [], usernames: [] }, globalOverrides: {}, meta: {} };
     this.baseSecrets = {};
     this.saveQueue = Promise.resolve();
     SECRET_KEYS.forEach((key) => {
@@ -83,6 +92,7 @@ class RuntimeConfigStore {
     try {
       if (raw && typeof raw.users === 'object') {
         this.state.users = raw.users;
+        this.state.knownUsers = (raw.knownUsers && typeof raw.knownUsers === 'object') ? raw.knownUsers : {};
         this.state.history = Array.isArray(raw.history) ? raw.history : [];
         this.state.banlist = (raw && raw.banlist && typeof raw.banlist === 'object')
           ? {
@@ -105,26 +115,71 @@ class RuntimeConfigStore {
             seen: true
           }
         };
+        this.state.knownUsers = {};
         this.state.history = [];
         this.state.banlist = { ids: [], usernames: [] };
         this.state.globalOverrides = {};
         this.state.meta = {};
       } else {
         this.state.users = {};
+        this.state.knownUsers = {};
         this.state.history = [];
         this.state.banlist = { ids: [], usernames: [] };
         this.state.globalOverrides = {};
         this.state.meta = {};
       }
     } catch (_) {
-      this.state = { users: {}, history: [], banlist: { ids: [], usernames: [] }, globalOverrides: {}, meta: {} };
+      this.state = { users: {}, knownUsers: {}, history: [], banlist: { ids: [], usernames: [] }, globalOverrides: {}, meta: {} };
     }
+    try {
+      if (this.blacklistStore && typeof this.blacklistStore.load === 'function') {
+        const loadedBanlist = await this.blacklistStore.load();
+        this.state.banlist = {
+          ids: Array.isArray(loadedBanlist?.ids) ? loadedBanlist.ids.map((v) => String(v).trim()).filter(Boolean) : [],
+          usernames: Array.isArray(loadedBanlist?.usernames)
+            ? loadedBanlist.usernames.map((v) => String(v).trim().toLowerCase()).filter(Boolean)
+            : []
+        };
+      }
+    } catch (_) {}
+    try {
+      if (this.knownUsersStore && typeof this.knownUsersStore.load === 'function') {
+        const rows = await this.knownUsersStore.load();
+        const out = {};
+        (Array.isArray(rows) ? rows : []).forEach((row) => {
+          const id = String(row?.id || '').trim();
+          if (!id) return;
+          out[id] = {
+            id,
+            username: String(row.username || '').trim(),
+            chatUsername: String(row.chatUsername || '').trim(),
+            name: String(row.name || '').trim(),
+            createdAt: String(row.createdAt || '').trim(),
+            acceptedAt: String(row.acceptedAt || '').trim(),
+            lastSeenAt: String(row.lastSeenAt || '').trim(),
+            updatedAt: String(row.updatedAt || '').trim(),
+            profile: row.profile && typeof row.profile === 'object' ? row.profile : {}
+          };
+        });
+        this.state.knownUsers = out;
+      }
+    } catch (_) {}
+    this.writeAllUserConfigArtifacts();
   }
 
   async save() {
-    if (!this.persistence) return;
     const snapshot = JSON.parse(JSON.stringify(this.state || {}));
-    this.saveQueue = this.saveQueue.then(() => this.persistence.save(snapshot));
+    this.saveQueue = this.saveQueue.then(async () => {
+      if (this.persistence) await this.persistence.save(snapshot);
+      if (this.blacklistStore && typeof this.blacklistStore.save === 'function') {
+        await this.blacklistStore.save(this.ensureBanlist());
+      }
+      if (this.knownUsersStore && typeof this.knownUsersStore.save === 'function') {
+        const rows = Object.values((this.state && this.state.knownUsers) || {});
+        await this.knownUsersStore.save(rows);
+      }
+      this.writeAllUserConfigArtifacts();
+    });
     await this.saveQueue;
   }
 
@@ -136,6 +191,17 @@ class RuntimeConfigStore {
 
   normalizeUsername(username) {
     return String(username || '').trim().replace(/^@+/, '').toLowerCase();
+  }
+
+  sanitizePathSegment(value, fallback) {
+    const raw = String(value || '').trim().replace(/[<>:"/\\|?*\x00-\x1F]/g, '_');
+    const cleaned = raw.replace(/\s+/g, '_').replace(/[.]+$/g, '').replace(/_+/g, '_').replace(/^_+|_+$/g, '');
+    return cleaned || String(fallback || 'user');
+  }
+
+  isAdminUser(chatId) {
+    const key = this.normalizeUserKey(chatId);
+    return this.adminChatIds.has(key);
   }
 
   ensureBanlist() {
@@ -173,6 +239,68 @@ class RuntimeConfigStore {
     return this.state.users[key];
   }
 
+  getUserArtifactDir(chatId) {
+    const key = this.normalizeUserKey(chatId);
+    const summary = this.getUserSummary(chatId);
+    const username = this.sanitizePathSegment(summary.username, 'user');
+    const folderName = `${username}_${this.sanitizePathSegment(key, 'unknown')}`;
+    return path.join(this.cfgRootDir, folderName);
+  }
+
+  resolveUserCredentials(chatId) {
+    const user = this.ensureUser(chatId);
+    const out = {};
+    SECRET_KEYS.forEach((k) => {
+      const own = String((user.secrets || {})[k] || '').trim();
+      if (own) out[k] = own;
+    });
+    if (this.isAdminUser(chatId)) {
+      SECRET_KEYS.forEach((k) => {
+        if (out[k]) return;
+        const envVal = String((this.baseSecrets || {})[k] || '').trim();
+        if (envVal) out[k] = envVal;
+      });
+    }
+    return out;
+  }
+
+  writeUserConfigArtifact(chatId) {
+    const key = this.normalizeUserKey(chatId);
+    const user = this.ensureUser(chatId);
+    const summary = this.getUserSummary(chatId);
+    const dir = this.getUserArtifactDir(key);
+    fs.mkdirSync(dir, { recursive: true });
+    const payload = {
+      meta: {
+        user_id: key,
+        username: summary.username || '',
+        display_name: summary.name || '',
+        is_admin: this.isAdminUser(key),
+        seen: Boolean(user.seen),
+        last_seen_at: String(user.lastSeenAt || ''),
+        updated_at: new Date().toISOString()
+      },
+      config: this.getEffectiveConfig(key),
+      credentials: this.resolveUserCredentials(key)
+    };
+    fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify(payload, null, 2), 'utf8');
+    return dir;
+  }
+
+  writeAllUserConfigArtifacts() {
+    try {
+      fs.mkdirSync(this.cfgRootDir, { recursive: true });
+    } catch (_) {}
+    const users = this.state && this.state.users && typeof this.state.users === 'object'
+      ? Object.keys(this.state.users)
+      : [];
+    users.forEach((chatId) => {
+      try {
+        this.writeUserConfigArtifact(chatId);
+      } catch (_) {}
+    });
+  }
+
   appendUniqueIdentity(list, value, normalize = (v) => String(v || '').trim()) {
     const normalized = normalize(value);
     if (!normalized) return;
@@ -192,6 +320,7 @@ class RuntimeConfigStore {
     const wasSeen = Boolean(user.seen);
     user.seen = true;
     user.lastSeenAt = new Date().toISOString();
+    this.touchKnownUser(chatId, { accepted: true });
     return !wasSeen;
   }
 
@@ -208,8 +337,51 @@ class RuntimeConfigStore {
     this.appendUniqueIdentity(user.identity.chatUsernames, chatUsername, (v) => this.normalizeUsername(v));
     this.appendUniqueIdentity(user.identity.names, displayName, (v) => String(v || '').trim());
     user.lastSeenAt = new Date().toISOString();
+    this.touchKnownUser(chatId, { profile: user.profile, accepted: Boolean(user.seen) });
     await this.save();
     return user.profile;
+  }
+
+  ensureKnownUsers() {
+    if (!this.state || typeof this.state !== 'object') this.state = {};
+    if (!this.state.knownUsers || typeof this.state.knownUsers !== 'object') this.state.knownUsers = {};
+    return this.state.knownUsers;
+  }
+
+  touchKnownUser(chatId, options = {}) {
+    const key = this.normalizeUserKey(chatId);
+    const known = this.ensureKnownUsers();
+    const now = new Date().toISOString();
+    const existing = known[key] && typeof known[key] === 'object'
+      ? known[key]
+      : {
+          id: key,
+          username: '',
+          chatUsername: '',
+          name: '',
+          createdAt: now,
+          acceptedAt: '',
+          lastSeenAt: '',
+          updatedAt: '',
+          profile: {}
+        };
+    const summary = this.getUserSummary(chatId);
+    existing.id = key;
+    existing.username = summary.username || existing.username || '';
+    existing.chatUsername = summary.chatUsername || existing.chatUsername || '';
+    existing.name = summary.name || existing.name || '';
+    existing.lastSeenAt = String((this.state.users[key] && this.state.users[key].lastSeenAt) || existing.lastSeenAt || now);
+    existing.updatedAt = now;
+    if (!existing.createdAt) existing.createdAt = now;
+    if (options && options.accepted && !existing.acceptedAt) existing.acceptedAt = now;
+    if (options && options.profile && typeof options.profile === 'object') {
+      existing.profile = {
+        ...(existing.profile || {}),
+        ...options.profile
+      };
+    }
+    known[key] = existing;
+    return existing;
   }
 
   getUserSummary(chatId) {
@@ -237,18 +409,20 @@ class RuntimeConfigStore {
   }
 
   listKnownUsers() {
-    const users = (this.state && this.state.users && typeof this.state.users === 'object')
-      ? this.state.users
+    const known = (this.state && this.state.knownUsers && typeof this.state.knownUsers === 'object')
+      ? this.state.knownUsers
       : {};
-    const rows = Object.entries(users).map(([id, record]) => {
+    const rows = Object.entries(known).map(([id, record]) => {
       const summary = this.getUserSummary(id);
       return {
         uid: String(id || '').trim() || 'unknown',
-        username: summary.username,
-        name: summary.name,
-        chatUsername: summary.chatUsername,
-        label: summary.label,
-        lastSeen: String(record?.lastSeenAt || '').trim()
+        username: String(record?.username || '').trim() || summary.username,
+        name: String(record?.name || '').trim() || summary.name,
+        chatUsername: String(record?.chatUsername || '').trim() || summary.chatUsername,
+        label: summary.label || `id:${String(id || '').trim()}`,
+        lastSeen: String(record?.lastSeenAt || '').trim(),
+        createdAt: String(record?.createdAt || '').trim(),
+        acceptedAt: String(record?.acceptedAt || '').trim()
       };
     });
     rows.sort((a, b) => {
@@ -298,18 +472,16 @@ class RuntimeConfigStore {
 
   getSecretsStatus(chatId) {
     const user = this.ensureUser(chatId);
-    const shared = user.sharedFrom ? this.ensureUser(user.sharedFrom) : null;
     const out = {};
     SECRET_KEYS.forEach((key) => {
       const stateVal = String((user.secrets || {})[key] || '').trim();
-      const sharedVal = String((shared && shared.secrets && shared.secrets[key]) || '').trim();
-      const envVal = String((this.baseSecrets || {})[key] || '').trim();
-      const resolved = stateVal || sharedVal || envVal;
+      const envVal = this.isAdminUser(chatId) ? String((this.baseSecrets || {})[key] || '').trim() : '';
+      const resolved = stateVal || envVal;
       out[key] = {
         hasValue: Boolean(resolved),
         source: stateVal
           ? 'runtime'
-          : (sharedVal ? `shared:${user.sharedFrom}` : (envVal ? 'env' : 'missing'))
+          : (envVal ? 'env' : 'missing')
       };
     });
     return out;
@@ -332,19 +504,17 @@ class RuntimeConfigStore {
 
   applySecretsToEnv(chatId) {
     const user = this.ensureUser(chatId);
-    const shared = user.sharedFrom ? this.ensureUser(user.sharedFrom) : null;
     const applied = [];
     SECRET_KEYS.forEach((k) => {
       const own = String((user.secrets || {})[k] || '').trim();
-      const sharedVal = String((shared && shared.secrets && shared.secrets[k]) || '').trim();
-      const baseVal = String((this.baseSecrets || {})[k] || '').trim();
-      const resolved = own || sharedVal || baseVal;
+      const baseVal = this.isAdminUser(chatId) ? String((this.baseSecrets || {})[k] || '').trim() : '';
+      const resolved = own || baseVal;
       if (!resolved) {
         delete process.env[k];
         return;
       }
       process.env[k] = resolved;
-      if (own || sharedVal) applied.push(k);
+      if (own || baseVal) applied.push(k);
     });
     return applied;
   }
@@ -502,6 +672,21 @@ class RuntimeConfigStore {
     user.sharedFrom = this.normalizeUserKey(sourceChatId);
     await this.save();
     return user.sharedFrom;
+  }
+
+  async copySecretsFromTo(sourceChatId, targetChatId) {
+    const source = this.ensureUser(sourceChatId);
+    const target = this.ensureUser(targetChatId);
+    let copied = 0;
+    SECRET_KEYS.forEach((k) => {
+      const value = String((source.secrets || {})[k] || '').trim();
+      if (!value) return;
+      if (target.secrets[k] !== value) copied += 1;
+      target.secrets[k] = value;
+    });
+    target.sharedFrom = '';
+    await this.save();
+    return copied;
   }
 
   getMeta(key) {

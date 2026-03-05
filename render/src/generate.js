@@ -97,11 +97,61 @@ function detectLanguageFromText(text) {
 function detectLanguageFromHtmlFile(filePath) {
   try {
     const data = fs.readFileSync(filePath, 'utf8').slice(0, 200000);
-    const htmlLang = data.match(/<html[^>]*\blang\s*=\s*["']?([a-zA-Z_-]{2,15})/i);
-    const metaLang = data.match(/<meta[^>]+http-equiv\s*=\s*["']content-language["'][^>]*content\s*=\s*["']([^"']+)["']/i);
-    const detected = normalizeLanguageCode((htmlLang && htmlLang[1]) || (metaLang && metaLang[1]) || '');
+    const detectFromTokenList = (raw) => {
+      const text = String(raw || '').trim();
+      if (!text) return '';
+      const tokens = text
+        .split(/[,\s;|]+/)
+        .map((v) => String(v || '').trim())
+        .filter(Boolean);
+      for (const token of tokens) {
+        const normalized = normalizeLanguageCode(token);
+        if (normalized && normalized !== 'auto') return normalized;
+      }
+      const direct = normalizeLanguageCode(text);
+      if (direct && direct !== 'auto') return direct;
+      return '';
+    };
+
+    const candidates = [];
+    const htmlLang = data.match(/<html[^>]*\b(?:lang|xml:lang)\s*=\s*["']?([^"'\s>]+)/i);
+    if (htmlLang && htmlLang[1]) candidates.push(htmlLang[1]);
+    const ogLocaleA = data.match(/<meta[^>]*\b(?:property|name)\s*=\s*["']og:locale["'][^>]*\bcontent\s*=\s*["']([^"']+)["']/i);
+    if (ogLocaleA && ogLocaleA[1]) candidates.push(ogLocaleA[1]);
+    const ogLocaleB = data.match(/<meta[^>]*\bcontent\s*=\s*["']([^"']+)["'][^>]*\b(?:property|name)\s*=\s*["']og:locale["']/i);
+    if (ogLocaleB && ogLocaleB[1]) candidates.push(ogLocaleB[1]);
+    const metaLanguageA = data.match(/<meta[^>]*\bname\s*=\s*["']language["'][^>]*\bcontent\s*=\s*["']([^"']+)["']/i);
+    if (metaLanguageA && metaLanguageA[1]) candidates.push(metaLanguageA[1]);
+    const metaLanguageB = data.match(/<meta[^>]*\bcontent\s*=\s*["']([^"']+)["'][^>]*\bname\s*=\s*["']language["']/i);
+    if (metaLanguageB && metaLanguageB[1]) candidates.push(metaLanguageB[1]);
+    const metaLangA = data.match(/<meta[^>]*\bhttp-equiv\s*=\s*["']content-language["'][^>]*\bcontent\s*=\s*["']([^"']+)["']/i);
+    if (metaLangA && metaLangA[1]) candidates.push(metaLangA[1]);
+    const metaLangB = data.match(/<meta[^>]*\bcontent\s*=\s*["']([^"']+)["'][^>]*\bhttp-equiv\s*=\s*["']content-language["']/i);
+    if (metaLangB && metaLangB[1]) candidates.push(metaLangB[1]);
+    const hreflangMatches = data.matchAll(/<link[^>]*\bhreflang\s*=\s*["']([^"']+)["'][^>]*>/gi);
+    for (const m of hreflangMatches) {
+      const v = String((m && m[1]) || '').trim().toLowerCase();
+      if (!v || v === 'x-default') continue;
+      candidates.push(v);
+    }
+
+    let detected = '';
+    for (const c of candidates) {
+      detected = detectFromTokenList(c);
+      if (detected) break;
+    }
     if (detected) return detected;
-    return detectLanguageFromText(data.replace(/<[^>]+>/g, ' ').slice(0, 4000));
+
+    // Remove non-content blocks before script-based fallback.
+    const textOnly = data
+      .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, ' ')
+      .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, ' ')
+      .replace(/<noscript\b[^>]*>[\s\S]*?<\/noscript>/gi, ' ')
+      .replace(/<template\b[^>]*>[\s\S]*?<\/template>/gi, ' ')
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/\s+/g, ' ')
+      .slice(0, 8000);
+    return detectLanguageFromText(textOnly);
   } catch (_) {
     return '';
   }
@@ -358,7 +408,7 @@ async function applyPanelWatermark(imageBuffer) {
 async function prepareInput(text, runtime) {
   const parsed = classifyMessageInput(text);
   const ts = new Date().toISOString().replace(/[:.]/g, '-');
-  fs.mkdirSync(runtime.outDir, { recursive: true });
+  await fs.promises.mkdir(runtime.outDir, { recursive: true });
 
   if (parsed.kind === 'empty') {
     throw new Error('Empty message. Send plain text or full URL.');
@@ -393,7 +443,7 @@ async function prepareInput(text, runtime) {
 
   const inputPath = path.join(runtime.outDir, `render-text-${ts}.txt`);
   const outputPath = path.join(runtime.outDir, `render-text-${ts}.png`);
-  fs.writeFileSync(inputPath, parsed.value, 'utf8');
+  await fs.promises.writeFile(inputPath, parsed.value, 'utf8');
   return {
     kind: 'text',
     inputPath,

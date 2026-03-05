@@ -316,6 +316,7 @@ describe('render bot comprehensive interaction suite', () => {
       await runCommandAndExpect('/explain', 'm:<delivery_mode>');
       const helpMsgs = sentMessages(tg.calls).map((c) => String(c.body.text || ''));
       expect(helpMsgs.some((m) => m.includes('/peek'))).toBe(false);
+      await runCommandAndExpect('/setkey GEMINI_API_KEY TEST_GEMINI_777', 'Stored key GEMINI_API_KEY in runtime state.');
       await runCommandAndExpect('/vendor gemini', 'Provider updated: gemini');
       await runCommandAndExpect('/models', 'Model selector (current vendor only):');
       await runCommandAndExpect('/models text', 'Text models for gemini:');
@@ -462,7 +463,7 @@ describe('render bot comprehensive interaction suite', () => {
       await command(1796415913, '/setkey GEMINI_API_KEY ADMIN_SHARED_KEY_1');
       await command(1796415913, '/share 888');
       const creds = await command(888, '/keys');
-      expect(creds.some((m) => m.includes('GEMINI_API_KEY: set (shared:1796415913)'))).toBe(true);
+      expect(creds.some((m) => m.includes('GEMINI_API_KEY: set (runtime)'))).toBe(true);
     } finally {
       await bot.stop();
       await tg.close();
@@ -558,13 +559,13 @@ describe('render bot comprehensive interaction suite', () => {
 
       await command(1796415913, '/setkey OPENAI_API_KEY ADMIN_OPENAI_KEY_123');
       const shared = await command(1796415913, '/share 888');
-      expect(shared.some((m) => m.includes('Shared your runtime keys with user 888'))).toBe(true);
+      expect(shared.some((m) => m.includes('Copied'))).toBe(true);
 
       const allowedAfterShare = await command(888, '/text_vendor openai');
       expect(allowedAfterShare.some((m) => m.includes('Provider updated: openai'))).toBe(true);
 
       const sharedCreds = await command(888, '/keys');
-      expect(sharedCreds.some((m) => m.includes('OPENAI_API_KEY: set (shared:1796415913)'))).toBe(true);
+      expect(sharedCreds.some((m) => m.includes('OPENAI_API_KEY: set (runtime)'))).toBe(true);
 
       await command(888, '/setkey OPENAI_API_KEY USER_OWN_OPENAI_KEY_456');
       const ownCreds = await command(888, '/keys');
@@ -600,7 +601,7 @@ describe('render bot comprehensive interaction suite', () => {
       const first888 = await command(888, '/keys');
       expect(first888.some((m) => m.includes('free Gemini'))).toBe(true);
       expect(first888.some((m) => m.includes('/help  /config  /vendor'))).toBe(true);
-      expect(first888.some((m) => m.includes('GEMINI_API_KEY: set (env)'))).toBe(true);
+      expect(first888.some((m) => m.includes('GEMINI_API_KEY: missing'))).toBe(true);
 
       await command(777, '/panels 8');
       const cfg777 = await command(777, '/config');
@@ -718,32 +719,29 @@ describe('render bot comprehensive interaction suite', () => {
 
       const beforePeek5 = sentMessages(tg.calls).length;
       await send(777, '/peek5');
-      await waitFor(() => sentMessages(tg.calls)
-        .slice(beforePeek5)
-        .map((c) => String(c.body.text || ''))
-        .some((m) => m.includes('Comic 5 of')), 10000, 100);
-      const text5 = sentMessages(tg.calls)
-        .slice(beforePeek5)
-        .map((c) => String(c.body.text || ''))
-        .find((m) => m.includes('Comic 5 of')) || '';
-      expect(text5).toContain('date:');
-      expect(text5).toContain('user:');
-      expect(text5).toContain('name:');
-      expect(text5).toContain('image:');
-      expect(text5.toLowerCase()).toContain('users');
-      expect(text5.toLowerCase()).toContain('generations');
+      const beforePeek5Calls = tg.calls.length;
+      await waitFor(() => tg.calls
+        .slice(beforePeek5Calls)
+        .filter((c) => c.url.endsWith('/sendPhoto')).length >= 3, 10000, 100);
+      const replayChunk5 = tg.calls.slice(beforePeek5Calls);
+      const replayText5 = sentMessages(replayChunk5).map((c) => String(c.body.text || '')).join('\n');
+      expect(replayText5).toContain('Replaying comic 5 of');
+      const replayPhotos5 = replayChunk5.filter((c) => c.url.endsWith('/sendPhoto'));
+      expect(replayPhotos5.length).toBeGreaterThanOrEqual(3);
+      const replayCaptions5 = replayPhotos5.slice(0, 3).map((c) => extractMultipartField(c.raw, 'caption'));
+      expect(replayCaptions5[0]).toContain('1(3)');
+      expect(replayCaptions5[1]).toContain('2(3)');
+      expect(replayCaptions5[2]).toContain('3(3)');
 
       const beforePeek3 = sentMessages(tg.calls).length;
       await send(777, '/peek 3');
-      await waitFor(() => sentMessages(tg.calls)
-        .slice(beforePeek3)
-        .map((c) => String(c.body.text || ''))
-        .some((m) => m.includes('Comic 3 of')), 10000, 100);
-      const text3 = sentMessages(tg.calls)
-        .slice(beforePeek3)
-        .map((c) => String(c.body.text || ''))
-        .find((m) => m.includes('Comic 3 of')) || '';
-      expect(text3).toContain('name:');
+      const beforePeek3Calls = tg.calls.length;
+      await waitFor(() => tg.calls
+        .slice(beforePeek3Calls)
+        .filter((c) => c.url.endsWith('/sendPhoto')).length >= 3, 10000, 100);
+      const replayChunk3 = tg.calls.slice(beforePeek3Calls);
+      const replayText3 = sentMessages(replayChunk3).map((c) => String(c.body.text || '')).join('\n');
+      expect(replayText3).toContain('Replaying comic 3 of');
     } finally {
       await bot.stop();
       await tg.close();
@@ -820,7 +818,7 @@ describe('render bot comprehensive interaction suite', () => {
       await command('/panels 8');
       await command('/restart');
       const creds = await command('/keys');
-      expect(creds.some((m) => m.includes('GEMINI_API_KEY: set (env)'))).toBe(true);
+      expect(creds.some((m) => m.includes('GEMINI_API_KEY: missing'))).toBe(true);
       const cfg = await command('/config');
       expect(cfg.some((m) => m.includes('generation.panel_count: 8'))).toBe(true);
     } finally {

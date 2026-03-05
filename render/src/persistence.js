@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const { S3Adapter } = require('./crash-log-store');
+const { createWriteLockClientFromEnv } = require('./r2-write-lock');
 
 function sanitizeIdentifier(value, fallback) {
   const id = String(value || '').trim();
@@ -90,6 +91,7 @@ class R2Persistence {
   constructor(options = {}) {
     this.bucket = String(options.bucket || '').trim();
     this.stateKey = String(options.stateKey || 'state/runtime-config.json').trim();
+    this.lockClient = options.lockClient || null;
     if (!this.bucket) throw new Error('Missing R2 bucket for persistence.');
     this.adapter = options.adapter || new S3Adapter({
       endpoint: options.endpoint,
@@ -109,7 +111,11 @@ class R2Persistence {
   }
 
   async save(state) {
-    await this.adapter.putObject(this.bucket, this.stateKey, JSON.stringify(state || {}));
+    const write = async () => this.adapter.putObject(this.bucket, this.stateKey, JSON.stringify(state || {}));
+    if (this.lockClient && typeof this.lockClient.withLock === 'function') {
+      return this.lockClient.withLock(`r2:${this.bucket}:${this.stateKey}`, write);
+    }
+    return write();
   }
 }
 
@@ -123,6 +129,7 @@ function createPersistence(options = {}) {
   const r2StateKey = String(options.r2StateKey || 'state/runtime-config.json').trim();
 
   const canUseR2 = Boolean(r2Endpoint && r2Bucket && r2AccessKeyId && r2SecretAccessKey);
+  const lockClient = createWriteLockClientFromEnv();
   if (mode === 'r2' && canUseR2) {
     return {
       mode: 'r2',
@@ -131,7 +138,8 @@ function createPersistence(options = {}) {
         bucket: r2Bucket,
         accessKeyId: r2AccessKeyId,
         secretAccessKey: r2SecretAccessKey,
-        stateKey: r2StateKey
+        stateKey: r2StateKey,
+        lockClient
       })
     };
   }
@@ -151,7 +159,8 @@ function createPersistence(options = {}) {
         bucket: r2Bucket,
         accessKeyId: r2AccessKeyId,
         secretAccessKey: r2SecretAccessKey,
-        stateKey: r2StateKey
+        stateKey: r2StateKey,
+        lockClient
       })
     };
   }

@@ -7,6 +7,8 @@ const { RuntimeConfigStore } = require('./config-store');
 const { allOptionPaths, getOptions, parseUserValue, formatOptionsMessage, SECRET_KEYS } = require('./options');
 const { generatePanelsWithRuntimeConfig, inventStoryText } = require('./generate');
 const { createPersistence } = require('./persistence');
+const { createBlacklistStoreFromEnv } = require('./blacklist-store');
+const { createKnownUsersStoreFromEnv } = require('./known-users-store');
 const { redactSensitiveText } = require('./redact');
 const { createCrashLogStoreFromEnv, FileCrashLogStore } = require('./crash-log-store');
 const { createRequestLogStoreFromEnv } = require('./request-log-store');
@@ -59,6 +61,8 @@ const api = new TelegramApi(token, process.env.TELEGRAM_API_BASE_URL || '');
 let configStore = null;
 let requestLogStore = null;
 let requestLogStoreMode = 'unknown';
+let blacklistStoreMode = 'unknown';
+let knownUsersStoreMode = 'unknown';
 const rawSendMessage = api.sendMessage.bind(api);
 const jobTimeoutMs = Math.max(100, Number(process.env.RENDER_BOT_JOB_TIMEOUT_MS || 300000));
 const processedUpdates = new Map();
@@ -1019,6 +1023,52 @@ function formatPeekSingleMessage(history, selected) {
   ].join('\n');
 }
 
+async function replayPeekComic(chatId, history, selected) {
+  const rows = listGeneratedRows(history);
+  const idx = Number(selected);
+  if (!rows.length) {
+    await api.sendMessage(chatId, 'No generated comics yet.');
+    return;
+  }
+  if (!Number.isFinite(idx) || idx < 1 || idx > rows.length) {
+    await api.sendMessage(chatId, `Invalid comic index. Use /peek, then choose 1-${rows.length}.`);
+    return;
+  }
+  const row = rows[idx - 1];
+  const result = row && row.result ? row.result : {};
+  const panels = normalizePanelMessages(result.panelMessages || []);
+  if (!panels.length) {
+    await api.sendMessage(chatId, formatPeekSingleMessage(history, idx));
+    return;
+  }
+
+  await api.sendMessage(chatId, [
+    `Replaying comic ${idx} of ${rows.length}`,
+    `date: ${String(row?.timestamp || '-')}`,
+    `user: ${resolveHistoryUserLabel(row?.chatId)}`,
+    `name: ${formatPeekName(row)}`
+  ].join('\n'));
+
+  let sent = 0;
+  for (let i = 0; i < panels.length; i += 1) {
+    const p = panels[i];
+    const imagePath = String(p?.imagePath || '').trim();
+    if (!imagePath || !fs.existsSync(imagePath)) continue;
+    const caption = String(p?.caption || '').trim();
+    await sendPanelWithRetry(chatId, {
+      imagePath,
+      caption
+    }, i, false);
+    sent += 1;
+  }
+
+  if (sent === 0) {
+    await api.sendMessage(chatId, formatPeekSingleMessage(history, idx));
+    return;
+  }
+  await api.sendMessage(chatId, `Replay done: ${sent} panel(s).`);
+}
+
 function formatLogMessage(history, limit = 10) {
   const size = Math.max(1, Math.min(50, Number(limit) || 10));
   const rows = (Array.isArray(history) ? history : [])
@@ -1131,7 +1181,7 @@ async function handleCommand(chatId, text) {
       ? fromArg
       : (Number.isFinite(fromToken) && fromToken > 0 ? fromToken : NaN);
     if (Number.isFinite(selected) && selected > 0) {
-      await api.sendMessage(chatId, formatPeekSingleMessage(configStore.getHistory(), selected));
+      await replayPeekComic(chatId, configStore.getHistory(), selected);
       return true;
     }
     await api.sendMessage(chatId, formatPeekMessage(configStore.getHistory()));
@@ -1679,8 +1729,8 @@ async function handleCommand(chatId, text) {
       ].join('\n'));
       return true;
     }
-    await configStore.setSharedFrom(String(target), String(chatId));
-    await api.sendMessage(chatId, `Shared your runtime keys with user ${target}.`);
+    const copied = await configStore.copySecretsFromTo(String(chatId), String(target));
+    await api.sendMessage(chatId, `Copied ${copied} runtime key(s) to user ${target}.`);
     await safeNotifyUser(
       target,
       `Admin ${chatId} just unlocked shared provider access for you.\nCreate boldly, and use it with care.`
@@ -1806,22 +1856,26 @@ async function processMessage(message, context = {}) {
       return;
     }
 
-    runBackgroundTask('update user profile', () => configStore.updateUserProfile(chatId, {
-      chat: {
-        id: Number(message?.chat?.id || 0),
-        type: String(message?.chat?.type || ''),
-        title: String(message?.chat?.title || ''),
-        username: String(message?.chat?.username || '')
-      },
-      user: {
-        id: Number(message?.from?.id || 0),
-        username: String(message?.from?.username || ''),
-        first_name: String(message?.from?.first_name || ''),
-        last_name: String(message?.from?.last_name || ''),
-        language_code: String(message?.from?.language_code || ''),
-        is_bot: Boolean(message?.from?.is_bot)
-      }
-    }));
+    try {
+      await configStore.updateUserProfile(chatId, {
+        chat: {
+          id: Number(message?.chat?.id || 0),
+          type: String(message?.chat?.type || ''),
+          title: String(message?.chat?.title || ''),
+          username: String(message?.chat?.username || '')
+        },
+        user: {
+          id: Number(message?.from?.id || 0),
+          username: String(message?.from?.username || ''),
+          first_name: String(message?.from?.first_name || ''),
+          last_name: String(message?.from?.last_name || ''),
+          language_code: String(message?.from?.language_code || ''),
+          is_bot: Boolean(message?.from?.is_bot)
+        }
+      });
+    } catch (error) {
+      console.error('[render-bot] updateUserProfile failed:', error && error.message ? error.message : String(error));
+    }
 
     const firstSeen = configStore.markSeen(chatId);
     if (firstSeen) {
@@ -1906,7 +1960,13 @@ async function processMessage(message, context = {}) {
           outputPath: (result.panelMessages && result.panelMessages[0] && result.panelMessages[0].imagePath) || '',
           panelCount: result.panelCount,
           elapsedMs: result.elapsedMs,
-          storyboard: result.storyboard || null
+          storyboard: result.storyboard || null,
+          panelMessages: normalizePanelMessages(result.panelMessages || []).map((p) => ({
+            index: Number(p?.index || 0),
+            total: Number(p?.total || 0),
+            caption: String(p?.caption || ''),
+            imagePath: String(p?.imagePath || '')
+          }))
         },
         config: configStore.getEffectiveConfig(chatId)
       }, userMeta));
@@ -2053,6 +2113,12 @@ async function processMessage(message, context = {}) {
         panelCount: result.panelCount,
         elapsedMs: result.elapsedMs,
         storyboard: result.storyboard || null,
+        panelMessages: normalizePanelMessages(result.panelMessages || []).map((p) => ({
+          index: Number(p?.index || 0),
+          total: Number(p?.total || 0),
+          caption: String(p?.caption || ''),
+          imagePath: String(p?.imagePath || '')
+        })),
         shortPromptExpanded,
         inventedStoryPreview
       },
@@ -2153,9 +2219,19 @@ async function startServer() {
     r2StateKey: process.env.R2_STATE_KEY || 'state/runtime-config.json',
     filePath: path.resolve(process.env.RENDER_BOT_STATE_FILE || path.join(repoRoot, 'render/data/runtime-state.json'))
   });
+  const blacklistStore = createBlacklistStoreFromEnv();
+  blacklistStoreMode = blacklistStore.mode;
+  const knownUsersStore = createKnownUsersStoreFromEnv();
+  knownUsersStoreMode = knownUsersStore.mode;
   configStore = new RuntimeConfigStore(
     path.resolve(process.env.RENDER_BOT_BASE_CONFIG || path.join(repoRoot, 'render/config/default.render.yml')),
-    persistenceMode.impl
+    persistenceMode.impl,
+    {
+      cfgRootDir: path.resolve(process.env.RENDER_BOT_CFGS_DIR || path.join(repoRoot, 'render/cfgs')),
+      adminChatIds: adminChatIds.join(','),
+      blacklistStore: blacklistStore.impl,
+      knownUsersStore: knownUsersStore.impl
+    }
   );
   await configStore.load();
   const deployDefaultProvider = String(process.env.RENDER_BOT_DEFAULT_PROVIDER || '').trim().toLowerCase();
@@ -2225,6 +2301,8 @@ async function startServer() {
     console.log(`[render-bot] persistence: ${persistenceMode.mode}`);
     console.log(`[render-bot] crash logs: ${crashStoreMode}`);
     console.log(`[render-bot] request logs: ${requestLogStoreMode}`);
+    console.log(`[render-bot] blacklist store: ${blacklistStoreMode}`);
+    console.log(`[render-bot] known users store: ${knownUsersStoreMode}`);
     console.log(`[render-bot] image storage: ${runtime.r2Endpoint && runtime.r2Bucket ? 'r2' : 'file'}`);
     console.log('[render-bot] ready');
     notifyDeploymentReady().catch((error) => {

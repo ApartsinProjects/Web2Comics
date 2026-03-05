@@ -18,3 +18,11 @@ id = "__REPLACE_STATE_KV_ID__"
 [[r2_buckets]]
 binding = "BOT_R2"
 bucket_name = "web2comics-bot-data"
+
+[[durable_objects.bindings]]
+name = "WRITE_LOCKS"
+class_name = "WriteLockDurableObject"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["WriteLockDurableObject"]

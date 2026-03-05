@@ -29,7 +29,7 @@ async function fetchUrlToHtmlSnapshot(url, snapshotPath, options = {}) {
   const timeoutMs = Math.max(5000, Number(options.timeoutMs || 45000));
   const waitUntil = String(options.waitUntil || 'domcontentloaded');
   const resolvedSnapshotPath = path.resolve(snapshotPath);
-  fs.mkdirSync(path.dirname(resolvedSnapshotPath), { recursive: true });
+  await fs.promises.mkdir(path.dirname(resolvedSnapshotPath), { recursive: true });
 
   const browser = await chromium.launch({ headless: true });
   try {
@@ -41,7 +41,7 @@ async function fetchUrlToHtmlSnapshot(url, snapshotPath, options = {}) {
     } catch (_) {}
 
     const html = await page.content();
-    fs.writeFileSync(resolvedSnapshotPath, html, 'utf8');
+    await fs.promises.writeFile(resolvedSnapshotPath, html, 'utf8');
     const title = await page.title();
     return {
       snapshotPath: resolvedSnapshotPath,

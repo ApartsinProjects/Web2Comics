@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const { S3Adapter } = require('./crash-log-store');
+const { createWriteLockClientFromEnv } = require('./r2-write-lock');
 
 function nowIso() {
   return new Date().toISOString();
@@ -64,6 +65,7 @@ class R2RequestLogStore {
     this.bucket = String(options.bucket || '').trim();
     this.prefix = String(options.prefix || 'logs/requests').trim().replace(/\/+$/, '');
     this.statusKey = String(options.statusKey || `${this.prefix}/status.json`).trim();
+    this.lockClient = options.lockClient || null;
     this.capacityBytes = Math.max(1, safeNumber(options.capacityBytes, 512 * 1024 * 1024));
     this.retentionDays = Math.max(1, safeNumber(options.retentionDays, 5));
     const ratio = safeNumber(options.cleanupThresholdRatio, 0.8);
@@ -143,24 +145,30 @@ class R2RequestLogStore {
   }
 
   async append(entry) {
-    let status = await this.loadStatus();
-    status = await this.cleanupExpired(status);
-    if (status.totalBytes >= this.thresholdBytes) {
-      status = await this.cleanup(status, new Set());
-    }
+    const write = async () => {
+      let status = await this.loadStatus();
+      status = await this.cleanupExpired(status);
+      if (status.totalBytes >= this.thresholdBytes) {
+        status = await this.cleanup(status, new Set());
+      }
 
-    const ts = nowIso();
-    const group = resolveUserGroup(entry || {});
-    const key = `${this.prefix}/${group}/${ts.replace(/[:.]/g, '-')}-${randomId()}.json`;
-    const raw = JSON.stringify({ ...(entry || {}), createdAt: ts, userGroup: group });
-    await this.adapter.putObject(this.bucket, key, raw);
-    status.logs = (status.logs || []).concat([{ key, sizeBytes: Buffer.byteLength(raw, 'utf8'), createdAt: ts, userGroup: group }]);
-    status.totalBytes += Buffer.byteLength(raw, 'utf8');
-    if (status.totalBytes >= this.thresholdBytes) {
-      status = await this.cleanup(status, new Set([key]));
+      const ts = nowIso();
+      const group = resolveUserGroup(entry || {});
+      const key = `${this.prefix}/${group}/${ts.replace(/[:.]/g, '-')}-${randomId()}.json`;
+      const raw = JSON.stringify({ ...(entry || {}), createdAt: ts, userGroup: group });
+      await this.adapter.putObject(this.bucket, key, raw);
+      status.logs = (status.logs || []).concat([{ key, sizeBytes: Buffer.byteLength(raw, 'utf8'), createdAt: ts, userGroup: group }]);
+      status.totalBytes += Buffer.byteLength(raw, 'utf8');
+      if (status.totalBytes >= this.thresholdBytes) {
+        status = await this.cleanup(status, new Set([key]));
+      }
+      await this.saveStatus(status);
+      return { key, userGroup: group };
+    };
+    if (this.lockClient && typeof this.lockClient.withLock === 'function') {
+      return this.lockClient.withLock(`r2:${this.bucket}:${this.statusKey}`, write);
     }
-    await this.saveStatus(status);
-    return { key, userGroup: group };
+    return write();
   }
 }
 
@@ -174,6 +182,7 @@ function createRequestLogStoreFromEnv() {
   const capacityBytes = Math.max(1, safeNumber(process.env.R2_REQUEST_LOG_CAPACITY_BYTES, 512 * 1024 * 1024));
   const cleanupThresholdRatio = Math.max(0.01, Math.min(1, safeNumber(process.env.R2_REQUEST_LOG_CLEANUP_THRESHOLD_RATIO, 0.8)));
   const retentionDays = Math.max(1, safeNumber(process.env.R2_REQUEST_LOG_RETENTION_DAYS, 5));
+  const lockClient = createWriteLockClientFromEnv();
 
   if (endpoint && bucket && accessKeyId && secretAccessKey) {
     return {
@@ -185,6 +194,7 @@ function createRequestLogStoreFromEnv() {
         secretAccessKey,
         prefix,
         statusKey,
+        lockClient,
         capacityBytes,
         cleanupThresholdRatio,
         retentionDays

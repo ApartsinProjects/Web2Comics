@@ -39,7 +39,28 @@ function run(command, options = {}) {
   }).toString('utf8');
 }
 
+function ensureDurableObjectConfig() {
+  let raw = fs.readFileSync(wranglerConfig, 'utf8');
+  let changed = false;
+
+  if (!raw.includes('[[durable_objects.bindings]]') || !raw.includes('name = "WRITE_LOCKS"')) {
+    raw = `${raw.trimEnd()}\n\n[[durable_objects.bindings]]\nname = "WRITE_LOCKS"\nclass_name = "WriteLockDurableObject"\n`;
+    changed = true;
+  }
+
+  if (!raw.includes('[[migrations]]') || !raw.includes('WriteLockDurableObject')) {
+    raw = `${raw.trimEnd()}\n\n[[migrations]]\ntag = "v1"\nnew_sqlite_classes = ["WriteLockDurableObject"]\n`;
+    changed = true;
+  }
+
+  if (changed) {
+    fs.writeFileSync(wranglerConfig, raw, 'utf8');
+    console.log('[cf] updated wrangler config with Durable Object binding/migration');
+  }
+}
+
 function ensureResourceBindings() {
+  ensureDurableObjectConfig();
   const raw = fs.readFileSync(wranglerConfig, 'utf8');
   if (raw.includes('__REPLACE_STATE_KV_ID__')) {
     console.log('[cf] creating KV namespace and updating wrangler config...');
@@ -113,6 +134,7 @@ async function main() {
   putSecret('TELEGRAM_BOT_TOKEN', process.env.TELEGRAM_BOT_TOKEN);
   putSecret('TELEGRAM_WEBHOOK_SECRET', process.env.TELEGRAM_WEBHOOK_SECRET);
   putSecret('GEMINI_API_KEY', process.env.GEMINI_API_KEY || '');
+  putSecret('LOCK_SERVICE_TOKEN', process.env.LOCK_SERVICE_TOKEN || process.env.RENDER_BOT_LOCK_SERVICE_TOKEN || '');
 
   console.log('[cf] deploying worker...');
   const deployOut = run(`npx wrangler deploy --config ${wranglerConfig}`);

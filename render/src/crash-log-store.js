@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const { createWriteLockClientFromEnv } = require('./r2-write-lock');
 
 function randomId() {
   return Math.random().toString(36).slice(2, 10);
@@ -147,6 +148,7 @@ class R2CrashLogStore {
     this.bucket = String(options.bucket || '').trim();
     this.prefix = String(options.prefix || 'crash-logs').trim().replace(/\/+$/, '');
     this.statusKey = String(options.statusKey || `${this.prefix}/status.json`).trim();
+    this.lockClient = options.lockClient || null;
     this.capacityBytes = Math.max(1, safeNumber(options.capacityBytes, 1024 * 1024 * 1024));
     this.retentionDays = Math.max(1, safeNumber(options.retentionDays, 5));
     const ratio = safeNumber(options.cleanupThresholdRatio, 0.8);
@@ -247,32 +249,38 @@ class R2CrashLogStore {
   }
 
   async appendCrash(entry) {
-    let status = await this.loadStatus();
-    status = await this.cleanupExpired(status);
-    if (status.totalBytes >= this.thresholdBytes) {
-      status = await this.cleanupHistorical(status, new Set());
-    }
+    const write = async () => {
+      let status = await this.loadStatus();
+      status = await this.cleanupExpired(status);
+      if (status.totalBytes >= this.thresholdBytes) {
+        status = await this.cleanupHistorical(status, new Set());
+      }
 
-    const ts = nowIso();
-    const key = `${this.prefix}/${ts.replace(/[:.]/g, '-')}-${randomId()}.json`;
-    const payload = {
-      ...(entry || {}),
-      createdAt: ts
+      const ts = nowIso();
+      const key = `${this.prefix}/${ts.replace(/[:.]/g, '-')}-${randomId()}.json`;
+      const payload = {
+        ...(entry || {}),
+        createdAt: ts
+      };
+      const payloadRaw = JSON.stringify(payload);
+      await this.adapter.putObject(this.bucket, key, payloadRaw);
+      await this.adapter.putObject(this.bucket, this.latestKey(), JSON.stringify({ key, createdAt: ts }));
+      status.logs = (status.logs || []).concat([{
+        key,
+        sizeBytes: Buffer.byteLength(payloadRaw, 'utf8'),
+        createdAt: ts
+      }]);
+      status.totalBytes = (status.totalBytes || 0) + Buffer.byteLength(payloadRaw, 'utf8');
+      if (status.totalBytes >= this.thresholdBytes) {
+        status = await this.cleanupHistorical(status, new Set([key]));
+      }
+      await this.saveStatus(status);
+      return { key, createdAt: ts, sizeBytes: Buffer.byteLength(payloadRaw, 'utf8') };
     };
-    const payloadRaw = JSON.stringify(payload);
-    await this.adapter.putObject(this.bucket, key, payloadRaw);
-    await this.adapter.putObject(this.bucket, this.latestKey(), JSON.stringify({ key, createdAt: ts }));
-    status.logs = (status.logs || []).concat([{
-      key,
-      sizeBytes: Buffer.byteLength(payloadRaw, 'utf8'),
-      createdAt: ts
-    }]);
-    status.totalBytes = (status.totalBytes || 0) + Buffer.byteLength(payloadRaw, 'utf8');
-    if (status.totalBytes >= this.thresholdBytes) {
-      status = await this.cleanupHistorical(status, new Set([key]));
+    if (this.lockClient && typeof this.lockClient.withLock === 'function') {
+      return this.lockClient.withLock(`r2:${this.bucket}:${this.statusKey}`, write);
     }
-    await this.saveStatus(status);
-    return { key, createdAt: ts, sizeBytes: Buffer.byteLength(payloadRaw, 'utf8') };
+    return write();
   }
 
   async getLatestCrash() {
@@ -301,6 +309,7 @@ function createCrashLogStoreFromEnv() {
   const capacityBytes = Math.max(1, safeNumber(process.env.R2_CRASH_LOG_CAPACITY_BYTES, 1024 * 1024 * 1024));
   const cleanupThresholdRatio = Math.max(0.01, Math.min(1, safeNumber(process.env.R2_CRASH_LOG_CLEANUP_THRESHOLD_RATIO, 0.8)));
   const retentionDays = Math.max(1, safeNumber(process.env.R2_CRASH_LOG_RETENTION_DAYS, 5));
+  const lockClient = createWriteLockClientFromEnv();
 
   if (endpoint && bucket && accessKeyId && secretAccessKey) {
     return {
@@ -312,6 +321,7 @@ function createCrashLogStoreFromEnv() {
         secretAccessKey,
         prefix,
         statusKey,
+        lockClient,
         capacityBytes,
         cleanupThresholdRatio,
         retentionDays

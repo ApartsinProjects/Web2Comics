@@ -115,6 +115,37 @@ describe('render generate helpers', () => {
     expect(detectLanguageFromHtmlFile(htmlPath)).toBe('he');
   });
 
+  it('detects language from og:locale and content-language signals', () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'render-lang-signals-'));
+    const htmlPath = path.join(tmp, 'page.html');
+    fs.writeFileSync(
+      htmlPath,
+      [
+        '<!doctype html>',
+        '<html>',
+        '<head>',
+        '<meta property="og:locale" content="pt_BR" />',
+        '<meta http-equiv="content-language" content="pt-BR,en-US" />',
+        '</head>',
+        '<body><p>ignored</p></body>',
+        '</html>'
+      ].join(''),
+      'utf8'
+    );
+    expect(detectLanguageFromHtmlFile(htmlPath)).toBe('pt');
+  });
+
+  it('detects language from hreflang when lang/meta are missing', () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'render-lang-hreflang-'));
+    const htmlPath = path.join(tmp, 'page.html');
+    fs.writeFileSync(
+      htmlPath,
+      '<!doctype html><html><head><link rel="alternate" hreflang="de-DE" href="/de" /></head><body><p>Hello</p></body></html>',
+      'utf8'
+    );
+    expect(detectLanguageFromHtmlFile(htmlPath)).toBe('de');
+  });
+
   it('resolves auto language from html first, then english fallback', () => {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'render-lang-auto-'));
     const htmlPath = path.join(tmp, 'page.html');

@@ -23,6 +23,39 @@ function json(data, status = 200) {
   return new Response(JSON.stringify(data), { status, headers: { 'content-type': 'application/json' } });
 }
 
+function normalizeLockKey(value) {
+  return String(value || '').trim().slice(0, 512);
+}
+
+function lockTokenOk(request, env) {
+  const expected = String(env.LOCK_SERVICE_TOKEN || '').trim();
+  if (!expected) return true;
+  const got = String(request.headers.get('x-lock-token') || '').trim();
+  return got === expected;
+}
+
+async function routeLockRequest(request, env, action) {
+  if (!env.WRITE_LOCKS || typeof env.WRITE_LOCKS.idFromName !== 'function') {
+    return json({ ok: false, error: 'lock service not configured' }, 501);
+  }
+  if (!lockTokenOk(request, env)) return json({ ok: false, error: 'forbidden' }, 403);
+  let body = {};
+  try { body = await request.json(); } catch (_) {}
+  const key = normalizeLockKey(body?.key);
+  if (!key) return json({ ok: false, error: 'missing key' }, 400);
+  const id = env.WRITE_LOCKS.idFromName(key);
+  const stub = env.WRITE_LOCKS.get(id);
+  return stub.fetch(`https://do/${action}`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      owner: String(body?.owner || ''),
+      leaseId: String(body?.leaseId || ''),
+      leaseMs: Number(body?.leaseMs || 15000)
+    })
+  });
+}
+
 async function tgFetch(env, method, payload, isMultipart = false) {
   const token = resolveTelegramToken(env);
   if (!token) throw new Error('Missing TELEGRAM_BOT_TOKEN');
@@ -352,6 +385,13 @@ export default {
       return json({ ok: true, service: 'web2comics-cf-worker' });
     }
 
+    if (request.method === 'POST' && url.pathname === '/locks/acquire') {
+      return routeLockRequest(request, env, 'acquire');
+    }
+    if (request.method === 'POST' && url.pathname === '/locks/release') {
+      return routeLockRequest(request, env, 'release');
+    }
+
     if (!secret) {
       await storeCrashLog(env, { event: 'startupFailure', error: { message: 'Missing TELEGRAM_WEBHOOK_SECRET' } });
       return json({ ok: false, error: 'missing webhook secret' }, 500);
@@ -398,3 +438,57 @@ export default {
     return json({ ok: false, error: 'not found' }, 404);
   }
 };
+
+export class WriteLockDurableObject {
+  constructor(state) {
+    this.state = state;
+  }
+
+  async fetch(request) {
+    const url = new URL(request.url);
+    const action = String(url.pathname || '').replace(/^\/+/, '');
+    let body = {};
+    try { body = await request.json(); } catch (_) {}
+    const owner = String(body?.owner || '').trim();
+    const leaseId = String(body?.leaseId || '').trim();
+    const leaseMs = Math.max(1000, Number(body?.leaseMs || 15000));
+    if (!owner) return json({ ok: false, error: 'missing owner' }, 400);
+
+    const lock = (await this.state.storage.get('lock')) || {};
+    const now = Date.now();
+    const active = lock && lock.owner && Number(lock.expiresAt || 0) > now;
+
+    if (action === 'acquire') {
+      if (!active || lock.owner === owner) {
+        const expiresAt = now + leaseMs;
+        const next = {
+          owner,
+          leaseId: `${owner}:${expiresAt}:${Math.random().toString(36).slice(2, 8)}`,
+          expiresAt
+        };
+        await this.state.storage.put('lock', next);
+        return json({ ok: true, granted: true, leaseId: next.leaseId, expiresAt: next.expiresAt });
+      }
+      return json({
+        ok: true,
+        granted: false,
+        retryAfterMs: Math.max(100, Number(lock.expiresAt || now) - now)
+      }, 409);
+    }
+
+    if (action === 'release') {
+      if (!active) {
+        await this.state.storage.delete('lock');
+        return json({ ok: true, released: true, stale: true });
+      }
+      if (lock.owner !== owner) return json({ ok: false, released: false, error: 'owner_mismatch' }, 409);
+      if (leaseId && lock.leaseId && leaseId !== lock.leaseId) {
+        return json({ ok: false, released: false, error: 'lease_mismatch' }, 409);
+      }
+      await this.state.storage.delete('lock');
+      return json({ ok: true, released: true });
+    }
+
+    return json({ ok: false, error: 'not found' }, 404);
+  }
+}

@@ -39,9 +39,15 @@ node cloudflare/scripts/deploy-worker.js
 
 What it does:
 1. Ensures KV/R2 resources and bindings exist.
-2. Uploads Worker secrets (`TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET`, `GEMINI_API_KEY`).
-3. Deploys worker with Wrangler.
-4. Calls Telegram `setWebhook` with `drop_pending_updates=true`.
+2. Ensures Durable Object lock coordinator config exists (`WRITE_LOCKS` + migration).
+3. Uploads Worker secrets (`TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET`, `GEMINI_API_KEY`, optional `LOCK_SERVICE_TOKEN`).
+4. Deploys worker with Wrangler (applies DO migration automatically).
+5. Calls Telegram `setWebhook` with `drop_pending_updates=true`.
+
+### Durable Object lock endpoint
+- Acquire: `POST /locks/acquire`
+- Release: `POST /locks/release`
+- Optional auth: header `x-lock-token` must match Worker secret `LOCK_SERVICE_TOKEN` (if set).
 
 ## Smoke test
 
