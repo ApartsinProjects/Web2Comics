@@ -37,7 +37,6 @@
 <p>Cross references:</p>
 <ul>
 <li>Extension README (Markdown): <a href="../../README.html"><code>../../README.md</code></a></li>
-<li>Extension docs home (GitHub Pages): <a href="https://apartsinprojects.github.io/Web2Comics/">https://apartsinprojects.github.io/Web2Comics/</a></li>
 <li>Bot docs bridge page (Markdown): <a href="../../telegram-bot.html"><code>../../docs/telegram-bot.md</code></a></li>
 <li>Bot docs page (GitHub Pages): <a href="https://apartsinprojects.github.io/Web2Comics/HTML/telegram-bot.html">https://apartsinprojects.github.io/Web2Comics/HTML/telegram-bot.html</a></li>
 </ul>
@@ -45,6 +44,16 @@
 <ul>
 <li>Developer docs describe architecture, prompts, storage, and testing.</li>
 <li>Admin-only bot commands are intentionally excluded from published command references.</li>
+</ul>
+<h2 id="public-command-catalog-implementation-scope">Public Command Catalog (Implementation Scope)</h2>
+<ul>
+<li>Onboarding/info: <code>/start</code>, <code>/welcome</code>, <code>/help</code>, <code>/about</code>, <code>/version</code>, <code>/user</code>, <code>/config</code>, <code>/explain</code>, <code>/debug</code></li>
+<li>Generation inputs: text/URL, <code>/invent &lt;story&gt;</code>, <code>/random</code></li>
+<li>Replay: <code>/peek</code>, <code>/peek &lt;n&gt;</code>, <code>/peek&lt;n&gt;</code></li>
+<li>Providers/models: <code>/vendor</code>, <code>/text_vendor</code>, <code>/image_vendor</code>, <code>/models</code>, <code>/test</code></li>
+<li>Output controls: <code>/panels</code>, <code>/objective</code>, <code>/objectives</code>, objective shortcuts, <code>/style</code>, style shortcuts, <code>/new_style</code>, <code>/language</code>, <code>/mode</code>, <code>/consistency</code>, <code>/detail</code>, <code>/crazyness</code>, <code>/concurrency</code>, <code>/retries</code></li>
+<li>Prompt/options: <code>/prompts</code>, <code>/set_prompt</code>, <code>/list_options</code>, <code>/options</code></li>
+<li>Credentials/state: <code>/keys</code>, <code>/setkey</code>, <code>/unsetkey</code>, <code>/reset_config</code>, <code>/restart</code></li>
 </ul>
 <h2 id="architecture">Architecture</h2>
 <ul>
@@ -145,6 +154,7 @@
     </article>
     <div class="footer">
       Generated from <code>telegram/docs/developer-guide.md</code> •
+      <span>&copy; 2026 Alexander Apartsin</span> •
       Creator: <a href="https://www.apartsin.com" target="_blank" rel="noopener noreferrer">www.apartsin.com</a>
     </div>
   </div>

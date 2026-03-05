@@ -37,14 +37,78 @@
 <p>Telegram bot backend for Web2Comics.<br />
 The bot accepts text or URL messages, generates comic panels, and sends ordered panel images back to chat.</p>
 <p>Extension README (Markdown): <a href="../README.html">../README.md</a><br />
-Extension docs home (GitHub Pages): <a href="https://apartsinprojects.github.io/Web2Comics/">https://apartsinprojects.github.io/Web2Comics/</a><br />
-Extension docs index (Markdown): <a href="../README.html">../docs/README.md</a><br />
 GitHub Pages bot docs: <a href="https://apartsinprojects.github.io/Web2Comics/HTML/telegram-bot.html">https://apartsinprojects.github.io/Web2Comics/HTML/telegram-bot.html</a>
 Bot docs bridge page (Markdown): <a href="../telegram-bot.html">../docs/telegram-bot.md</a></p>
 <h2 id="documentation-scope">Documentation Scope</h2>
 <ul>
 <li>Bot documentation lists public user-facing commands and flows only.</li>
 <li>Internal/admin-only commands are intentionally excluded from published docs.</li>
+</ul>
+<h2 id="public-command-catalog-no-admin-commands">Public Command Catalog (No Admin Commands)</h2>
+<ul>
+<li>Onboarding/info:
+<ul>
+<li><code>/start</code>, <code>/welcome</code>, <code>/help</code>, <code>/about</code>, <code>/version</code>, <code>/user</code>, <code>/config</code>, <code>/explain</code>, <code>/debug &lt;on|off&gt;</code></li>
+</ul>
+</li>
+<li>Story generation:
+<ul>
+<li>Send plain text or URL message</li>
+<li><code>/invent &lt;story&gt;</code></li>
+<li><code>/random</code></li>
+</ul>
+</li>
+<li>Replay/history:
+<ul>
+<li><code>/peek</code>, <code>/peek &lt;n&gt;</code>, <code>/peek&lt;n&gt;</code></li>
+</ul>
+</li>
+<li>Providers and models:
+<ul>
+<li><code>/vendor &lt;name&gt;</code>, <code>/text_vendor &lt;name&gt;</code>, <code>/image_vendor &lt;name&gt;</code></li>
+<li><code>/models [text|image] [model]</code></li>
+<li><code>/test</code></li>
+</ul>
+</li>
+<li>Generation controls:
+<ul>
+<li><code>/panels &lt;count&gt;</code>, <code>/objective [name]</code>, <code>/objectives</code></li>
+<li><code>/language &lt;code&gt;</code>, <code>/mode &lt;default|media_group|single&gt;</code></li>
+<li><code>/consistency &lt;on|off&gt;</code>, <code>/detail &lt;low|medium|high&gt;</code></li>
+<li><code>/crazyness &lt;0..2&gt;</code>, <code>/concurrency &lt;1..5&gt;</code>, <code>/retries &lt;0..3&gt;</code></li>
+</ul>
+</li>
+<li>Objective shortcuts:
+<ul>
+<li><code>/summary</code>, <code>/fun</code>, <code>/learn</code>, <code>/news</code>, <code>/timeline</code>, <code>/facts</code>, <code>/compare</code>, <code>/5yold</code>, <code>/eli5</code>, <code>/study</code>, <code>/meeting</code>, <code>/howto</code>, <code>/debate</code></li>
+</ul>
+</li>
+<li>Style controls:
+<ul>
+<li><code>/style &lt;preset-or-your-style&gt;</code></li>
+<li><code>/new_style &lt;name&gt; &lt;text&gt;</code></li>
+<li>Style shortcuts: <code>/classic</code>, <code>/noir</code>, <code>/manga</code>, <code>/superhero</code>, <code>/watercolor</code>, <code>/newspaper</code>, <code>/cinematic</code>, <code>/anime</code>, <code>/cyberpunk</code>, <code>/pixel-art</code>, <code>/retro-pop</code>, <code>/minimalist</code>, <code>/storybook</code>, <code>/ink-wash</code>, <code>/line-art</code>, <code>/clay-3d</code></li>
+</ul>
+</li>
+<li>Prompts/options:
+<ul>
+<li><code>/prompts</code></li>
+<li><code>/set_prompt story &lt;text&gt;</code></li>
+<li><code>/set_prompt panel &lt;text&gt;</code></li>
+<li><code>/set_prompt objective &lt;name&gt; &lt;text&gt;</code></li>
+<li><code>/list_options</code>, <code>/options &lt;path&gt;</code></li>
+</ul>
+</li>
+<li>Keys/reset:
+<ul>
+<li><code>/keys</code>, <code>/setkey &lt;KEY&gt; &lt;VALUE&gt;</code>, <code>/unsetkey &lt;KEY&gt;</code>, <code>/reset_config</code>, <code>/restart</code></li>
+</ul>
+</li>
+<li>Behavior:
+<ul>
+<li>Unknown <code>/...</code> command is rejected as unrecognized (not treated as story text).</li>
+</ul>
+</li>
 </ul>
 <h2 id="what-it-does">What It Does</h2>
 <ul>
@@ -67,25 +131,6 @@ Bot docs bridge page (Markdown): <a href="../telegram-bot.html">../docs/telegram
 <li>Outbound Telegram messages/photos are sent with forwarding allowed (<code>protect_content=false</code>)</li>
 <li><code>/objective</code> without args lists all objectives</li>
 <li>For URL inputs, bot prints the exact parsed URL before extraction</li>
-</ul>
-<h2 id="key-commands">Key Commands</h2>
-<p>User:</p>
-<ul>
-<li><code>/help</code></li>
-<li><code>/about</code></li>
-<li><code>/version</code></li>
-<li><code>/user</code></li>
-<li><code>/config</code></li>
-<li><code>/vendor</code>, <code>/text_vendor</code>, <code>/image_vendor</code></li>
-<li><code>/panels</code>, <code>/objective</code>, <code>/language</code>, <code>/style</code>, <code>/crazyness</code></li>
-<li><code>/consistency</code></li>
-<li><code>/models</code></li>
-<li><code>/options</code>, <code>/list_options</code></li>
-<li><code>/keys</code> or <code>/credentials</code></li>
-<li><code>/setkey</code>, <code>/unsetkey</code></li>
-<li><code>/new_style</code></li>
-<li><code>/set_prompt</code></li>
-<li><code>/invent</code></li>
 </ul>
 <h2 id="documentation">Documentation</h2>
 <ul>
@@ -133,6 +178,7 @@ npx vitest run -c telegram/vitest.config.js telegram/tests/webhook-url-real.e2e.
     </article>
     <div class="footer">
       Generated from <code>telegram/README.md</code> •
+      <span>&copy; 2026 Alexander Apartsin</span> •
       Creator: <a href="https://www.apartsin.com" target="_blank" rel="noopener noreferrer">www.apartsin.com</a>
     </div>
   </div>

@@ -6,9 +6,6 @@ The Telegram bot is the server-side companion to the Web2Comics extension.
 
 Extension docs:
 - Extension README (GitHub): <https://github.com/ApartsinProjects/Web2Comics/blob/main/README.md>
-- Extension docs index (Markdown): [`./README.md`](./README.md)
-- Extension docs home (GitHub Pages): <https://apartsinprojects.github.io/Web2Comics/>
-- Extension user manual (GitHub Pages): <https://apartsinprojects.github.io/Web2Comics/user-manual.html>
 
 Bot docs:
 - Bot README (GitHub): <https://github.com/ApartsinProjects/Web2Comics/blob/main/telegram/README.md>
@@ -32,6 +29,22 @@ Bot docs:
 ## Scope
 - This bridge page documents public user-facing behavior only.
 - Admin-only bot commands are intentionally excluded from published docs.
+
+## Public Command Catalog (No Admin Commands)
+- Onboarding/info:
+  - `/start`, `/welcome`, `/help`, `/about`, `/version`, `/user`, `/config`, `/explain`, `/debug <on|off>`
+- Generation/replay:
+  - text/URL message, `/invent <story>`, `/random`, `/peek`, `/peek<n>`
+- Providers/models:
+  - `/vendor`, `/text_vendor`, `/image_vendor`, `/models`, `/test`
+- Controls:
+  - `/panels`, `/objective`, `/objectives`, objective shortcuts
+  - `/style`, style shortcuts, `/new_style`
+  - `/language`, `/mode`, `/consistency`, `/detail`, `/crazyness`, `/concurrency`, `/retries`
+- Prompt/options:
+  - `/prompts`, `/set_prompt`, `/list_options`, `/options`
+- Credentials/state:
+  - `/keys`, `/setkey`, `/unsetkey`, `/reset_config`, `/restart`
 
 ## Deploy
 ```bash

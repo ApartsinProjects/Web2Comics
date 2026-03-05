@@ -2,13 +2,22 @@
 
 Cross references:
 - Extension README (Markdown): [`../../README.md`](../../README.md)
-- Extension docs home (GitHub Pages): <https://apartsinprojects.github.io/Web2Comics/>
 - Bot docs bridge page (Markdown): [`../../docs/telegram-bot.md`](../../docs/telegram-bot.md)
 - Bot docs page (GitHub Pages): <https://apartsinprojects.github.io/Web2Comics/HTML/telegram-bot.html>
 
 Scope note:
 - Storage behavior is documented for public deployment/usage only.
 - Admin-only bot commands are intentionally excluded from docs.
+
+## Public Commands That Persist State
+- Credentials/state:
+  - `/keys`, `/setkey`, `/unsetkey`, `/reset_config`, `/restart`
+- Generation/config:
+  - text/URL input, `/invent`, `/random`, `/peek`
+  - `/vendor`, `/text_vendor`, `/image_vendor`, `/models`, `/test`
+  - `/panels`, `/objective`, objective shortcuts, `/style`, style shortcuts, `/new_style`
+  - `/language`, `/mode`, `/consistency`, `/detail`, `/crazyness`, `/concurrency`, `/retries`
+  - `/prompts`, `/set_prompt`, `/list_options`, `/options`
 
 ## Storage classes used
 - `logs/requests/` for request audit records.

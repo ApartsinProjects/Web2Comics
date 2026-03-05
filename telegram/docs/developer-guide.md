@@ -2,13 +2,21 @@
 
 Cross references:
 - Extension README (Markdown): [`../../README.md`](../../README.md)
-- Extension docs home (GitHub Pages): <https://apartsinprojects.github.io/Web2Comics/>
 - Bot docs bridge page (Markdown): [`../../docs/telegram-bot.md`](../../docs/telegram-bot.md)
 - Bot docs page (GitHub Pages): <https://apartsinprojects.github.io/Web2Comics/HTML/telegram-bot.html>
 
 Scope note:
 - Developer docs describe architecture, prompts, storage, and testing.
 - Admin-only bot commands are intentionally excluded from published command references.
+
+## Public Command Catalog (Implementation Scope)
+- Onboarding/info: `/start`, `/welcome`, `/help`, `/about`, `/version`, `/user`, `/config`, `/explain`, `/debug`
+- Generation inputs: text/URL, `/invent <story>`, `/random`
+- Replay: `/peek`, `/peek <n>`, `/peek<n>`
+- Providers/models: `/vendor`, `/text_vendor`, `/image_vendor`, `/models`, `/test`
+- Output controls: `/panels`, `/objective`, `/objectives`, objective shortcuts, `/style`, style shortcuts, `/new_style`, `/language`, `/mode`, `/consistency`, `/detail`, `/crazyness`, `/concurrency`, `/retries`
+- Prompt/options: `/prompts`, `/set_prompt`, `/list_options`, `/options`
+- Credentials/state: `/keys`, `/setkey`, `/unsetkey`, `/reset_config`, `/restart`
 
 ## Architecture
 - Entry point: `telegram/src/webhook-bot.js`

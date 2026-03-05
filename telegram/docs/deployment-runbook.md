@@ -2,13 +2,27 @@
 
 Cross references:
 - Extension README (Markdown): [`../../README.md`](../../README.md)
-- Extension docs home (GitHub Pages): <https://apartsinprojects.github.io/Web2Comics/>
 - Bot docs bridge page (Markdown): [`../../docs/telegram-bot.md`](../../docs/telegram-bot.md)
 - Bot docs page (GitHub Pages): <https://apartsinprojects.github.io/Web2Comics/HTML/telegram-bot.html>
 
 Scope note:
 - This runbook documents deployment and operational checks only.
 - Admin-only bot commands are intentionally excluded from user-facing docs.
+
+## Public Command Surface (For Deployment Validation)
+- Verify onboarding/info commands: `/start`, `/welcome`, `/help`, `/about`, `/version`, `/user`, `/config`, `/explain`, `/debug`
+- Verify generation commands:
+  - text/URL input
+  - `/invent <story>`
+  - `/random`
+  - `/peek`, `/peek<n>`
+- Verify configuration commands:
+  - `/vendor`, `/text_vendor`, `/image_vendor`, `/models`, `/test`
+  - `/panels`, `/objective`, `/objectives` + objective shortcuts (`/summary`, `/fun`, `/learn`, `/news`, `/timeline`, `/facts`, `/compare`, `/5yold`, `/eli5`, `/study`, `/meeting`, `/howto`, `/debate`)
+  - `/style` + style shortcuts (`/classic`, `/noir`, `/manga`, `/superhero`, `/watercolor`, `/newspaper`, `/cinematic`, `/anime`, `/cyberpunk`, `/pixel-art`, `/retro-pop`, `/minimalist`, `/storybook`, `/ink-wash`, `/line-art`, `/clay-3d`)
+  - `/new_style`, `/language`, `/mode`, `/consistency`, `/detail`, `/crazyness`, `/concurrency`, `/retries`
+  - `/prompts`, `/set_prompt`, `/list_options`, `/options`
+  - `/keys`, `/setkey`, `/unsetkey`, `/reset_config`, `/restart`
 
 ## Scope
 This runbook covers deployment of the Telegram webhook bot in `telegram/src/webhook-bot.js` with persistent storage in Cloudflare R2.

@@ -5,19 +5,53 @@
 ![Deploy](https://img.shields.io/badge/deploy-render-46E3B7?logo=render&logoColor=000000)
 ![Storage](https://img.shields.io/badge/storage-Cloudflare%20R2-F48120?logo=cloudflare&logoColor=white)
 ![Tests](https://img.shields.io/badge/tests-vitest-6E9F18?logo=vitest&logoColor=white)
+![License](https://img.shields.io/badge/%C2%A9%202026-Alexander%20Apartsin-red)
 
 Telegram bot backend for Web2Comics.  
 The bot accepts text or URL messages, generates comic panels, and sends ordered panel images back to chat.
 
 Extension README (Markdown): [../README.md](../README.md)  
-Extension docs home (GitHub Pages): <https://apartsinprojects.github.io/Web2Comics/>  
-Extension docs index (Markdown): [../docs/README.md](../docs/README.md)  
 GitHub Pages bot docs: <https://apartsinprojects.github.io/Web2Comics/HTML/telegram-bot.html>
 Bot docs bridge page (Markdown): [../docs/telegram-bot.md](../docs/telegram-bot.md)
 
 ## Documentation Scope
 - Bot documentation lists public user-facing commands and flows only.
 - Internal/admin-only commands are intentionally excluded from published docs.
+
+## Public Command Catalog (No Admin Commands)
+- Onboarding/info:
+  - `/start`, `/welcome`, `/help`, `/about`, `/version`, `/user`, `/config`, `/explain`, `/debug <on|off>`
+- Story generation:
+  - Send plain text or URL message
+  - `/invent <story>`
+  - `/random`
+- Replay/history:
+  - `/peek`, `/peek <n>`, `/peek<n>`
+- Providers and models:
+  - `/vendor <name>`, `/text_vendor <name>`, `/image_vendor <name>`
+  - `/models [text|image] [model]`
+  - `/test`
+- Generation controls:
+  - `/panels <count>`, `/objective [name]`, `/objectives`
+  - `/language <code>`, `/mode <default|media_group|single>`
+  - `/consistency <on|off>`, `/detail <low|medium|high>`
+  - `/crazyness <0..2>`, `/concurrency <1..5>`, `/retries <0..3>`
+- Objective shortcuts:
+  - `/summary`, `/fun`, `/learn`, `/news`, `/timeline`, `/facts`, `/compare`, `/5yold`, `/eli5`, `/study`, `/meeting`, `/howto`, `/debate`
+- Style controls:
+  - `/style <preset-or-your-style>`
+  - `/new_style <name> <text>`
+  - Style shortcuts: `/classic`, `/noir`, `/manga`, `/superhero`, `/watercolor`, `/newspaper`, `/cinematic`, `/anime`, `/cyberpunk`, `/pixel-art`, `/retro-pop`, `/minimalist`, `/storybook`, `/ink-wash`, `/line-art`, `/clay-3d`
+- Prompts/options:
+  - `/prompts`
+  - `/set_prompt story <text>`
+  - `/set_prompt panel <text>`
+  - `/set_prompt objective <name> <text>`
+  - `/list_options`, `/options <path>`
+- Keys/reset:
+  - `/keys`, `/setkey <KEY> <VALUE>`, `/unsetkey <KEY>`, `/reset_config`, `/restart`
+- Behavior:
+  - Unknown `/...` command is rejected as unrecognized (not treated as story text).
 
 ## What It Does
 - Receives Telegram webhook updates
@@ -38,24 +72,6 @@ Bot docs bridge page (Markdown): [../docs/telegram-bot.md](../docs/telegram-bot.
 - Outbound Telegram messages/photos are sent with forwarding allowed (`protect_content=false`)
 - `/objective` without args lists all objectives
 - For URL inputs, bot prints the exact parsed URL before extraction
-
-## Key Commands
-User:
-- `/help`
-- `/about`
-- `/version`
-- `/user`
-- `/config`
-- `/vendor`, `/text_vendor`, `/image_vendor`
-- `/panels`, `/objective`, `/language`, `/style`, `/crazyness`
-- `/consistency`
-- `/models`
-- `/options`, `/list_options`
-- `/keys` or `/credentials`
-- `/setkey`, `/unsetkey`
-- `/new_style`
-- `/set_prompt`
-- `/invent`
 
 ## Documentation
 - Deployment hub: [docs/deployment.md](docs/deployment.md)

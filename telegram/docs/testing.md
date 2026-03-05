@@ -2,13 +2,20 @@
 
 Cross references:
 - Extension README (Markdown): [`../../README.md`](../../README.md)
-- Extension docs home (GitHub Pages): <https://apartsinprojects.github.io/Web2Comics/>
 - Bot docs bridge page (Markdown): [`../../docs/telegram-bot.md`](../../docs/telegram-bot.md)
 - Bot docs page (GitHub Pages): <https://apartsinprojects.github.io/Web2Comics/HTML/telegram-bot.html>
 
 Scope note:
 - Test flows here target public user behavior and deployment reliability.
 - Admin-only bot commands are intentionally excluded from published docs.
+
+## Public Commands To Cover In Tests
+- Onboarding/info: `/start`, `/welcome`, `/help`, `/about`, `/version`, `/user`, `/config`, `/explain`, `/debug`
+- Generation: text input, URL input, `/invent <story>`, `/random`, `/peek`, `/peek<n>`
+- Providers/models: `/vendor`, `/text_vendor`, `/image_vendor`, `/models`, `/test`
+- Controls: `/panels`, `/objective`, `/objectives`, objective shortcuts, `/style`, style shortcuts, `/new_style`, `/language`, `/mode`, `/consistency`, `/detail`, `/crazyness`, `/concurrency`, `/retries`
+- Prompt/options: `/prompts`, `/set_prompt`, `/list_options`, `/options`
+- Credentials/state: `/keys`, `/setkey`, `/unsetkey`, `/reset_config`, `/restart`
 
 ## Scope
 This document covers local, integration, and remote validation for the Render webhook bot.

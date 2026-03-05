@@ -37,7 +37,6 @@
 <p>Cross references:</p>
 <ul>
 <li>Extension README (Markdown): <a href="../../README.html"><code>../../README.md</code></a></li>
-<li>Extension docs home (GitHub Pages): <a href="https://apartsinprojects.github.io/Web2Comics/">https://apartsinprojects.github.io/Web2Comics/</a></li>
 <li>Bot docs bridge page (Markdown): <a href="../../telegram-bot.html"><code>../../docs/telegram-bot.md</code></a></li>
 <li>Bot docs page (GitHub Pages): <a href="https://apartsinprojects.github.io/Web2Comics/HTML/telegram-bot.html">https://apartsinprojects.github.io/Web2Comics/HTML/telegram-bot.html</a></li>
 </ul>
@@ -45,6 +44,16 @@
 <ul>
 <li>This document covers deployment/runtime behavior only.</li>
 <li>Admin-only bot commands are intentionally excluded from user documentation.</li>
+</ul>
+<h2 id="public-commands-covered-by-this-deployment">Public Commands Covered By This Deployment</h2>
+<ul>
+<li>Runtime and onboarding: <code>/start</code>, <code>/welcome</code>, <code>/help</code>, <code>/version</code>, <code>/about</code>, <code>/user</code>, <code>/config</code>, <code>/explain</code>, <code>/debug</code></li>
+<li>Generation entrypoints: text/URL messages, <code>/invent &lt;story&gt;</code>, <code>/random</code></li>
+<li>Provider/model controls: <code>/vendor</code>, <code>/text_vendor</code>, <code>/image_vendor</code>, <code>/models</code>, <code>/test</code></li>
+<li>Output controls: <code>/panels</code>, <code>/objective</code>, <code>/objectives</code>, objective shortcuts (<code>/summary</code>, <code>/fun</code>, <code>/learn</code>, <code>/news</code>, <code>/timeline</code>, <code>/facts</code>, <code>/compare</code>, <code>/5yold</code>, <code>/eli5</code>, <code>/study</code>, <code>/meeting</code>, <code>/howto</code>, <code>/debate</code>), <code>/style</code>, style shortcuts, <code>/new_style</code>, <code>/language</code>, <code>/mode</code>, <code>/consistency</code>, <code>/detail</code>, <code>/crazyness</code>, <code>/concurrency</code>, <code>/retries</code></li>
+<li>Prompt/options controls: <code>/prompts</code>, <code>/set_prompt</code>, <code>/list_options</code>, <code>/options</code></li>
+<li>Credentials/state: <code>/keys</code>, <code>/setkey</code>, <code>/unsetkey</code>, <code>/reset_config</code>, <code>/restart</code></li>
+<li>History replay: <code>/peek</code>, <code>/peek &lt;n&gt;</code>, <code>/peek&lt;n&gt;</code></li>
 </ul>
 <p>Core bot docs:</p>
 <ul>
@@ -68,6 +77,7 @@
     </article>
     <div class="footer">
       Generated from <code>telegram/docs/deployment.md</code> •
+      <span>&copy; 2026 Alexander Apartsin</span> •
       Creator: <a href="https://www.apartsin.com" target="_blank" rel="noopener noreferrer">www.apartsin.com</a>
     </div>
   </div>

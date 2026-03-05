@@ -37,7 +37,6 @@
 <p>Cross references:</p>
 <ul>
 <li>Extension README (Markdown): <a href="../../README.html"><code>../../README.md</code></a></li>
-<li>Extension docs home (GitHub Pages): <a href="https://apartsinprojects.github.io/Web2Comics/">https://apartsinprojects.github.io/Web2Comics/</a></li>
 <li>Bot docs bridge page (Markdown): <a href="../../telegram-bot.html"><code>../../docs/telegram-bot.md</code></a></li>
 <li>Bot docs page (GitHub Pages): <a href="https://apartsinprojects.github.io/Web2Comics/HTML/telegram-bot.html">https://apartsinprojects.github.io/Web2Comics/HTML/telegram-bot.html</a></li>
 </ul>
@@ -45,6 +44,23 @@
 <ul>
 <li>Storage behavior is documented for public deployment/usage only.</li>
 <li>Admin-only bot commands are intentionally excluded from docs.</li>
+</ul>
+<h2 id="public-commands-that-persist-state">Public Commands That Persist State</h2>
+<ul>
+<li>Credentials/state:
+<ul>
+<li><code>/keys</code>, <code>/setkey</code>, <code>/unsetkey</code>, <code>/reset_config</code>, <code>/restart</code></li>
+</ul>
+</li>
+<li>Generation/config:
+<ul>
+<li>text/URL input, <code>/invent</code>, <code>/random</code>, <code>/peek</code></li>
+<li><code>/vendor</code>, <code>/text_vendor</code>, <code>/image_vendor</code>, <code>/models</code>, <code>/test</code></li>
+<li><code>/panels</code>, <code>/objective</code>, objective shortcuts, <code>/style</code>, style shortcuts, <code>/new_style</code></li>
+<li><code>/language</code>, <code>/mode</code>, <code>/consistency</code>, <code>/detail</code>, <code>/crazyness</code>, <code>/concurrency</code>, <code>/retries</code></li>
+<li><code>/prompts</code>, <code>/set_prompt</code>, <code>/list_options</code>, <code>/options</code></li>
+</ul>
+</li>
 </ul>
 <h2 id="storage-classes-used">Storage classes used</h2>
 <ul>
@@ -103,6 +119,7 @@
     </article>
     <div class="footer">
       Generated from <code>telegram/docs/storage-r2.md</code> •
+      <span>&copy; 2026 Alexander Apartsin</span> •
       Creator: <a href="https://www.apartsin.com" target="_blank" rel="noopener noreferrer">www.apartsin.com</a>
     </div>
   </div>

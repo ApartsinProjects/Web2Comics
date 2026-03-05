@@ -277,6 +277,7 @@ $fragment
     </article>
     <div class="footer">
       Generated from <code>$relativeMd</code> •
+      <span>&copy; 2026 Alexander Apartsin</span> •
       Creator: <a href="https://www.apartsin.com" target="_blank" rel="noopener noreferrer">www.apartsin.com</a>
     </div>
   </div>

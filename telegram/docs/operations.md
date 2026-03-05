@@ -2,13 +2,19 @@
 
 Cross references:
 - Extension README (Markdown): [`../../README.md`](../../README.md)
-- Extension docs home (GitHub Pages): <https://apartsinprojects.github.io/Web2Comics/>
 - Bot docs bridge page (Markdown): [`../../docs/telegram-bot.md`](../../docs/telegram-bot.md)
 - Bot docs page (GitHub Pages): <https://apartsinprojects.github.io/Web2Comics/HTML/telegram-bot.html>
 
 Scope note:
 - Operations guidance here is public and user-safe.
 - Admin-only bot commands are intentionally excluded from published docs.
+
+## Public Commands Relevant To Operations
+- Health and onboarding: `/start`, `/welcome`, `/help`, `/version`, `/about`, `/user`, `/config`, `/explain`, `/debug`
+- Live generation: text/URL message, `/invent`, `/random`, `/peek`
+- Runtime controls: `/vendor`, `/text_vendor`, `/image_vendor`, `/models`, `/test`, `/panels`, `/objective`, objective shortcuts, `/style`, style shortcuts, `/new_style`, `/language`, `/mode`, `/consistency`, `/detail`, `/crazyness`, `/concurrency`, `/retries`
+- Prompt/options: `/prompts`, `/set_prompt`, `/list_options`, `/options`
+- Credentials/reset: `/keys`, `/setkey`, `/unsetkey`, `/reset_config`, `/restart`
 
 ## Health
 - Service health endpoint:

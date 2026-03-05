@@ -37,7 +37,6 @@
 <p>Cross references:</p>
 <ul>
 <li>Extension README (Markdown): <a href="../../README.html"><code>../../README.md</code></a></li>
-<li>Extension docs home (GitHub Pages): <a href="https://apartsinprojects.github.io/Web2Comics/">https://apartsinprojects.github.io/Web2Comics/</a></li>
 <li>Bot docs bridge page (Markdown): <a href="../../telegram-bot.html"><code>../../docs/telegram-bot.md</code></a></li>
 <li>Bot docs page (GitHub Pages): <a href="https://apartsinprojects.github.io/Web2Comics/HTML/telegram-bot.html">https://apartsinprojects.github.io/Web2Comics/HTML/telegram-bot.html</a></li>
 </ul>
@@ -45,6 +44,28 @@
 <ul>
 <li>This runbook documents deployment and operational checks only.</li>
 <li>Admin-only bot commands are intentionally excluded from user-facing docs.</li>
+</ul>
+<h2 id="public-command-surface-for-deployment-validation">Public Command Surface (For Deployment Validation)</h2>
+<ul>
+<li>Verify onboarding/info commands: <code>/start</code>, <code>/welcome</code>, <code>/help</code>, <code>/about</code>, <code>/version</code>, <code>/user</code>, <code>/config</code>, <code>/explain</code>, <code>/debug</code></li>
+<li>Verify generation commands:
+<ul>
+<li>text/URL input</li>
+<li><code>/invent &lt;story&gt;</code></li>
+<li><code>/random</code></li>
+<li><code>/peek</code>, <code>/peek&lt;n&gt;</code></li>
+</ul>
+</li>
+<li>Verify configuration commands:
+<ul>
+<li><code>/vendor</code>, <code>/text_vendor</code>, <code>/image_vendor</code>, <code>/models</code>, <code>/test</code></li>
+<li><code>/panels</code>, <code>/objective</code>, <code>/objectives</code> + objective shortcuts (<code>/summary</code>, <code>/fun</code>, <code>/learn</code>, <code>/news</code>, <code>/timeline</code>, <code>/facts</code>, <code>/compare</code>, <code>/5yold</code>, <code>/eli5</code>, <code>/study</code>, <code>/meeting</code>, <code>/howto</code>, <code>/debate</code>)</li>
+<li><code>/style</code> + style shortcuts (<code>/classic</code>, <code>/noir</code>, <code>/manga</code>, <code>/superhero</code>, <code>/watercolor</code>, <code>/newspaper</code>, <code>/cinematic</code>, <code>/anime</code>, <code>/cyberpunk</code>, <code>/pixel-art</code>, <code>/retro-pop</code>, <code>/minimalist</code>, <code>/storybook</code>, <code>/ink-wash</code>, <code>/line-art</code>, <code>/clay-3d</code>)</li>
+<li><code>/new_style</code>, <code>/language</code>, <code>/mode</code>, <code>/consistency</code>, <code>/detail</code>, <code>/crazyness</code>, <code>/concurrency</code>, <code>/retries</code></li>
+<li><code>/prompts</code>, <code>/set_prompt</code>, <code>/list_options</code>, <code>/options</code></li>
+<li><code>/keys</code>, <code>/setkey</code>, <code>/unsetkey</code>, <code>/reset_config</code>, <code>/restart</code></li>
+</ul>
+</li>
 </ul>
 <h2 id="scope">Scope</h2>
 <p>This runbook covers deployment of the Telegram webhook bot in <code>telegram/src/webhook-bot.js</code> with persistent storage in Cloudflare R2.</p>
@@ -174,6 +195,7 @@ Skip it only when needed:</p>
     </article>
     <div class="footer">
       Generated from <code>telegram/docs/deployment-runbook.md</code> •
+      <span>&copy; 2026 Alexander Apartsin</span> •
       Creator: <a href="https://www.apartsin.com" target="_blank" rel="noopener noreferrer">www.apartsin.com</a>
     </div>
   </div>

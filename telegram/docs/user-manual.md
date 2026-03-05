@@ -2,13 +2,47 @@
 
 Cross references:
 - Extension README (Markdown): [`../../README.md`](../../README.md)
-- Extension user manual (GitHub Pages): <https://apartsinprojects.github.io/Web2Comics/user-manual.html>
 - Bot docs bridge page (Markdown): [`../../docs/telegram-bot.md`](../../docs/telegram-bot.md)
 - Bot docs page (GitHub Pages): <https://apartsinprojects.github.io/Web2Comics/HTML/telegram-bot.html>
 
 Scope note:
 - This manual documents public user commands and flows only.
 - Admin-only bot commands are intentionally excluded.
+
+## Full Public Command Catalog
+- Onboarding/info:
+  - `/start`, `/welcome`, `/help`, `/about`, `/version`, `/user`, `/config`, `/explain`, `/debug <on|off>`
+- Story generation:
+  - Send text or URL
+  - `/invent <story>`
+  - `/random`
+- Replay/history:
+  - `/peek`, `/peek <n>`, `/peek<n>`
+- Providers/models:
+  - `/vendor <name>`, `/text_vendor <name>`, `/image_vendor <name>`
+  - `/models [text|image] [model]`
+  - `/test`
+- Controls:
+  - `/panels <count>`, `/objective [name]`, `/objectives`
+  - `/language <code>`, `/mode <default|media_group|single>`
+  - `/consistency <on|off>`, `/detail <low|medium|high>`
+  - `/crazyness <0..2>`, `/concurrency <1..5>`, `/retries <0..3>`
+- Objective shortcuts:
+  - `/summary`, `/fun`, `/learn`, `/news`, `/timeline`, `/facts`, `/compare`, `/5yold`, `/eli5`, `/study`, `/meeting`, `/howto`, `/debate`
+- Style commands:
+  - `/style <preset-or-your-style>`
+  - `/new_style <name> <text>`
+  - Built-in style shortcuts: `/classic`, `/noir`, `/manga`, `/superhero`, `/watercolor`, `/newspaper`, `/cinematic`, `/anime`, `/cyberpunk`, `/pixel-art`, `/retro-pop`, `/minimalist`, `/storybook`, `/ink-wash`, `/line-art`, `/clay-3d`
+- Prompt/options:
+  - `/prompts`
+  - `/set_prompt story <text>`
+  - `/set_prompt panel <text>`
+  - `/set_prompt objective <name> <text>`
+  - `/list_options`, `/options <path>`
+- Keys/reset:
+  - `/keys`, `/setkey <KEY> <VALUE>`, `/unsetkey <KEY>`, `/reset_config`, `/restart`
+- Behavior:
+  - Unknown `/...` commands are rejected as unrecognized and not treated as story input.
 
 ## What The Bot Does
 Send plain text or a URL, and the bot generates comic panels and sends them back as ordered Telegram images.
