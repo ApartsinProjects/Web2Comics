@@ -24,7 +24,11 @@ function buildStyleReferencePrompt(storyboard, settings) {
   const title = String(storyboard?.title || 'Comic Summary').trim();
   const summary = buildStorySummaryContext(storyboard);
   const objective = String(settings?.objective || 'summarize').trim();
+  const objectiveDescription = String(settings?.objective_description || '').trim();
+  const objectiveName = String(settings?.objective_name || objective).trim();
   const style = String(settings?.style_prompt || '').trim();
+  const styleDescription = String(settings?.style_description || style).trim();
+  const styleName = String(settings?.style_name || 'custom').trim();
   const language = String(settings?.output_language || 'en').trim();
   const detail = String(settings?.detail_level || 'low').trim();
   const objectiveOverride = String(settings?.objective_prompt_overrides?.[objective] || '').trim();
@@ -35,11 +39,15 @@ function buildStyleReferencePrompt(storyboard, settings) {
     `Story title: ${title}`,
     `Story summary: ${summary || 'No summary provided.'}`,
     `Objective: ${objective}`,
+    `Objective name: ${objectiveName}`,
+    objectiveDescription ? `Objective description: ${objectiveDescription}` : '',
     `Style: ${style}`,
+    `Style name: ${styleName}`,
+    styleDescription ? `Style description: ${styleDescription}` : '',
     `Output language: ${language}`,
     `Detail level: ${detail}`,
     STYLE_REFERENCE_PROMPT_LINES.sceneRule
-  ];
+  ].filter(Boolean);
   if (objectiveOverride) {
     out.push(`Objective-specific guidance: ${objectiveOverride}`);
   }
@@ -57,13 +65,17 @@ function buildPanelImagePrompt(panel, index, total, settings, storyboard, opts =
   const storySummary = buildStorySummaryContext(storyboard, panel);
   const shortSummary = storySummary.length > 280 ? `${storySummary.slice(0, 280)}...` : storySummary;
   const panelSpecificPrompt = String(panel?.image_prompt || '').trim();
+  const styleName = String(settings.style_name || 'custom').trim();
+  const styleDescription = String(settings.style_description || settings.style_prompt || '').trim();
   const out = [
     `Background: ${shortSummary || 'No summary provided.'}`,
     `Image description: ${panelSpecificPrompt || panel.caption}`,
     `Style: ${settings.style_prompt}`,
+    `Style name: ${styleName}`,
+    styleDescription ? `Style description: ${styleDescription}` : '',
     PANEL_IMAGE_PROMPT_LINES.sceneRule,
     ...NO_TEXT_RULE_BLOCK
-  ];
+  ].filter(Boolean);
   if (opts && opts.hasStyleReferenceImage) {
     out.push(PANEL_IMAGE_PROMPT_LINES.styleLock1);
     out.push(PANEL_IMAGE_PROMPT_LINES.styleLock2);
@@ -221,6 +233,7 @@ async function runComicEngine(options) {
     sourceText: source.text,
     panelCount: config.generation.panel_count,
     objective: config.generation.objective,
+    objectiveDescription: config.generation.objective_description,
     stylePrompt: config.generation.style_prompt,
     outputLanguage: config.generation.output_language,
     objectivePromptOverride: config.generation?.objective_prompt_overrides?.[config.generation.objective],
@@ -306,6 +319,7 @@ async function runComicEnginePanels(options) {
     sourceText: source.text,
     panelCount: config.generation.panel_count,
     objective: config.generation.objective,
+    objectiveDescription: config.generation.objective_description,
     stylePrompt: config.generation.style_prompt,
     outputLanguage: config.generation.output_language,
     objectivePromptOverride: config.generation?.objective_prompt_overrides?.[config.generation.objective],

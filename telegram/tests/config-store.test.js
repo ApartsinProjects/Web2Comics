@@ -318,6 +318,41 @@ describe('render config store', () => {
     }
   });
 
+  it('persists user config overrides to R2 and reloads them on boot', async () => {
+    const baseConfig = path.resolve(__dirname, '../config/default.render.yml');
+    const adapter = new FakeS3Adapter();
+    const persistence = new R2Persistence({
+      bucket: 'cfgs-test',
+      stateKey: 'state/runtime-config.json',
+      adapter
+    });
+
+    const first = new RuntimeConfigStore(baseConfig, persistence, {
+      adminChatIds: 'admin'
+    });
+    await first.load();
+    await first.setConfigValue('u77', 'generation.panel_count', 6);
+    await first.setConfigValue('u77', 'generation.objective', 'fun');
+    await first.setConfigValue('u77', 'generation.output_language', 'he');
+    await first.setConfigValue('u77', 'generation.style_name', 'Noir');
+
+    const rawState = await adapter.getObject('cfgs-test', 'state/runtime-config.json');
+    const parsed = JSON.parse(String(rawState || '{}'));
+    expect(parsed.users.u77.overrides.generation.panel_count).toBe(6);
+    expect(parsed.users.u77.overrides.generation.objective).toBe('fun');
+    expect(parsed.users.u77.overrides.generation.output_language).toBe('he');
+    expect(parsed.users.u77.overrides.generation.style_name).toBe('Noir');
+
+    const second = new RuntimeConfigStore(baseConfig, persistence, {
+      adminChatIds: 'admin'
+    });
+    await second.load();
+    expect(second.getCurrent('u77', 'generation.panel_count')).toBe(6);
+    expect(second.getCurrent('u77', 'generation.objective')).toBe('fun');
+    expect(second.getCurrent('u77', 'generation.output_language')).toBe('he');
+    expect(second.getCurrent('u77', 'generation.style_name')).toBe('Noir');
+  });
+
   it('includes admin env credentials in admin cfg artifact only', async () => {
     const prevGemini = process.env.GEMINI_API_KEY;
     process.env.GEMINI_API_KEY = 'ENV_ADMIN_GEMINI';

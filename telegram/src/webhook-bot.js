@@ -29,7 +29,9 @@ const {
 const {
   STYLE_PRESETS,
   STYLE_SHORTCUTS,
-  OBJECTIVE_SHORTCUTS
+  OBJECTIVE_SHORTCUTS,
+  getObjectiveMeta,
+  getStyleMeta
 } = require('./data/styles-objectives');
 const {
   SHORT_STORY_PROMPT_MAX_CHARS
@@ -569,6 +571,45 @@ function normalizeStyleName(raw) {
   return String(raw || '').trim().toLowerCase().replace(/\s+/g, '-');
 }
 
+function resolveObjectiveMetaFromConfig(cfg) {
+  const objective = String(cfg?.generation?.objective || 'summarize').trim().toLowerCase();
+  const known = getObjectiveMeta(objective);
+  return {
+    id: objective,
+    name: String(cfg?.generation?.objective_name || known.name || objective).trim(),
+    description: String(cfg?.generation?.objective_description || known.description || '').trim()
+  };
+}
+
+function resolveStyleMetaFromConfig(cfg) {
+  const configuredName = String(cfg?.generation?.style_name || '').trim();
+  const configuredDesc = String(cfg?.generation?.style_description || cfg?.generation?.style_prompt || '').trim();
+  if (configuredName && configuredDesc) {
+    return {
+      id: normalizeStyleName(configuredName),
+      name: configuredName,
+      description: configuredDesc
+    };
+  }
+
+  const stylePrompt = String(cfg?.generation?.style_prompt || '').trim();
+  for (const [id, presetPrompt] of Object.entries(STYLE_PRESETS)) {
+    if (String(presetPrompt || '').trim() === stylePrompt) {
+      const meta = getStyleMeta(id);
+      return {
+        id,
+        name: meta.name || id,
+        description: meta.description || stylePrompt
+      };
+    }
+  }
+  return {
+    id: 'custom',
+    name: configuredName || 'custom',
+    description: configuredDesc || stylePrompt
+  };
+}
+
 function normalizeCommandToken(rawToken) {
   const token = String(rawToken || '').trim().toLowerCase();
   if (!token.startsWith('/')) return token;
@@ -764,13 +805,15 @@ function parseTelegramRetryAfterSeconds(errorLike) {
 }
 
 function buildPromptCatalog(cfg) {
-  const objective = String(cfg?.generation?.objective || 'summarize');
+  const objectiveMeta = resolveObjectiveMetaFromConfig(cfg);
+  const objective = objectiveMeta.id;
   const storyPrompt = buildStoryboardPrompt({
     sourceTitle: '<source title>',
     sourceLabel: '<source label>',
     sourceText: '<source text>',
     panelCount: cfg?.generation?.panel_count ?? '-',
     objective,
+    objectiveDescription: objectiveMeta.description,
     stylePrompt: cfg?.generation?.style_prompt || '-',
     outputLanguage: cfg?.generation?.output_language || 'en',
     objectivePromptOverride: cfg?.generation?.objective_prompt_overrides?.[objective],
@@ -806,8 +849,11 @@ function buildPromptCatalog(cfg) {
 
   const objectives = getOptions('generation.objective');
   const objectiveLines = objectives.map((name) => {
+    const meta = getObjectiveMeta(name);
     const override = String(cfg?.generation?.objective_prompt_overrides?.[name] || '').trim();
-    return `- ${name}${override ? ` => ${override}` : ''}`;
+    const suffix = override ? ` => ${override}` : '';
+    const desc = String(meta.description || '').trim();
+    return `- ${name}${desc ? `: ${desc}` : ''}${suffix}`;
   });
 
   return [
@@ -1529,17 +1575,22 @@ async function handleCommand(chatId, text) {
     return true;
   }
 
-  if (command === '/objective') {
+  if (command === '/objective' || command === '/objectives') {
     const value = String(parts[1] || '').trim().toLowerCase();
     const options = getOptions('generation.objective');
     const current = String(configStore.getCurrent(chatId, 'generation.objective') || '').trim() || '-';
     if (!value) {
+      const currentMeta = getObjectiveMeta(current);
       await api.sendMessage(chatId, [
         'Usage: /objective <name>',
         'Explanation: set storyboard objective.',
         `Current objective: ${current}`,
+        `Current description: ${currentMeta.description || '-'}`,
         'Available objectives:',
-        options.join(', ')
+        options.map((id) => {
+          const meta = getObjectiveMeta(id);
+          return `${id}${meta.description ? `: ${meta.description}` : ''}`;
+        }).join('\n')
       ].join('\n'));
       return true;
     }
@@ -1547,12 +1598,19 @@ async function handleCommand(chatId, text) {
       await api.sendMessage(chatId, [
         'Usage: /objective <name>',
         'Explanation: set storyboard objective.',
-        `Allowed: ${options.join(', ')}`,
+        'Allowed objectives:',
+        options.map((id) => {
+          const meta = getObjectiveMeta(id);
+          return `${id}${meta.description ? `: ${meta.description}` : ''}`;
+        }).join('\n'),
         `Current: ${current}`
       ].join('\n'));
       return true;
     }
+    const meta = getObjectiveMeta(value);
     const updated = await setConfigPathValue(chatId, 'generation.objective', value);
+    await configStore.setConfigValue(chatId, 'generation.objective_name', meta.name || value);
+    await configStore.setConfigValue(chatId, 'generation.objective_description', meta.description || '');
     await api.sendMessage(chatId, `Updated generation.objective = ${updated}`);
     return true;
   }
@@ -1569,7 +1627,10 @@ async function handleCommand(chatId, text) {
       ].join('\n'));
       return true;
     }
+    const meta = getObjectiveMeta(objective);
     const updated = await setConfigPathValue(chatId, 'generation.objective', objective);
+    await configStore.setConfigValue(chatId, 'generation.objective_name', meta.name || objective);
+    await configStore.setConfigValue(chatId, 'generation.objective_description', meta.description || '');
     await api.sendMessage(chatId, `Updated generation.objective = ${updated} (via ${command})`);
     return true;
   }
@@ -1595,13 +1656,20 @@ async function handleCommand(chatId, text) {
     const currentStyleName = String(configStore.getCurrent(chatId, 'generation.style_name') || '').trim() || '-';
     if (!styleInput) {
       const customNames = Object.keys(userStyles);
-      const allowed = customNames.length
-        ? `${Object.keys(STYLE_PRESETS).join(', ')} | your styles: ${customNames.join(', ')}`
-        : `${Object.keys(STYLE_PRESETS).join(', ')} | your styles: none`;
+      const builtInLines = Object.keys(STYLE_PRESETS).map((id) => {
+        const meta = getStyleMeta(id);
+        return `- ${id} (${meta.name || id}): ${meta.description || STYLE_PRESETS[id]}`;
+      });
+      const customLines = customNames.length
+        ? customNames.map((id) => `- ${id} (custom): ${String(userStyles[id] || '').trim()}`)
+        : ['- none'];
       await api.sendMessage(chatId, [
         'Usage: /style <preset-or-your-style>',
         'Explanation: choose a predefined/custom style, or pass free-form style text.',
-        `Allowed: ${allowed}`,
+        'Built-in styles:',
+        builtInLines.join('\n'),
+        'Your custom styles:',
+        customLines.join('\n'),
         `Current: ${currentStyleName}`
       ].join('\n'));
       return true;
@@ -1610,11 +1678,15 @@ async function handleCommand(chatId, text) {
     if (!prompt) {
       await configStore.setConfigValue(chatId, 'generation.style_prompt', styleInput);
       await configStore.setConfigValue(chatId, 'generation.style_name', 'custom');
+      await configStore.setConfigValue(chatId, 'generation.style_description', styleInput);
       await api.sendMessage(chatId, 'Updated generation.style_prompt');
       return true;
     }
+    const presetMeta = getStyleMeta(preset);
+    const isBuiltin = Boolean(STYLE_PRESETS[preset]);
     await configStore.setConfigValue(chatId, 'generation.style_prompt', prompt);
-    await configStore.setConfigValue(chatId, 'generation.style_name', preset);
+    await configStore.setConfigValue(chatId, 'generation.style_name', isBuiltin ? presetMeta.name : preset);
+    await configStore.setConfigValue(chatId, 'generation.style_description', isBuiltin ? presetMeta.description : prompt);
     await api.sendMessage(chatId, `Updated style preset = ${preset}`);
     return true;
   }
@@ -1626,8 +1698,10 @@ async function handleCommand(chatId, text) {
       await api.sendMessage(chatId, `Style shortcut not available: ${command}`);
       return true;
     }
+    const presetMeta = getStyleMeta(preset);
     await configStore.setConfigValue(chatId, 'generation.style_prompt', prompt);
-    await configStore.setConfigValue(chatId, 'generation.style_name', preset);
+    await configStore.setConfigValue(chatId, 'generation.style_name', presetMeta.name || preset);
+    await configStore.setConfigValue(chatId, 'generation.style_description', presetMeta.description || prompt);
     await api.sendMessage(chatId, `Updated style preset = ${preset} (via ${command})`);
     return true;
   }
@@ -2435,12 +2509,22 @@ async function startServer() {
   if (deployDefaultObjective) {
     const allowedObjectives = getOptions('generation.objective').map((v) => String(v || '').trim().toLowerCase());
     if (allowedObjectives.includes(deployDefaultObjective)) {
+      const meta = getObjectiveMeta(deployDefaultObjective);
       await configStore.setGlobalConfigValue('generation.objective', deployDefaultObjective);
+      await configStore.setGlobalConfigValue('generation.objective_name', meta.name || deployDefaultObjective);
+      await configStore.setGlobalConfigValue('generation.objective_description', meta.description || '');
       console.log(`[render-bot] deployment default objective enforced: ${deployDefaultObjective}`);
     } else {
       console.log(`[render-bot] deployment default objective ignored (unsupported): ${deployDefaultObjective}`);
     }
   }
+  const globalCfg = configStore.getEffectiveConfig('global');
+  const objectiveMeta = resolveObjectiveMetaFromConfig(globalCfg);
+  const styleMeta = resolveStyleMetaFromConfig(globalCfg);
+  await configStore.setGlobalConfigValue('generation.objective_name', objectiveMeta.name || objectiveMeta.id || 'Objective');
+  await configStore.setGlobalConfigValue('generation.objective_description', objectiveMeta.description || '');
+  await configStore.setGlobalConfigValue('generation.style_name', styleMeta.name || 'custom');
+  await configStore.setGlobalConfigValue('generation.style_description', styleMeta.description || '');
   await configStore.ensureMetaValue('bot_created_at', new Date().toISOString());
   await seedAdminRuntimeSecretsFromEnv();
   configStore.applySecretsToEnv('global');

@@ -56,6 +56,7 @@ function buildHelpMessage(chatId, options = {}) {
     '/random - generate a fully random story and make a comic.',
     '/panels <count> - set panel count.',
     '/objective [name] - list or set objective.',
+    '/objectives - list all objectives with descriptions.',
     ...objectiveShortcutLines,
     '/style <preset-or-your-style> - set visual style.',
     ...styleShortcutLines,

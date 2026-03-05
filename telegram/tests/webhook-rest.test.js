@@ -778,6 +778,97 @@ describe('render webhook bot REST + telegram flow', () => {
     }
   }, 20000);
 
+  it('injects objective and style descriptions into prompt catalog after selection', async () => {
+    const tg = await startFakeTelegramServer();
+    const botPort = await getFreePort();
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'render-bot-prompt-meta-'));
+    const bot = await startBotProcess(
+      botPort,
+      `http://127.0.0.1:${tg.port}/botTEST_TOKEN`,
+      path.join(tmpDir, 'runtime-state.json')
+    );
+
+    try {
+      await postUpdate(botPort, { chat: { id: 777 }, text: '/objective fun' });
+      await waitFor(() => tg.calls.some((c) =>
+        c.url.endsWith('/sendMessage') && Number(c.body.chat_id) === 777
+          && String(c.body.text || '').includes('Updated generation.objective = fun')
+      ), 8000, 100);
+
+      await postUpdate(botPort, { chat: { id: 777 }, text: '/style noir' });
+      await waitFor(() => tg.calls.some((c) =>
+        c.url.endsWith('/sendMessage') && Number(c.body.chat_id) === 777
+          && String(c.body.text || '').includes('Updated style preset = noir')
+      ), 8000, 100);
+
+      const before = tg.calls.length;
+      await postUpdate(botPort, { chat: { id: 777 }, text: '/prompts' });
+      await waitFor(() => tg.calls.slice(before).some((c) =>
+        c.url.endsWith('/sendMessage')
+          && Number(c.body.chat_id) === 777
+          && String(c.body.text || '').includes('Prompt catalog')
+      ), 12000, 100);
+      const text = tg.calls
+        .slice(before)
+        .filter((c) => c.url.endsWith('/sendMessage'))
+        .map((c) => String(c.body.text || ''))
+        .join('\n');
+
+      expect(text).toContain('Objective description:');
+      expect(text).toContain('Style description:');
+      expect(text).toContain('Style name:');
+    } finally {
+      await bot.stop();
+      await tg.close();
+    }
+  }, 30000);
+
+  it('lists objectives and styles with descriptions via /objectives and /style', async () => {
+    const tg = await startFakeTelegramServer();
+    const botPort = await getFreePort();
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'render-bot-list-descriptions-'));
+    const bot = await startBotProcess(
+      botPort,
+      `http://127.0.0.1:${tg.port}/botTEST_TOKEN`,
+      path.join(tmpDir, 'runtime-state.json')
+    );
+
+    try {
+      const beforeObjectives = tg.calls.length;
+      await postUpdate(botPort, { chat: { id: 777 }, text: '/objectives' });
+      await waitFor(() => tg.calls.slice(beforeObjectives).some((c) =>
+        c.url.endsWith('/sendMessage')
+          && Number(c.body.chat_id) === 777
+          && String(c.body.text || '').includes('Available objectives:')
+      ), 10000, 100);
+      const objectiveText = tg.calls
+        .slice(beforeObjectives)
+        .filter((c) => c.url.endsWith('/sendMessage'))
+        .map((c) => String(c.body.text || ''))
+        .join('\n');
+      expect(objectiveText).toContain('explain-like-im-five:');
+      expect(objectiveText).toContain('fun:');
+
+      const beforeStyles = tg.calls.length;
+      await postUpdate(botPort, { chat: { id: 777 }, text: '/style' });
+      await waitFor(() => tg.calls.slice(beforeStyles).some((c) =>
+        c.url.endsWith('/sendMessage')
+          && Number(c.body.chat_id) === 777
+          && String(c.body.text || '').includes('Built-in styles:')
+      ), 10000, 100);
+      const styleText = tg.calls
+        .slice(beforeStyles)
+        .filter((c) => c.url.endsWith('/sendMessage'))
+        .map((c) => String(c.body.text || ''))
+        .join('\n');
+      expect(styleText).toContain('noir (Noir):');
+      expect(styleText).toContain('classic (Classic):');
+    } finally {
+      await bot.stop();
+      await tg.close();
+    }
+  }, 30000);
+
   it('persists shared keys across restart and keeps user-owned key precedence', async () => {
     const tg = await startFakeTelegramServer();
     const botPort = await getFreePort();
@@ -853,6 +944,178 @@ describe('render webhook bot REST + telegram flow', () => {
 
       const savedAfterRestart = JSON.parse(fs.readFileSync(statePath, 'utf8'));
       expect(String(savedAfterRestart?.users?.['777']?.secrets?.GEMINI_API_KEY || '')).toBe('USER_OWN_KEY');
+    } finally {
+      await bot.stop();
+      await tg.close();
+    }
+  }, 45000);
+
+  it('persists user configuration across restart and reloads from persistent state', async () => {
+    const tg = await startFakeTelegramServer();
+    const botPort = await getFreePort();
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'render-bot-config-restart-flow-'));
+    const statePath = path.join(tmpDir, 'runtime-state.json');
+    let bot = await startBotProcess(
+      botPort,
+      `http://127.0.0.1:${tg.port}/botTEST_TOKEN`,
+      statePath,
+      { TELEGRAM_ADMIN_CHAT_IDS: '1796415913' }
+    );
+
+    try {
+      const userId = 777;
+      const waitText = async (label, predicate, timeoutMs = 12000) => {
+        await waitFor(() => tg.calls.some(predicate), timeoutMs, 100).catch(() => {
+          const recent = tg.calls
+            .filter((c) => c.url.endsWith('/sendMessage'))
+            .slice(-15)
+            .map((c) => `[${c.body.chat_id}] ${String(c.body.text || '').replace(/\s+/g, ' ').trim()}`);
+          throw new Error(`Timeout waiting for ${label}. Recent messages:\n${recent.join('\n')}`);
+        });
+      };
+
+      await postUpdate(botPort, { chat: { id: userId }, text: '/panels 6' });
+      await waitText('set panels', (c) =>
+        c.url.endsWith('/sendMessage') && Number(c.body.chat_id) === userId
+          && String(c.body.text || '').includes('Updated generation.panel_count = 6')
+      );
+
+      await postUpdate(botPort, { chat: { id: userId }, text: '/objective fun' });
+      await waitText('set objective', (c) =>
+        c.url.endsWith('/sendMessage') && Number(c.body.chat_id) === userId
+          && String(c.body.text || '').includes('Updated generation.objective = fun')
+      );
+
+      await postUpdate(botPort, { chat: { id: userId }, text: '/style noir' });
+      await waitText('set style', (c) =>
+        c.url.endsWith('/sendMessage') && Number(c.body.chat_id) === userId
+          && String(c.body.text || '').includes('Updated style preset = noir')
+      );
+
+      await postUpdate(botPort, { chat: { id: userId }, text: '/language he' });
+      await waitText('set language', (c) =>
+        c.url.endsWith('/sendMessage') && Number(c.body.chat_id) === userId
+          && String(c.body.text || '').includes('Updated generation.output_language = he')
+      );
+
+      await postUpdate(botPort, { chat: { id: userId }, text: '/mode media_group' });
+      await waitText('set mode', (c) =>
+        c.url.endsWith('/sendMessage') && Number(c.body.chat_id) === userId
+          && String(c.body.text || '').includes('Updated generation.delivery_mode = media_group')
+      );
+
+      const savedBeforeRestart = JSON.parse(fs.readFileSync(statePath, 'utf8'));
+      expect(savedBeforeRestart?.users?.['777']?.overrides?.generation?.panel_count).toBe(6);
+      expect(savedBeforeRestart?.users?.['777']?.overrides?.generation?.objective).toBe('fun');
+      expect(savedBeforeRestart?.users?.['777']?.overrides?.generation?.style_name).toBe('Noir');
+      expect(savedBeforeRestart?.users?.['777']?.overrides?.generation?.output_language).toBe('he');
+      expect(savedBeforeRestart?.users?.['777']?.overrides?.generation?.delivery_mode).toBe('media_group');
+
+      await bot.stop();
+      bot = await startBotProcess(
+        botPort,
+        `http://127.0.0.1:${tg.port}/botTEST_TOKEN`,
+        statePath,
+        { TELEGRAM_ADMIN_CHAT_IDS: '1796415913' }
+      );
+
+      const beforeCfg = tg.calls.length;
+      await postUpdate(botPort, { chat: { id: userId }, text: '/config' });
+      await waitFor(() => tg.calls.slice(beforeCfg).some((c) =>
+        c.url.endsWith('/sendMessage') && Number(c.body.chat_id) === userId
+          && String(c.body.text || '').includes('Current config snapshot (all values):')
+      ), 12000, 100);
+      const cfgText = tg.calls
+        .slice(beforeCfg)
+        .filter((c) => c.url.endsWith('/sendMessage') && Number(c.body.chat_id) === userId)
+        .map((c) => String(c.body.text || ''))
+        .join('\n');
+      expect(cfgText).toContain('- generation.panel_count: 6');
+      expect(cfgText).toContain('- generation.objective: fun');
+      expect(cfgText).toContain('- generation.style_name: Noir');
+      expect(cfgText).toContain('- generation.output_language: he');
+      expect(cfgText).toContain('- generation.delivery_mode: media_group');
+
+      const savedAfterRestart = JSON.parse(fs.readFileSync(statePath, 'utf8'));
+      expect(savedAfterRestart?.users?.['777']?.overrides?.generation?.panel_count).toBe(6);
+      expect(savedAfterRestart?.users?.['777']?.overrides?.generation?.objective).toBe('fun');
+      expect(savedAfterRestart?.users?.['777']?.overrides?.generation?.style_name).toBe('Noir');
+      expect(savedAfterRestart?.users?.['777']?.overrides?.generation?.output_language).toBe('he');
+      expect(savedAfterRestart?.users?.['777']?.overrides?.generation?.delivery_mode).toBe('media_group');
+    } finally {
+      await bot.stop();
+      await tg.close();
+    }
+  }, 50000);
+
+  it('applies non-admin configuration changes only to the current user', async () => {
+    const tg = await startFakeTelegramServer();
+    const botPort = await getFreePort();
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'render-bot-user-isolation-'));
+    const statePath = path.join(tmpDir, 'runtime-state.json');
+    const bot = await startBotProcess(
+      botPort,
+      `http://127.0.0.1:${tg.port}/botTEST_TOKEN`,
+      statePath,
+      { TELEGRAM_ADMIN_CHAT_IDS: '1796415913' }
+    );
+
+    try {
+      const waitText = async (label, predicate, timeoutMs = 12000) => {
+        await waitFor(() => tg.calls.some(predicate), timeoutMs, 100).catch(() => {
+          const recent = tg.calls
+            .filter((c) => c.url.endsWith('/sendMessage'))
+            .slice(-15)
+            .map((c) => `[${c.body.chat_id}] ${String(c.body.text || '').replace(/\s+/g, ' ').trim()}`);
+          throw new Error(`Timeout waiting for ${label}. Recent messages:\n${recent.join('\n')}`);
+        });
+      };
+
+      await postUpdate(botPort, { chat: { id: 777 }, text: '/panels 6' });
+      await waitText('user 777 panels', (c) =>
+        c.url.endsWith('/sendMessage') && Number(c.body.chat_id) === 777
+          && String(c.body.text || '').includes('Updated generation.panel_count = 6')
+      );
+
+      await postUpdate(botPort, { chat: { id: 777 }, text: '/style noir' });
+      await waitText('user 777 style', (c) =>
+        c.url.endsWith('/sendMessage') && Number(c.body.chat_id) === 777
+          && String(c.body.text || '').includes('Updated style preset = noir')
+      );
+
+      const beforeCfg888 = tg.calls.length;
+      await postUpdate(botPort, { chat: { id: 888 }, text: '/config' });
+      await waitFor(() => tg.calls.slice(beforeCfg888).some((c) =>
+        c.url.endsWith('/sendMessage') && Number(c.body.chat_id) === 888
+          && String(c.body.text || '').includes('Current config snapshot (all values):')
+      ), 12000, 100);
+      const cfg888 = tg.calls
+        .slice(beforeCfg888)
+        .filter((c) => c.url.endsWith('/sendMessage') && Number(c.body.chat_id) === 888)
+        .map((c) => String(c.body.text || ''))
+        .join('\n');
+      expect(cfg888).not.toContain('- generation.panel_count: 6');
+      expect(cfg888).not.toContain('- generation.style_name: Noir');
+
+      const beforeCfg777 = tg.calls.length;
+      await postUpdate(botPort, { chat: { id: 777 }, text: '/config' });
+      await waitFor(() => tg.calls.slice(beforeCfg777).some((c) =>
+        c.url.endsWith('/sendMessage') && Number(c.body.chat_id) === 777
+          && String(c.body.text || '').includes('Current config snapshot (all values):')
+      ), 12000, 100);
+      const cfg777 = tg.calls
+        .slice(beforeCfg777)
+        .filter((c) => c.url.endsWith('/sendMessage') && Number(c.body.chat_id) === 777)
+        .map((c) => String(c.body.text || ''))
+        .join('\n');
+      expect(cfg777).toContain('- generation.panel_count: 6');
+      expect(cfg777).toContain('- generation.style_name: Noir');
+
+      const saved = JSON.parse(fs.readFileSync(statePath, 'utf8'));
+      expect(saved?.users?.['777']?.overrides?.generation?.panel_count).toBe(6);
+      expect(saved?.users?.['888']?.overrides?.generation?.panel_count).not.toBe(6);
+      expect(saved?.users?.['777']?.overrides?.generation?.style_name).toBe('Noir');
+      expect(saved?.users?.['888']?.overrides?.generation?.style_name).not.toBe('Noir');
     } finally {
       await bot.stop();
       await tg.close();

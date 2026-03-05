@@ -11,9 +11,11 @@ function buildStoryboardPrompt({
   objective,
   stylePrompt,
   outputLanguage,
+  objectiveDescription,
   objectivePromptOverride,
   customStoryPrompt
 }) {
+  const objectiveDesc = String(objectiveDescription || '').trim();
   const out = [
     ...STORYBOARD_PROMPT_PREFIX_LINES,
     `Panel count: ${panelCount}`,
@@ -23,6 +25,9 @@ function buildStoryboardPrompt({
     'Rules:',
     ...STORYBOARD_RULE_LINES
   ];
+  if (objectiveDesc) {
+    out.splice(3, 0, `Objective description: ${objectiveDesc}`);
+  }
   const objectiveOverride = String(objectivePromptOverride || '').trim();
   if (objectiveOverride) {
     out.push(`Objective-specific instructions: ${objectiveOverride}`);

@@ -11,8 +11,12 @@ const DEFAULT_CONFIG = {
   generation: {
     panel_count: 3,
     objective: 'summarize',
+    objective_name: 'Summary',
+    objective_description: 'Summarize the source with clear cause-and-effect and concise, accurate beats.',
     output_language: 'en',
     detail_level: 'low',
+    style_name: 'Classic',
+    style_description: 'classic comic illustration, readable characters, clear scene composition',
     style_prompt: 'classic comic illustration, readable characters, clear scene composition'
   },
   providers: {

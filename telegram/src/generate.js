@@ -10,8 +10,6 @@ const { fetchUrlToHtmlSnapshot, buildSnapshotPath } = require('../../engine/src/
 const { classifyMessageInput } = require('./message-utils');
 const { createImageStorageManagerFromEnv } = require('./image-storage');
 
-const TINY_PNG_BASE64 =
-  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/w8AAgMBAp6R9gAAAABJRU5ErkJggg==';
 const SUPPORTED_OUTPUT_LANGS = new Set(['en', 'auto', 'es', 'fr', 'de', 'it', 'pt', 'ru', 'ja', 'ko', 'zh', 'he']);
 const PANEL_WATERMARK_TEXT = 'made with Web2Comics';
 const GEMINI_TEXT_MODEL = 'gemini-2.5-flash';
@@ -43,9 +41,25 @@ async function maybeFakeDelay() {
   await new Promise((r) => setTimeout(r, delayMs));
 }
 
-function writeTinyPng(filePath) {
+async function writeFakePanelPng(filePath, index = 0, total = 1) {
+  const safeTotal = Math.max(1, Number(total || 1));
+  const safeIndex = Math.max(0, Number(index || 0));
+  const hueBase = Math.floor((safeIndex % safeTotal) * (360 / safeTotal));
+  const r = Math.floor(110 + (Math.sin((hueBase + 0) * (Math.PI / 180)) * 70));
+  const g = Math.floor(110 + (Math.sin((hueBase + 120) * (Math.PI / 180)) * 70));
+  const b = Math.floor(110 + (Math.sin((hueBase + 240) * (Math.PI / 180)) * 70));
+  const png = await sharp({
+    create: {
+      width: 1024,
+      height: 640,
+      channels: 3,
+      background: { r, g, b }
+    }
+  })
+    .png()
+    .toBuffer();
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
-  fs.writeFileSync(filePath, Buffer.from(TINY_PNG_BASE64, 'base64'));
+  fs.writeFileSync(filePath, png);
 }
 
 function shouldInstallPlaywrightBrowser(error) {
@@ -489,7 +503,7 @@ async function generateWithRuntimeConfig(text, runtime, effectiveConfigPath) {
     }
     const ts = new Date().toISOString().replace(/[:.]/g, '-');
     const outPath = path.join(runtime.outDir, `render-fake-${ts}.png`);
-    writeTinyPng(outPath);
+    await writeFakePanelPng(outPath, 0, 1);
     return {
       configPath: effectiveConfigPath,
       inputPath: '',
@@ -573,7 +587,7 @@ async function generatePanelsWithRuntimeConfig(text, runtime, effectiveConfigPat
     const writtenPaths = [];
     const buildAndEmit = async (i) => {
       const imagePath = path.join(scope.baseDir, `panel-${i + 1}.png`);
-      writeTinyPng(imagePath);
+      await writeFakePanelPng(imagePath, i, panelCount);
       if (watermarkEnabled) {
         try {
           const marked = await applyPanelWatermark(fs.readFileSync(imagePath));

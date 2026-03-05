@@ -12,6 +12,8 @@ input:
 generation:
   panel_count: 8
   objective: explain-like-im-five
+  objective_name: "Explain Like I Am Five"
+  objective_description: "Use simple words, short sentences, and relatable examples suitable for a young audience."
   output_language: auto
   consistency: true
   panel_watermark: true
@@ -19,6 +21,8 @@ generation:
   invent_temperature: 0.95
   delivery_mode: default
   detail_level: low
+  style_name: "Classic"
+  style_description: "clean illustrated art, readable characters, coherent scene progression"
   style_prompt: "clean illustrated art, readable characters, coherent scene progression"
 
 providers:
