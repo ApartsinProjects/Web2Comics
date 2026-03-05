@@ -22,9 +22,23 @@ playwright-report/
 test-results/
 artifacts/
 videos/
+coverage/
+.nyc_output/
+*.lcov
 engine/out/
 render/out/
 render/data/
+comicbot/out/
+tmp/
+temp/
+*.tmp
+*.bak
+*.swp
+*.orig
+*.pid
+*.seed
+*.tsbuildinfo
+*.cache
 
 # Local tool/session state
 .vscode/
@@ -33,3 +47,4 @@ render/data/
 .release/
 .release-check/
 .tmp-vitest.log
+*.log

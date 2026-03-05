@@ -130,6 +130,15 @@ function resolveInventTemperature(config) {
   return Math.max(0, Math.min(2, raw));
 }
 
+function resolvePanelWatermarkEnabled(config) {
+  const raw = config?.generation?.panel_watermark;
+  if (raw == null) return true;
+  if (typeof raw === 'boolean') return raw;
+  const normalized = String(raw).trim().toLowerCase();
+  if (!normalized) return true;
+  return normalized === '1' || normalized === 'true' || normalized === 'yes' || normalized === 'on';
+}
+
 function sanitizeInventedStoryText(text) {
   const raw = String(text || '').trim();
   if (!raw) return '';
@@ -340,6 +349,9 @@ async function generateWithRuntimeConfig(text, runtime, effectiveConfigPath) {
 }
 
 async function generatePanelsWithRuntimeConfig(text, runtime, effectiveConfigPath, options = {}) {
+  const loadedConfig = loadConfig(effectiveConfigPath);
+  const watermarkEnabled = resolvePanelWatermarkEnabled(loadedConfig.config);
+
   if (isFakeGeneratorEnabled()) {
     await maybeFakeDelay();
     const parsed = classifyMessageInput(text);
@@ -352,10 +364,12 @@ async function generatePanelsWithRuntimeConfig(text, runtime, effectiveConfigPat
     for (let i = 0; i < panelCount; i += 1) {
       const imagePath = path.join(scope.baseDir, `panel-${i + 1}.png`);
       writeTinyPng(imagePath);
-      try {
-        const marked = await applyPanelWatermark(fs.readFileSync(imagePath));
-        fs.writeFileSync(imagePath, marked);
-      } catch (_) {}
+      if (watermarkEnabled) {
+        try {
+          const marked = await applyPanelWatermark(fs.readFileSync(imagePath));
+          fs.writeFileSync(imagePath, marked);
+        } catch (_) {}
+      }
       writtenPaths.push(imagePath);
       const caption = `${i + 1}(${panelCount}) Fake panel ${i + 1}`;
       const panelMessage = {
@@ -387,10 +401,9 @@ async function generatePanelsWithRuntimeConfig(text, runtime, effectiveConfigPat
   }
 
   const prep = await prepareInput(text, runtime);
-  const loaded = loadConfig(effectiveConfigPath);
-  const resolvedLanguage = resolveOutputLanguage(text, prep, loaded.config);
-  const runtimeConfigPath = (normalizeLanguageCode(loaded.config?.generation?.output_language || '') === 'auto')
-    ? buildConfigPathForResolvedLanguage(effectiveConfigPath, loaded.config, resolvedLanguage)
+  const resolvedLanguage = resolveOutputLanguage(text, prep, loadedConfig.config);
+  const runtimeConfigPath = (normalizeLanguageCode(loadedConfig.config?.generation?.output_language || '') === 'auto')
+    ? buildConfigPathForResolvedLanguage(effectiveConfigPath, loadedConfig.config, resolvedLanguage)
     : effectiveConfigPath;
   const debugDir = runtime.debugArtifacts
     ? path.join(runtime.outDir, path.basename(prep.outputPath, '.png') + '-debug')
@@ -409,8 +422,10 @@ async function generatePanelsWithRuntimeConfig(text, runtime, effectiveConfigPat
     titleOverride: prep.titleOverride,
     onPanelReady: async ({ index, total, panel, image }) => {
       const imagePath = path.join(scope.baseDir, `panel-${index + 1}.png`);
-      const markedBuffer = await applyPanelWatermark(image.buffer);
-      fs.writeFileSync(imagePath, markedBuffer);
+      const finalBuffer = watermarkEnabled
+        ? await applyPanelWatermark(image.buffer)
+        : image.buffer;
+      fs.writeFileSync(imagePath, finalBuffer);
       writtenPaths.push(imagePath);
       const captionText = String(panel?.caption || '').trim();
       const beatText = String(panel?.beat || '').trim();
@@ -492,6 +507,7 @@ module.exports = {
   resolveOutputLanguage,
   resolveInventLanguage,
   resolveInventTemperature,
+  resolvePanelWatermarkEnabled,
   sanitizeInventedStoryText,
   applyPanelWatermark,
   shouldInstallPlaywrightBrowser,

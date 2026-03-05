@@ -66,6 +66,44 @@ function extractJsonCandidate(rawText) {
   return '';
 }
 
+function stripTrailingCommas(jsonText) {
+  const src = String(jsonText || '');
+  if (!src) return src;
+  let out = '';
+  let inString = false;
+  let escape = false;
+  for (let i = 0; i < src.length; i += 1) {
+    const ch = src[i];
+    if (inString) {
+      out += ch;
+      if (escape) escape = false;
+      else if (ch === '\\') escape = true;
+      else if (ch === '"') inString = false;
+      continue;
+    }
+    if (ch === '"') {
+      inString = true;
+      out += ch;
+      continue;
+    }
+    if (ch === ',') {
+      let j = i + 1;
+      while (j < src.length && /\s/.test(src[j])) j += 1;
+      if (j < src.length && (src[j] === '}' || src[j] === ']')) {
+        continue;
+      }
+    }
+    out += ch;
+  }
+  return out;
+}
+
+function sanitizeJsonCandidate(candidate) {
+  const trimmed = String(candidate || '').replace(/^\uFEFF/, '').trim();
+  if (!trimmed) return '';
+  return stripTrailingCommas(trimmed);
+}
+
 function normalizeStoryboard(storyboard, panelCount) {
   const safeCount = Math.max(1, Number(panelCount || 3));
   const parsed = storyboard && typeof storyboard === 'object' ? storyboard : {};
@@ -91,18 +129,29 @@ function normalizeStoryboard(storyboard, panelCount) {
 function parseStoryboardResponse(rawText, panelCount) {
   const candidate = extractJsonCandidate(rawText);
   if (!candidate) throw new Error('No JSON object found in storyboard response');
-  let parsed;
+  const attempts = [candidate, sanitizeJsonCandidate(candidate)];
+  for (const attempt of attempts) {
+    if (!attempt) continue;
+    try {
+      const parsed = JSON.parse(attempt);
+      return normalizeStoryboard(parsed, panelCount);
+    } catch (_) {
+      // Try next parsing strategy.
+    }
+  }
   try {
-    parsed = JSON.parse(candidate);
+    JSON.parse(candidate);
   } catch (error) {
     throw new Error(`Failed to parse storyboard JSON: ${error.message}`);
   }
-  return normalizeStoryboard(parsed, panelCount);
+  throw new Error('Failed to parse storyboard JSON');
 }
 
 module.exports = {
   buildStoryboardPrompt,
   extractJsonCandidate,
+  sanitizeJsonCandidate,
+  stripTrailingCommas,
   parseStoryboardResponse,
   normalizeStoryboard
 };

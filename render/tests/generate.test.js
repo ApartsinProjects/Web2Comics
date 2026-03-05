@@ -11,6 +11,7 @@ const {
   resolveOutputLanguage,
   resolveInventLanguage,
   resolveInventTemperature,
+  resolvePanelWatermarkEnabled,
   sanitizeInventedStoryText,
   applyPanelWatermark
 } = require('../src/generate');
@@ -143,6 +144,14 @@ describe('render generate helpers', () => {
     expect(resolveInventTemperature({ generation: { invent_temperature: 99 } })).toBe(2);
     expect(resolveInventTemperature({ generation: { invent_temperature: -2 } })).toBe(0);
     expect(resolveInventTemperature({ generation: {} })).toBe(0.95);
+  });
+
+  it('resolves panel watermark default and explicit values', () => {
+    expect(resolvePanelWatermarkEnabled({ generation: {} })).toBe(true);
+    expect(resolvePanelWatermarkEnabled({ generation: { panel_watermark: false } })).toBe(false);
+    expect(resolvePanelWatermarkEnabled({ generation: { panel_watermark: 'false' } })).toBe(false);
+    expect(resolvePanelWatermarkEnabled({ generation: { panel_watermark: '0' } })).toBe(false);
+    expect(resolvePanelWatermarkEnabled({ generation: { panel_watermark: 'true' } })).toBe(true);
   });
 
   it('applies watermark to panel image buffer', async () => {

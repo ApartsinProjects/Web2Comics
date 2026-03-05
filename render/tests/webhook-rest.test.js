@@ -364,6 +364,10 @@ describe('render webhook bot REST + telegram flow', () => {
       });
       expect(res.status).toBe(200);
       await waitFor(() => tg.calls.filter((c) => c.url.endsWith('/sendPhoto')).length >= 3, 10000, 100);
+      await waitFor(() => tg.calls
+        .filter((c) => c.url.endsWith('/sendMessage'))
+        .map((c) => String(c.body.text || ''))
+        .some((m) => m.includes('Done: url -> comic panels')), 12000, 100);
       const chunk = tg.calls.slice(before);
       const photos = chunk.filter((c) => c.url.endsWith('/sendPhoto'));
       expect(photos.length).toBeGreaterThanOrEqual(3);

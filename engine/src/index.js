@@ -74,6 +74,20 @@ async function withRetries(fn, retries, label) {
   throw new Error(`${label || 'Operation'} failed after ${attempts} attempts: ${lastError?.message || lastError}`);
 }
 
+async function generateStoryboardWithRetries(config, prompt, panelCount) {
+  let lastRawText = '';
+  const storyboard = await withRetries(
+    async () => {
+      const raw = await generateTextWithProvider(config.providers.text, prompt, config.runtime);
+      lastRawText = String(raw || '');
+      return parseStoryboardResponse(lastRawText, panelCount);
+    },
+    config.runtime.retries,
+    'Storyboard generation'
+  );
+  return { storyboard, storyboardRawText: lastRawText };
+}
+
 async function runComicEngine(options) {
   const startedAt = Date.now();
   const rootDir = options.rootDir || process.cwd();
@@ -96,13 +110,13 @@ async function runComicEngine(options) {
     customStoryPrompt: config.generation.custom_story_prompt
   });
 
-  const storyboardRawText = await withRetries(
-    () => generateTextWithProvider(config.providers.text, storyboardPrompt, config.runtime),
-    config.runtime.retries,
-    'Storyboard generation'
+  const generatedStoryboard = await generateStoryboardWithRetries(
+    config,
+    storyboardPrompt,
+    config.generation.panel_count
   );
-
-  const storyboard = parseStoryboardResponse(storyboardRawText, config.generation.panel_count);
+  const storyboardRawText = generatedStoryboard.storyboardRawText;
+  const storyboard = generatedStoryboard.storyboard;
   if (effectiveTitle) storyboard.title = effectiveTitle;
 
   const panelImages = await mapWithConcurrency(
@@ -172,13 +186,13 @@ async function runComicEnginePanels(options) {
     customStoryPrompt: config.generation.custom_story_prompt
   });
 
-  const storyboardRawText = await withRetries(
-    () => generateTextWithProvider(config.providers.text, storyboardPrompt, config.runtime),
-    config.runtime.retries,
-    'Storyboard generation'
+  const generatedStoryboard = await generateStoryboardWithRetries(
+    config,
+    storyboardPrompt,
+    config.generation.panel_count
   );
-
-  const storyboard = parseStoryboardResponse(storyboardRawText, config.generation.panel_count);
+  const storyboardRawText = generatedStoryboard.storyboardRawText;
+  const storyboard = generatedStoryboard.storyboard;
   if (effectiveTitle) storyboard.title = effectiveTitle;
 
   const panelImages = await mapWithConcurrency(
@@ -237,5 +251,6 @@ module.exports = {
   runComicEnginePanels,
   buildPanelImagePrompt,
   mapWithConcurrency,
-  withRetries
+  withRetries,
+  generateStoryboardWithRetries
 };
