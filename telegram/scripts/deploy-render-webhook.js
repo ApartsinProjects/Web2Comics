@@ -16,6 +16,24 @@ let globalStage = 'init';
 let globalOwnerId = '';
 let globalServiceId = '';
 let globalRenderApiKey = '';
+const HELP_TEXT = [
+  'Usage: node telegram/scripts/deploy-render-webhook.js [options]',
+  '',
+  'Common options:',
+  '  --help                         Show this message and exit',
+  '  --env-only                     Use env vars only (skip local yaml files)',
+  '  --test-deployment              Deploy to test service name',
+  '  --allow-partial-keys           Require only one configured provider key',
+  '  --require-all-keys             Require all provider keys',
+  '  --skip-provider-auth-check     Skip live provider credential probes',
+  '  --cloudflare-ai-token <token>  Cloudflare Workers AI token (provider)',
+  '  --cloudflare-account-api-token <token>  Cloudflare account token (R2/provisioning)',
+  '  --render-api-key <key>         Render API key',
+  '  --telegram-token <token>       Telegram bot token',
+  '  --allowed-chat-ids <csv>       Restrict bot access to listed chat IDs (default: allow all chats)',
+  '  --service-name <name>          Render service name override',
+  '  --metadata-out <path>          Output path for deploy metadata json'
+].join('\n');
 
 async function fetchTextWithTimeout(url, init, timeoutMs, label) {
   const ms = Math.max(1000, Number(timeoutMs || 45000));
@@ -156,12 +174,19 @@ async function setTelegramWebhook(token, secret, publicBaseUrl) {
 function pickCloudflareApiToken(cfYaml) {
   const tokens = (cfYaml && cfYaml.api_tokens) || {};
   return firstNonEmpty(
-    tokens.deployment_token,
-    tokens.additional_token_2,
-    tokens.additional_token_1,
-    tokens.env_e2e_token,
-    tokens.primary_invalid_or_old,
-    process.env.CLOUDFLARE_API_TOKEN
+    tokens.workers_ai_token,
+    tokens.cloudflare_ai_token,
+    tokens.ai_token,
+    process.env.CLOUDFLARE_WORKERS_AI_TOKEN
+  );
+}
+
+function pickCloudflareAccountToken(cfYaml) {
+  const tokens = (cfYaml && cfYaml.api_tokens) || {};
+  return firstNonEmpty(
+    tokens.account_api_token,
+    tokens.r2_account_token,
+    process.env.CLOUDFLARE_ACCOUNT_API_TOKEN
   );
 }
 
@@ -384,18 +409,23 @@ function normalizeIdCsv(...values) {
   return Array.from(uniq).join(',');
 }
 
-function resolveAllowedChatIds(args, envValue, yamlValue, notifyChatId) {
-  const explicit = firstNonEmpty(args['allowed-chat-ids'], envValue, yamlValue);
+function resolveAllowedChatIds(args) {
+  const explicit = String(args['allowed-chat-ids'] || '').trim();
   const allowAllFlag = parseBool(args['allow-all-chats'] || process.env.RENDER_ALLOW_ALL_CHATS);
   const token = String(explicit || '').trim().toLowerCase();
   if (allowAllFlag || token === 'all' || token === '*') return '';
-  return normalizeIdCsv(explicit, notifyChatId);
+  if (!explicit) return '';
+  return normalizeIdCsv(explicit);
 }
 
 async function main() {
   globalStage = 'load-env';
   const repoRoot = path.resolve(__dirname, '../..');
   const preArgs = parseArgs(process.argv.slice(2));
+  if (parseBool(preArgs.help) || parseBool(preArgs.h)) {
+    console.log(HELP_TEXT);
+    return;
+  }
   const envOnly = parseBool(preArgs['env-only'] || process.env.BOT_SECRETS_ENV_ONLY);
   loadEnvFiles([
     path.join(repoRoot, '.env.local'),
@@ -417,7 +447,7 @@ async function main() {
   const allowPartialKeys = parseBool(args['allow-partial-keys'] || process.env.RENDER_ALLOW_PARTIAL_KEYS);
   const requireAllKeys = allowPartialKeys
     ? false
-    : (parseBool(args['require-all-keys'] || process.env.RENDER_REQUIRE_ALL_KEYS) || true);
+    : parseBool(args['require-all-keys'] || process.env.RENDER_REQUIRE_ALL_KEYS);
 
   const renderApiKey = firstNonEmpty(args['render-api-key'], process.env.RENDER_API_KEY);
   globalRenderApiKey = renderApiKey;
@@ -431,21 +461,28 @@ async function main() {
 
   const telegramToken = firstNonEmpty(args['telegram-token'], process.env.TELEGRAM_BOT_TOKEN, tgYaml.bot_token);
   const cloudflareAccountId = firstNonEmpty(args['cloudflare-account-id'], process.env.CLOUDFLARE_ACCOUNT_ID, cfYaml.account_id);
-  const cloudflareTokenCandidates = [
-    args['cloudflare-api-token'],
-    pickCloudflareApiToken(cfYaml),
-    process.env.CLOUDFLARE_API_TOKEN
+  if (String(args['cloudflare-api-token'] || '').trim()) {
+    throw new Error('Deprecated --cloudflare-api-token is not supported. Use --cloudflare-ai-token and --cloudflare-account-api-token explicitly.');
+  }
+  const cloudflareAccountTokenCandidates = [
+    args['cloudflare-account-api-token'],
+    pickCloudflareAccountToken(cfYaml)
   ];
-  const cloudflareApiToken = cloudflareAccountId
-    ? await resolveWorkingCloudflareToken(cloudflareAccountId, cloudflareTokenCandidates)
+  const cloudflareAccountApiToken = cloudflareAccountId
+    ? await resolveWorkingCloudflareToken(cloudflareAccountId, cloudflareAccountTokenCandidates)
     : '';
+  const cloudflareAiToken = firstNonEmpty(
+    args['cloudflare-ai-token'],
+    pickCloudflareApiToken(cfYaml),
+    process.env.CLOUDFLARE_WORKERS_AI_TOKEN
+  );
 
   const providerEnv = {
     GEMINI_API_KEY: firstNonEmpty(args['gemini-key'], process.env.GEMINI_API_KEY),
     OPENAI_API_KEY: firstNonEmpty(args['openai-key'], process.env.OPENAI_API_KEY),
     OPENROUTER_API_KEY: firstNonEmpty(args['openrouter-key'], process.env.OPENROUTER_API_KEY),
     CLOUDFLARE_ACCOUNT_ID: cloudflareAccountId,
-    CLOUDFLARE_API_TOKEN: cloudflareApiToken,
+    CLOUDFLARE_API_TOKEN: cloudflareAiToken,
     HUGGINGFACE_INFERENCE_API_TOKEN: firstNonEmpty(args['huggingface-token'], process.env.HUGGINGFACE_INFERENCE_API_TOKEN)
   };
   const resolvedR2 = resolveR2Config(args, cfYaml, awsYaml);
@@ -480,12 +517,7 @@ async function main() {
     firstNonEmpty(args['telegram-test-chat-id'], process.env.TELEGRAM_TEST_CHAT_ID, tgYaml.allowed_chat_ids),
     notifyChatId
   );
-  const allowedChatIds = resolveAllowedChatIds(
-    args,
-    process.env.COMICBOT_ALLOWED_CHAT_IDS,
-    tgYaml.allowed_chat_ids,
-    notifyChatId
-  );
+  const allowedChatIds = resolveAllowedChatIds(args);
   const adminChatIds = normalizeIdCsv(
     firstNonEmpty(args['admin-chat-ids'], process.env.TELEGRAM_ADMIN_CHAT_IDS, '1796415913'),
     notifyChatId
@@ -525,9 +557,9 @@ async function main() {
   const render = new RenderApiClient(renderApiKey);
 
   globalStage = 'provision-r2';
-  if (providerEnv.CLOUDFLARE_API_TOKEN && providerEnv.CLOUDFLARE_ACCOUNT_ID && r2Env.R2_BUCKET) {
+  if (cloudflareAccountApiToken && providerEnv.CLOUDFLARE_ACCOUNT_ID && r2Env.R2_BUCKET) {
     const r2Out = await ensureCloudflareR2Bucket({
-      token: providerEnv.CLOUDFLARE_API_TOKEN,
+      token: cloudflareAccountApiToken,
       accountId: providerEnv.CLOUDFLARE_ACCOUNT_ID,
       bucket: r2Env.R2_BUCKET
     });
@@ -628,6 +660,8 @@ async function main() {
     TELEGRAM_TEST_CHAT_ID: telegramTestChatId,
     TELEGRAM_ADMIN_CHAT_IDS: adminChatIds,
     COMICBOT_ALLOWED_CHAT_IDS: allowedChatIds,
+    CLOUDFLARE_WORKERS_AI_TOKEN: cloudflareAiToken,
+    CLOUDFLARE_ACCOUNT_API_TOKEN: cloudflareAccountApiToken,
     ...providerEnv,
     ...r2Env,
     ...r2BudgetEnv
