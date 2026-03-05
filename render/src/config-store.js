@@ -31,7 +31,7 @@ class RuntimeConfigStore {
     this.baseConfigPath = path.resolve(baseConfigPath);
     this.persistence = persistence;
     this.baseConfig = loadConfig(this.baseConfigPath).config;
-    this.state = { users: {}, history: [], banlist: { ids: [], usernames: [] } };
+    this.state = { users: {}, history: [], banlist: { ids: [], usernames: [] }, globalOverrides: {}, meta: {} };
     this.baseSecrets = {};
     this.saveQueue = Promise.resolve();
     SECRET_KEYS.forEach((key) => {
@@ -57,6 +57,12 @@ class RuntimeConfigStore {
               usernames: Array.isArray(raw.banlist.usernames) ? raw.banlist.usernames.map((v) => String(v).trim().toLowerCase()).filter(Boolean) : []
             }
           : { ids: [], usernames: [] };
+        this.state.globalOverrides = raw && raw.globalOverrides && typeof raw.globalOverrides === 'object'
+          ? raw.globalOverrides
+          : {};
+        this.state.meta = raw && raw.meta && typeof raw.meta === 'object'
+          ? raw.meta
+          : {};
       } else if (raw && (raw.overrides || raw.secrets)) {
         // Backward compatibility with old single-user shape.
         this.state.users = {
@@ -68,13 +74,17 @@ class RuntimeConfigStore {
         };
         this.state.history = [];
         this.state.banlist = { ids: [], usernames: [] };
+        this.state.globalOverrides = {};
+        this.state.meta = {};
       } else {
         this.state.users = {};
         this.state.history = [];
         this.state.banlist = { ids: [], usernames: [] };
+        this.state.globalOverrides = {};
+        this.state.meta = {};
       }
     } catch (_) {
-      this.state = { users: {}, history: [], banlist: { ids: [], usernames: [] } };
+      this.state = { users: {}, history: [], banlist: { ids: [], usernames: [] }, globalOverrides: {}, meta: {} };
     }
   }
 
@@ -134,7 +144,21 @@ class RuntimeConfigStore {
 
   getEffectiveConfig(chatId) {
     const user = this.ensureUser(chatId);
-    return deepMerge(this.baseConfig, user.overrides || {});
+    const withGlobal = deepMerge(this.baseConfig, this.state.globalOverrides || {});
+    return deepMerge(withGlobal, user.overrides || {});
+  }
+
+  getGlobalCurrent(pathKey) {
+    return getByPath(deepMerge(this.baseConfig, this.state.globalOverrides || {}), pathKey);
+  }
+
+  async setGlobalConfigValue(pathKey, value) {
+    if (!this.state.globalOverrides || typeof this.state.globalOverrides !== 'object') {
+      this.state.globalOverrides = {};
+    }
+    setByPath(this.state.globalOverrides, pathKey, value);
+    await this.save();
+    return this.getGlobalCurrent(pathKey);
   }
 
   getCurrent(chatId, pathKey) {
@@ -221,6 +245,7 @@ class RuntimeConfigStore {
       `- generation.panel_count: ${cfg.generation.panel_count}`,
       `- generation.objective: ${cfg.generation.objective}`,
       `- generation.output_language: ${cfg.generation.output_language}`,
+      `- generation.panel_watermark: ${cfg.generation.panel_watermark}`,
       `- generation.delivery_mode: ${cfg.generation.delivery_mode || 'default'}`,
       `- generation.detail_level: ${cfg.generation.detail_level}`,
       `- providers.text.provider: ${cfg.providers.text.provider}`,
@@ -373,6 +398,28 @@ class RuntimeConfigStore {
     user.sharedFrom = this.normalizeUserKey(sourceChatId);
     await this.save();
     return user.sharedFrom;
+  }
+
+  getMeta(key) {
+    const k = String(key || '').trim();
+    if (!k) return '';
+    const meta = this.state && this.state.meta && typeof this.state.meta === 'object'
+      ? this.state.meta
+      : {};
+    return String(meta[k] || '').trim();
+  }
+
+  async ensureMetaValue(key, fallbackValue) {
+    const k = String(key || '').trim();
+    if (!k) return '';
+    if (!this.state.meta || typeof this.state.meta !== 'object') this.state.meta = {};
+    const existing = String(this.state.meta[k] || '').trim();
+    if (existing) return existing;
+    const value = String(fallbackValue || '').trim();
+    if (!value) return '';
+    this.state.meta[k] = value;
+    await this.save();
+    return value;
   }
 }
 

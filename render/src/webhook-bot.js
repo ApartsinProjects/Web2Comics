@@ -12,6 +12,7 @@ const { createCrashLogStoreFromEnv, FileCrashLogStore } = require('./crash-log-s
 const { createRequestLogStoreFromEnv } = require('./request-log-store');
 const { classifyMessageInput } = require('./message-utils');
 const { composeComicSheet } = require('../../engine/src/compose');
+const packageJson = require('../../package.json');
 
 const repoRoot = path.resolve(__dirname, '../..');
 loadEnvFiles([
@@ -61,6 +62,13 @@ let crashStore;
 let crashStoreMode = 'unknown';
 const BOT_DISPLAY_NAME = 'Web2Comic';
 const BOT_SHORT_DESCRIPTION = 'AI comic maker from text or URL.';
+const BOT_PROCESS_START_TIME = new Date().toISOString();
+const BOT_RAW_VERSION = String(packageJson && packageJson.version ? packageJson.version : '0.0.0');
+const BOT_VERSION = (() => {
+  const m = BOT_RAW_VERSION.match(/^(\d+)\.(\d+)/);
+  if (!m) return BOT_RAW_VERSION;
+  return `${m[1]}.${m[2]}`;
+})();
 
 try {
   const selected = createCrashLogStoreFromEnv();
@@ -247,7 +255,8 @@ const PROMPT_MANUAL_URL = 'https://github.com/ApartsinProjects/Web2Comics/blob/e
 const COMMAND_ALIASES = {
   '/credentials': '/keys',
   '/reset_default': '/reset_config',
-  '/reset': '/reset_config'
+  '/reset': '/reset_config',
+  '/vserion': '/version'
 };
 
 function getMissingProviderKeys(chatId, providerName) {
@@ -288,6 +297,42 @@ function classifyIncoming(text) {
   return { kind: 'text', command: '' };
 }
 
+function extractMessageInputText(message) {
+  const textBody = String(message?.text || '').trim();
+  const captionBody = String(message?.caption || '').trim();
+  const base = (textBody || captionBody).trim();
+  const entities = textBody
+    ? (Array.isArray(message?.entities) ? message.entities : [])
+    : (Array.isArray(message?.caption_entities) ? message.caption_entities : []);
+  if (!entities.length) return base;
+
+  const links = [];
+  for (const entity of entities) {
+    const type = String(entity?.type || '').trim().toLowerCase();
+    if (type === 'text_link') {
+      const url = String(entity?.url || '').trim();
+      if (url) links.push(url);
+      continue;
+    }
+    if (type === 'url') {
+      const offset = Number(entity?.offset || 0);
+      const length = Number(entity?.length || 0);
+      if (Number.isFinite(offset) && Number.isFinite(length) && length > 0 && offset >= 0) {
+        const raw = base.slice(offset, offset + length).trim();
+        if (raw) links.push(raw);
+      }
+    }
+  }
+  if (!links.length) return base;
+
+  const merged = [base, ...links]
+    .map((v) => String(v || '').trim())
+    .filter(Boolean)
+    .join('\n')
+    .trim();
+  return merged || base;
+}
+
 function isShortTextPrompt(text) {
   const t = String(text || '').trim();
   if (!t) return false;
@@ -319,6 +364,7 @@ function commandHelp(chatId) {
     'Basic:',
     '/help',
     '/about',
+    '/version',
     '/explain',
     '/user',
     '/config',
@@ -367,6 +413,7 @@ function commandHelp(chatId) {
     '/credentials -> /keys',
     '/reset_default -> /reset_config',
     '/reset -> /reset_config',
+    '/vserion -> /version',
     '',
     'Provider key links (Gemini free first):',
     '- Gemini: https://aistudio.google.com/apikey',
@@ -388,6 +435,7 @@ function commandHelp(chatId) {
     lines.push('/ban <user_id|username>  - ban user');
     lines.push('/unban <user_id|username>  - unban user');
     lines.push('/share <user_id>  - allow user to use your runtime keys');
+    lines.push('/watermark <on|off>  - set global panel watermark');
   }
   return lines.join('\n');
 }
@@ -718,6 +766,30 @@ async function sendPanelWithRetry(chatId, panel, index) {
   throw new Error(`Failed sending panel ${index + 1}: ${String(last?.message || last)}`);
 }
 
+function createOrderedPanelSender(chatId, alreadySent = new Set()) {
+  const pending = new Map();
+  let nextIndex = 1;
+  while (alreadySent.has(nextIndex)) nextIndex += 1;
+  let drain = Promise.resolve();
+
+  return async (panelMessage) => {
+    const idx = Number(panelMessage?.index || 0);
+    if (!Number.isFinite(idx) || idx < 1) return;
+    pending.set(idx, panelMessage);
+    drain = drain.then(async () => {
+      while (pending.has(nextIndex)) {
+        const panel = pending.get(nextIndex);
+        pending.delete(nextIndex);
+        await sendPanelWithRetry(chatId, panel, nextIndex - 1);
+        alreadySent.add(nextIndex);
+        nextIndex += 1;
+        while (alreadySent.has(nextIndex)) nextIndex += 1;
+      }
+    });
+    await drain;
+  };
+}
+
 function normalizeDeliveryMode(raw) {
   const v = String(raw || '').trim().toLowerCase().replace(/-/g, '_');
   if (!v || v === 'default') return 'default';
@@ -904,6 +976,16 @@ async function handleCommand(chatId, text) {
       `Creator: Alexander (Sasha) Apartsin`,
       `Project: https://github.com/ApartsinProjects/Web2Comics`,
       `Site: https://www.apartsin.com`
+    ].join('\n'));
+    return true;
+  }
+
+  if (command === '/version') {
+    const createdAt = configStore.getMeta('bot_created_at');
+    await api.sendMessage(chatId, [
+      `version: ${BOT_VERSION}`,
+      `created: ${createdAt || '-'}`,
+      `start: ${BOT_PROCESS_START_TIME}`
     ].join('\n'));
     return true;
   }
@@ -1381,12 +1463,33 @@ async function handleCommand(chatId, text) {
     return true;
   }
 
+  if (command === '/watermark') {
+    if (!isAdminChat(chatId)) {
+      await api.sendMessage(chatId, 'Access denied.');
+      return true;
+    }
+    const raw = String(parts[1] || '').trim().toLowerCase();
+    if (!raw) {
+      const current = Boolean(configStore.getGlobalCurrent('generation.panel_watermark'));
+      await api.sendMessage(chatId, `Usage: /watermark <on|off>\nCurrent global watermark: ${current ? 'on' : 'off'}`);
+      return true;
+    }
+    if (raw !== 'on' && raw !== 'off') {
+      await api.sendMessage(chatId, 'Usage: /watermark <on|off>');
+      return true;
+    }
+    const enabled = raw === 'on';
+    await configStore.setGlobalConfigValue('generation.panel_watermark', enabled);
+    await api.sendMessage(chatId, `Global watermark set: ${enabled ? 'on' : 'off'}`);
+    return true;
+  }
+
   return false;
 }
 
 async function processMessage(message) {
   const chatId = Number(message?.chat?.id || 0);
-  const text = String(message?.text || message?.caption || '').trim();
+  const text = extractMessageInputText(message);
   const incomingUsername = String(message?.from?.username || message?.chat?.username || '').trim();
   if (!chatId) return;
   const incoming = classifyIncoming(text);
@@ -1482,14 +1585,14 @@ async function processMessage(message) {
       await api.sendMessage(chatId, configLine);
       const deliveryMode = normalizeDeliveryMode(effectiveConfig?.generation?.delivery_mode || 'default');
       const alreadySent = new Set();
+      const orderedSender = createOrderedPanelSender(chatId, alreadySent);
       const generationId = createGenerationId(chatId);
       const result = await generatePanelsWithRuntimeConfig(inventedStory, runtime, effectiveConfigPath, {
         userId: chatId,
         generationId,
         onPanelReady: (deliveryMode === 'default')
           ? async (panelMessage) => {
-              await sendPanelWithRetry(chatId, panelMessage, Number(panelMessage?.index || 1) - 1);
-              alreadySent.add(Number(panelMessage?.index || 0));
+              await orderedSender(panelMessage);
             }
           : undefined
       });
@@ -1552,14 +1655,14 @@ async function processMessage(message) {
     await api.sendMessage(chatId, configLine);
     const deliveryMode = normalizeDeliveryMode(effectiveConfig?.generation?.delivery_mode || 'default');
     const alreadySent = new Set();
+    const orderedSender = createOrderedPanelSender(chatId, alreadySent);
     const generationId = createGenerationId(chatId);
     const result = await generatePanelsWithRuntimeConfig(generationInput, runtime, effectiveConfigPath, {
       userId: chatId,
       generationId,
       onPanelReady: (deliveryMode === 'default')
         ? async (panelMessage) => {
-            await sendPanelWithRetry(chatId, panelMessage, Number(panelMessage?.index || 1) - 1);
-            alreadySent.add(Number(panelMessage?.index || 0));
+            await orderedSender(panelMessage);
           }
         : undefined
     });
@@ -1679,6 +1782,7 @@ async function startServer() {
     persistenceMode.impl
   );
   await configStore.load();
+  await configStore.ensureMetaValue('bot_created_at', new Date().toISOString());
   configStore.applySecretsToEnv('global');
   const requestStore = createRequestLogStoreFromEnv();
   requestLogStore = requestStore.impl;

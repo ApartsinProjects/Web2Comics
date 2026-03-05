@@ -417,6 +417,108 @@ describe('render webhook bot REST + telegram flow', () => {
     }
   }, 30000);
 
+  it('handles video message with URL in caption (ignores video payload)', async () => {
+    const tg = await startFakeTelegramServer();
+    const botPort = await getFreePort();
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'render-bot-webhook-'));
+    const bot = await startBotProcess(
+      botPort,
+      `http://127.0.0.1:${tg.port}/botTEST_TOKEN`,
+      path.join(tmpDir, 'runtime-state.json')
+    );
+
+    try {
+      const before = tg.calls.length;
+      const res = await postUpdate(botPort, {
+        chat: { id: 777 },
+        from: { id: 777, username: 'video_user', first_name: 'Video' },
+        caption: 'https://example.com',
+        video: { file_id: 'vid123', width: 320, height: 180, duration: 5 },
+        caption_entities: [{ offset: 0, length: 19, type: 'url' }]
+      });
+      expect(res.status).toBe(200);
+      await waitFor(() => tg.calls.filter((c) => c.url.endsWith('/sendPhoto')).length >= 3, 12000, 100);
+      await waitFor(() => tg.calls
+        .filter((c) => c.url.endsWith('/sendMessage'))
+        .map((c) => String(c.body.text || ''))
+        .some((m) => m.includes('Done: url -> comic panels')), 12000, 100);
+      const chunk = tg.calls.slice(before);
+      const photos = chunk.filter((c) => c.url.endsWith('/sendPhoto'));
+      expect(photos.length).toBeGreaterThanOrEqual(3);
+    } finally {
+      await bot.stop();
+      await tg.close();
+    }
+  }, 30000);
+
+  it('handles video caption text_link URL and treats input as URL source', async () => {
+    const tg = await startFakeTelegramServer();
+    const botPort = await getFreePort();
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'render-bot-webhook-'));
+    const bot = await startBotProcess(
+      botPort,
+      `http://127.0.0.1:${tg.port}/botTEST_TOKEN`,
+      path.join(tmpDir, 'runtime-state.json')
+    );
+
+    try {
+      const before = tg.calls.length;
+      const caption = 'Check this page';
+      const res = await postUpdate(botPort, {
+        chat: { id: 777 },
+        from: { id: 777, username: 'video_link_user', first_name: 'Video' },
+        caption,
+        video: { file_id: 'vid456', width: 640, height: 360, duration: 8 },
+        caption_entities: [{ offset: 0, length: caption.length, type: 'text_link', url: 'https://example.com/path' }]
+      });
+      expect(res.status).toBe(200);
+      await waitFor(() => tg.calls.filter((c) => c.url.endsWith('/sendPhoto')).length >= 3, 12000, 100);
+      await waitFor(() => tg.calls
+        .filter((c) => c.url.endsWith('/sendMessage'))
+        .map((c) => String(c.body.text || ''))
+        .some((m) => m.includes('Done: url -> comic panels')), 12000, 100);
+      const chunk = tg.calls.slice(before);
+      const messages = chunk.filter((c) => c.url.endsWith('/sendMessage')).map((c) => String(c.body.text || ''));
+      expect(messages.some((m) => m.includes('Generating your comic'))).toBe(true);
+    } finally {
+      await bot.stop();
+      await tg.close();
+    }
+  }, 30000);
+
+  it('does not trigger short-text expansion when short text includes URL', async () => {
+    const tg = await startFakeTelegramServer();
+    const botPort = await getFreePort();
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'render-bot-webhook-'));
+    const bot = await startBotProcess(
+      botPort,
+      `http://127.0.0.1:${tg.port}/botTEST_TOKEN`,
+      path.join(tmpDir, 'runtime-state.json')
+    );
+
+    try {
+      const before = tg.calls.length;
+      const res = await postUpdate(botPort, {
+        chat: { id: 777 },
+        from: { id: 777, username: 'short_url_user', first_name: 'Short' },
+        text: 'ok https://example.com'
+      });
+      expect(res.status).toBe(200);
+      await waitFor(() => tg.calls
+        .filter((c) => c.url.endsWith('/sendMessage'))
+        .map((c) => String(c.body.text || ''))
+        .some((m) => m.includes('Done: url -> comic panels')), 12000, 100);
+      const chunk = tg.calls.slice(before);
+      const texts = chunk.filter((c) => c.url.endsWith('/sendMessage')).map((c) => String(c.body.text || ''));
+      expect(texts.some((m) => m.includes('Your prompt is too short'))).toBe(false);
+      expect(texts.some((m) => m.includes('Generating your comic from the expanded story'))).toBe(false);
+      expect(texts.some((m) => m.includes('Done: url -> comic panels'))).toBe(true);
+    } finally {
+      await bot.stop();
+      await tg.close();
+    }
+  }, 30000);
+
   it('handles forwarded text containing URL as URL source', async () => {
     const tg = await startFakeTelegramServer();
     const botPort = await getFreePort();

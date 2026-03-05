@@ -175,6 +175,10 @@ describe('render bot comprehensive interaction suite', () => {
       await runCommandAndExpect('/help', 'aistudio.google.com/apikey');
       await runCommandAndExpect('/help', '/invent <story>');
       await runCommandAndExpect('/about', 'Alexander (Sasha) Apartsin');
+      await runCommandAndExpect('/version', 'version:');
+      await runCommandAndExpect('/version', 'created:');
+      await runCommandAndExpect('/version', 'start:');
+      await runCommandAndExpect('/vserion', 'version:');
       await runCommandAndExpect('/explain', 'Generation summary line format:');
       await runCommandAndExpect('/explain', 'm:<delivery_mode>');
       const helpMsgs = sentMessages(tg.calls).map((c) => String(c.body.text || ''));
@@ -242,6 +246,7 @@ describe('render bot comprehensive interaction suite', () => {
       expect(adminHelp.some((m) => m.includes('/users'))).toBe(true);
       expect(adminHelp.some((m) => m.includes('/ban'))).toBe(true);
       expect(adminHelp.some((m) => m.includes('/unban'))).toBe(true);
+      expect(adminHelp.some((m) => m.includes('/watermark <on|off>'))).toBe(true);
 
       const nonAdminHelp = await command(888, '/help');
       expect(nonAdminHelp.some((m) => m.includes('Admin commands:'))).toBe(false);
@@ -254,6 +259,45 @@ describe('render bot comprehensive interaction suite', () => {
       const users = await command(1796415913, '/users');
       expect(users.some((m) => m.includes('Known users:'))).toBe(true);
       expect(users.some((m) => m.includes('777'))).toBe(true);
+    } finally {
+      await bot.stop();
+      await tg.close();
+    }
+  }, 50000);
+
+  it('supports admin-only /watermark and applies globally for all users', async () => {
+    const tg = await startFakeTelegramServer();
+    const botPort = await getFreePort();
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'render-bot-watermark-'));
+    const bot = await startBotProcess(botPort, `http://127.0.0.1:${tg.port}/botTEST_TOKEN`, path.join(tmpDir, 'state.json'));
+
+    async function command(chatId, text) {
+      const before = sentMessages(tg.calls).length;
+      const res = await postUpdate(botPort, { chat: { id: chatId }, text });
+      expect(res.status).toBe(200);
+      await waitFor(() => sentMessages(tg.calls).length > before, 8000, 100);
+      return sentMessages(tg.calls).slice(before).map((c) => String(c.body.text || ''));
+    }
+
+    try {
+      const denied = await command(777, '/watermark on');
+      expect(denied.some((m) => m.includes('Access denied.'))).toBe(true);
+
+      const usage = await command(1796415913, '/watermark');
+      expect(usage.some((m) => m.includes('Usage: /watermark <on|off>'))).toBe(true);
+
+      const off = await command(1796415913, '/watermark off');
+      expect(off.some((m) => m.includes('Global watermark set: off'))).toBe(true);
+
+      const cfgA = await command(777, '/config');
+      const cfgB = await command(888, '/config');
+      expect(cfgA.some((m) => m.includes('generation.panel_watermark: false'))).toBe(true);
+      expect(cfgB.some((m) => m.includes('generation.panel_watermark: false'))).toBe(true);
+
+      const on = await command(1796415913, '/watermark on');
+      expect(on.some((m) => m.includes('Global watermark set: on'))).toBe(true);
+      const cfgAfter = await command(777, '/config');
+      expect(cfgAfter.some((m) => m.includes('generation.panel_watermark: true'))).toBe(true);
     } finally {
       await bot.stop();
       await tg.close();
