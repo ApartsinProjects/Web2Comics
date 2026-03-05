@@ -629,20 +629,16 @@ async function main() {
   globalServiceId = serviceId;
 
   globalStage = 'update-service-config';
-  try {
-    await render.updateService(serviceId, {
-      serviceDetails: {
-        runtime: 'node',
-        envSpecificDetails: {
-          buildCommand: 'npm install && npx playwright install chromium',
-          startCommand: 'node telegram/src/webhook-bot.js'
-        }
+  await render.updateService(serviceId, {
+    serviceDetails: {
+      runtime: 'node',
+      envSpecificDetails: {
+        buildCommand: 'npm install && npx playwright install chromium',
+        startCommand: 'node telegram/src/webhook-bot.js'
       }
-    });
-    console.log('[deploy] service build/start commands updated');
-  } catch (error) {
-    console.log(`[deploy] warning: failed to update service commands: ${String(error?.message || error)}`);
-  }
+    }
+  });
+  console.log('[deploy] service build/start commands updated');
 
   globalStage = 'sync-env-vars';
   const envVars = {
