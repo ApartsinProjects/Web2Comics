@@ -198,6 +198,31 @@ function resolveInventTemperature(config) {
   return Math.max(0, Math.min(2, raw));
 }
 
+function buildInventStoryPrompt(config, seedText) {
+  const cfg = config && typeof config === 'object' ? config : {};
+  const seed = String(seedText || '').trim();
+  const targetLanguage = resolveInventLanguage(seed, cfg);
+  const objective = String(cfg?.generation?.objective || 'summarize').trim();
+  const stylePrompt = String(cfg?.generation?.style_prompt || '').trim();
+  const objectiveOverride = String(cfg?.generation?.objective_prompt_overrides?.[objective] || '').trim();
+  const customStoryPrompt = String(cfg?.generation?.custom_story_prompt || '').trim();
+  return [
+    'You are a creative comic writer.',
+    'Expand the seed into an engaging short narrative that is easy to storyboard into comic panels.',
+    'Add at least two unexpected but coherent twists.',
+    'Keep characters and timeline consistent.',
+    `Objective: ${objective}`,
+    `Style: ${stylePrompt || 'not specified'}`,
+    objectiveOverride ? `Objective-specific instructions: ${objectiveOverride}` : '',
+    customStoryPrompt ? `Custom user story prompt: ${customStoryPrompt}` : '',
+    `Write the output strictly in language code "${targetLanguage}".`,
+    'Return plain text only (no JSON, no markdown headings).',
+    '',
+    'Seed story:',
+    seed
+  ].filter(Boolean).join('\n');
+}
+
 function resolvePanelWatermarkEnabled(config) {
   const raw = config?.generation?.panel_watermark;
   if (raw == null) return true;
@@ -530,6 +555,10 @@ async function generateWithRuntimeConfig(text, runtime, effectiveConfigPath) {
 async function generatePanelsWithRuntimeConfig(text, runtime, effectiveConfigPath, options = {}) {
   const loadedConfig = loadConfig(effectiveConfigPath);
   const watermarkEnabled = resolvePanelWatermarkEnabled(loadedConfig.config);
+  const configuredPanelCount = Number(loadedConfig?.config?.generation?.panel_count);
+  const panelCount = Number.isFinite(configuredPanelCount) && configuredPanelCount > 0
+    ? Math.floor(configuredPanelCount)
+    : 3;
 
   if (isFakeGeneratorEnabled()) {
     await maybeFakeDelay();
@@ -540,7 +569,6 @@ async function generatePanelsWithRuntimeConfig(text, runtime, effectiveConfigPat
     }
     const ts = new Date().toISOString().replace(/[:.]/g, '-');
     const scope = resolvePanelOutputScope(runtime, options, ts);
-    const panelCount = 3;
     const panelMessages = [];
     const writtenPaths = [];
     const buildAndEmit = async (i) => {
@@ -568,7 +596,13 @@ async function generatePanelsWithRuntimeConfig(text, runtime, effectiveConfigPat
     };
 
     const outOfOrder = isFakeGeneratorOutOfOrderEnabled();
-    const order = outOfOrder ? [2, 0, 1] : [0, 1, 2];
+    const baseOrder = Array.from({ length: panelCount }, (_, i) => i);
+    const order = outOfOrder
+      ? [
+          ...baseOrder.filter((idx) => idx % 2 === 1),
+          ...baseOrder.filter((idx) => idx % 2 === 0)
+        ]
+      : baseOrder;
     for (let j = 0; j < order.length; j += 1) {
       await buildAndEmit(order[j]);
     }
@@ -712,27 +746,8 @@ async function inventStoryText(seedText, effectiveConfigPath, options = {}) {
 
   const loaded = loadConfig(effectiveConfigPath);
   const config = loaded.config;
-  const targetLanguage = resolveInventLanguage(seed, config);
   const inventTemperature = resolveInventTemperature(config);
-  const objective = String(config?.generation?.objective || 'summarize').trim();
-  const stylePrompt = String(config?.generation?.style_prompt || '').trim();
-  const objectiveOverride = String(config?.generation?.objective_prompt_overrides?.[objective] || '').trim();
-  const customStoryPrompt = String(config?.generation?.custom_story_prompt || '').trim();
-  const prompt = [
-    'You are a creative comic writer.',
-    'Expand the seed into an engaging short narrative that is easy to storyboard into comic panels.',
-    'Add at least two unexpected but coherent twists.',
-    'Keep characters and timeline consistent.',
-    `Objective: ${objective}`,
-    `Style: ${stylePrompt || 'not specified'}`,
-    objectiveOverride ? `Objective-specific instructions: ${objectiveOverride}` : '',
-    customStoryPrompt ? `Custom user story prompt: ${customStoryPrompt}` : '',
-    `Write the output strictly in language code "${targetLanguage}".`,
-    'Return plain text only (no JSON, no markdown headings).',
-    '',
-    `Seed story:`,
-    seed
-  ].filter(Boolean).join('\n');
+  const prompt = buildInventStoryPrompt(config, seed);
 
   const runtimeConfig = {
     ...(config.runtime || {}),
@@ -769,6 +784,7 @@ module.exports = {
   resolveOutputLanguage,
   resolveInventLanguage,
   resolveInventTemperature,
+  buildInventStoryPrompt,
   resolvePanelWatermarkEnabled,
   isProviderOrModelFailure,
   shouldFallbackToGemini,

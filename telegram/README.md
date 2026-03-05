@@ -21,13 +21,13 @@ Bot docs bridge page (Markdown): [../docs/telegram-bot.md](../docs/telegram-bot.
 ## Runtime Highlights
 - Fast webhook ACK + per-chat processing queue
 - Caption prefix format `X(Y)` for each panel
-- Watermark is configurable (default: `off`)
-- Panel image prompts include story title + short summary + panel visual brief
+- Watermark is configurable (default: `on`)
+- Panel image prompts include `Background` + `Image description` fields (no `Story title` line)
+- Image no-text rule is enforced in English, Hebrew, and Russian
 - Optional style consistency flow (`/consistency on`): generate summary reference image first, then use it as style reference for panel generation on supported image models
 - Outbound Telegram messages/photos are sent with forwarding allowed (`protect_content=false`)
 - `/objective` without args lists all objectives
-- `/options` and `/choose` provide guided usage when called without args
-- Admin moderation and ops commands (`/users`, `/ban`, `/unban`, `/peek`, `/log`, `/share`)
+- For URL inputs, bot prints the exact parsed URL before extraction
 
 ## Key Commands
 User:
@@ -39,17 +39,13 @@ User:
 - `/vendor`, `/text_vendor`, `/image_vendor`
 - `/panels`, `/objective`, `/language`, `/style`, `/crazyness`
 - `/consistency`
-- `/options`, `/choose`, `/set`
+- `/models`
+- `/options`, `/list_options`
 - `/keys` or `/credentials`
 - `/setkey`, `/unsetkey`
+- `/new_style`
+- `/set_prompt`
 - `/invent`
-
-Admin:
-- `/peek`, `/peek<n>`
-- `/log`, `/log<n>`
-- `/users`
-- `/ban`, `/unban`
-- `/share <user_id>`
 
 ## Documentation
 - Deployment hub: [docs/deployment.md](docs/deployment.md)
@@ -74,9 +70,16 @@ npm run test:telegram
 
 Optional:
 ```bash
+npm run test:telegram:gemini-real
 npm run test:telegram:r2-real
 npm run test:telegram:full-stack
+npx vitest run -c telegram/vitest.config.js telegram/tests/webhook-url-real.e2e.test.js
 ```
+
+Optional real URL e2e is opt-in and requires:
+- `RUN_WEBHOOK_URL_REAL=true`
+- `RUN_RENDER_REAL_GEMINI=1`
+- `GEMINI_API_KEY` set
 
 ## Deployment
 Recommended automatic path:

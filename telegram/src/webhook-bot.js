@@ -16,8 +16,30 @@ const {
   classifyMessageInput,
   isLikelyWebPageUrl,
   extractTextFallbackFromUrlMessage,
-  inferLikelyWebUrlFromText
+  inferLikelyWebUrlFromText,
+  extractMessageInputText
 } = require('./message-utils');
+const {
+  PROVIDER_DEFAULT_MODELS,
+  PROVIDER_MODEL_CATALOG,
+  PROVIDER_REQUIRED_KEYS,
+  PROVIDER_NAMES
+} = require('./data/providers');
+const {
+  STYLE_PRESETS,
+  STYLE_SHORTCUTS,
+  OBJECTIVE_SHORTCUTS
+} = require('./data/styles-objectives');
+const {
+  SHORT_STORY_PROMPT_MAX_CHARS
+} = require('./data/thresholds');
+const {
+  BOT_DISPLAY_NAME,
+  BOT_COLD_START_NOTICE,
+  PROMPT_MANUAL_URL,
+  buildOnboardingMessage,
+  buildHelpMessage
+} = require('./data/messages');
 const { buildStoryboardPrompt } = require('../../engine/src/prompts');
 const { buildPanelImagePrompt, buildStyleReferencePrompt } = require('../../engine/src');
 const { buildInventStoryPrompt } = require('./generate');
@@ -73,10 +95,7 @@ const processedUpdatesTtlMs = Math.max(60000, Number(process.env.RENDER_BOT_UPDA
 let coldStartNoticePending = true;
 let crashStore;
 let crashStoreMode = 'unknown';
-const BOT_DISPLAY_NAME = 'Web2Comic';
-const BOT_SHORT_DESCRIPTION = 'AI comic maker from text or URL.';
 const BOT_PROCESS_START_TIME = new Date().toISOString();
-const BOT_COLD_START_NOTICE = 'I just woke up. First response may take a bit longer.';
 const BOT_TEST_MODE = String(process.env.RENDER_BOT_TEST_MODE || process.env.RENDER_BOT_FAKE_GENERATOR || '')
   .trim()
   .toLowerCase() === 'true';
@@ -258,90 +277,6 @@ async function seedAdminRuntimeSecretsFromEnv() {
 
 const chatQueues = new Map();
 
-const STYLE_PRESETS = {
-  classic: 'clean illustrated art, readable characters, coherent scene progression',
-  noir: 'film noir comic style, dramatic shadows, high contrast, moody scenes',
-  manga: 'manga-inspired comic art, expressive characters, dynamic framing',
-  superhero: 'american superhero comic style, dynamic action poses, bold colors',
-  watercolor: 'watercolor comic style, soft painterly textures, warm tones',
-  newspaper: 'newspaper comic strip style, clean ink lines, expressive cartooning'
-};
-const STYLE_SHORTCUTS = Object.fromEntries(
-  Object.keys(STYLE_PRESETS).map((name) => [`/${name}`, name])
-);
-
-const OBJECTIVE_SHORTCUTS = {
-  '/summary': 'summarize',
-  '/fun': 'fun',
-  '/learn': 'learn-step-by-step',
-  '/news': 'news-recap',
-  '/timeline': 'timeline',
-  '/facts': 'key-facts',
-  '/compare': 'compare-views',
-  '/5yold': 'explain-like-im-five',
-  '/eli5': 'explain-like-im-five',
-  '/study': 'study-guide',
-  '/meeting': 'meeting-recap',
-  '/howto': 'how-to-guide',
-  '/debate': 'debate-map'
-};
-
-const PROVIDER_DEFAULT_MODELS = {
-  gemini: {
-    text: 'gemini-2.5-flash',
-    image: 'gemini-2.0-flash-exp-image-generation'
-  },
-  openai: {
-    text: 'gpt-4o-mini',
-    image: 'dall-e-2'
-  },
-  openrouter: {
-    text: 'openai/gpt-oss-20b:free',
-    image: 'google/gemini-2.5-flash-image-preview'
-  },
-  cloudflare: {
-    text: '@cf/meta/llama-3.1-8b-instruct',
-    image: '@cf/black-forest-labs/flux-1-schnell'
-  },
-  huggingface: {
-    text: 'mistralai/Mistral-7B-Instruct-v0.2',
-    image: 'black-forest-labs/FLUX.1-schnell'
-  }
-};
-
-const PROVIDER_MODEL_CATALOG = {
-  gemini: {
-    text: ['gemini-2.5-flash'],
-    image: ['gemini-2.0-flash-exp-image-generation']
-  },
-  openai: {
-    text: ['gpt-4o-mini'],
-    image: ['dall-e-2']
-  },
-  openrouter: {
-    text: ['openai/gpt-oss-20b:free'],
-    image: ['google/gemini-2.5-flash-image-preview']
-  },
-  cloudflare: {
-    text: ['@cf/meta/llama-3.1-8b-instruct'],
-    image: ['@cf/black-forest-labs/flux-1-schnell']
-  },
-  huggingface: {
-    text: ['mistralai/Mistral-7B-Instruct-v0.2'],
-    image: ['black-forest-labs/FLUX.1-schnell']
-  }
-};
-
-const PROVIDER_REQUIRED_KEYS = {
-  gemini: ['GEMINI_API_KEY'],
-  openai: ['OPENAI_API_KEY'],
-  openrouter: ['OPENROUTER_API_KEY'],
-  cloudflare: ['CLOUDFLARE_ACCOUNT_ID', 'CLOUDFLARE_API_TOKEN'],
-  huggingface: ['HUGGINGFACE_INFERENCE_API_TOKEN']
-};
-const REPO_DOCS_BASE_URL = 'https://github.com/ApartsinProjects/Web2Comics/tree/main/telegram';
-const PROMPT_MANUAL_URL = `${REPO_DOCS_BASE_URL}/docs/deployment-runbook.md`;
-
 function getMissingProviderKeys(chatId, providerName) {
   const provider = String(providerName || '').trim().toLowerCase();
   const required = PROVIDER_REQUIRED_KEYS[provider] || [];
@@ -471,42 +406,6 @@ function classifyIncoming(text) {
   return { kind: 'text', command: '' };
 }
 
-function extractMessageInputText(message) {
-  const textBody = String(message?.text || '').trim();
-  const captionBody = String(message?.caption || '').trim();
-  const base = (textBody || captionBody).trim();
-  const entities = textBody
-    ? (Array.isArray(message?.entities) ? message.entities : [])
-    : (Array.isArray(message?.caption_entities) ? message.caption_entities : []);
-  if (!entities.length) return base;
-
-  const links = [];
-  for (const entity of entities) {
-    const type = String(entity?.type || '').trim().toLowerCase();
-    if (type === 'text_link') {
-      const url = String(entity?.url || '').trim();
-      if (url) links.push(url);
-      continue;
-    }
-    if (type === 'url') {
-      const offset = Number(entity?.offset || 0);
-      const length = Number(entity?.length || 0);
-      if (Number.isFinite(offset) && Number.isFinite(length) && length > 0 && offset >= 0) {
-        const raw = base.slice(offset, offset + length).trim();
-        if (raw) links.push(raw);
-      }
-    }
-  }
-  if (!links.length) return base;
-
-  const merged = [base, ...links]
-    .map((v) => String(v || '').trim())
-    .filter(Boolean)
-    .join('\n')
-    .trim();
-  return merged || base;
-}
-
 function buildTestSourceEchoText(message, incoming) {
   const chatId = Number(message?.chat?.id || 0);
   const userId = Number(message?.from?.id || chatId || 0);
@@ -535,7 +434,7 @@ function formatProviderFallbackMessage(info) {
 function isShortTextPrompt(text) {
   const t = String(text || '').trim();
   if (!t) return false;
-  return t.length <= 100;
+  return t.length <= SHORT_STORY_PROMPT_MAX_CHARS;
 }
 
 function formatInventedStoryMessage(storyText) {
@@ -556,77 +455,11 @@ function commandHelp(chatId) {
   const objectiveShortcutLines = Object.entries(OBJECTIVE_SHORTCUTS)
     .map(([cmd, objective]) => `${cmd} - set objective to ${objective}.`);
   const styleShortcutLines = Object.keys(STYLE_PRESETS).map((name) => `/${name} - quick style shortcut (${name}).`);
-  const lines = [
-    BOT_DISPLAY_NAME,
-    BOT_SHORT_DESCRIPTION,
-    '',
-    'Send plain text or URL to generate a comic.',
-    '',
-    'Commands:',
-    '/start - show welcome message.',
-    '/help - show this command reference.',
-    '/welcome - show welcome message again.',
-    '/about - creator and project links.',
-    '/version - bot version and timestamps.',
-    '/user - show your Telegram user id.',
-    '/config - show your active configuration.',
-    '/explain - explain the compact generation summary line.',
-    '/debug <on|off> - toggle image prompt debug messages.',
-    '/invent <story> - expand your seed story with AI and generate comic.',
-    '/random - generate a fully random story and make a comic.',
-    '/panels <count> - set panel count.',
-    '/objective [name] - list or set objective.',
-    ...objectiveShortcutLines,
-    '/style <preset-or-your-style> - set visual style.',
-    ...styleShortcutLines,
-    '/new_style <name> <text> - save a custom named style.',
-    '/language <code> - set output language.',
-    '/mode <default|media_group|single> - set delivery mode.',
-    '/consistency <on|off> - toggle reference-style consistency flow.',
-    '/crazyness <0..2> - set invention creativity temperature.',
-    '/detail <low|medium|high> - set detail level.',
-    '/concurrency <1..5> - set image generation parallelism.',
-    '/retries <0..3> - set provider retry attempts.',
-    '/vendor <name> - set both text and image providers.',
-    '/text_vendor <name> - set text provider only.',
-    '/image_vendor <name> - set image provider only.',
-    '/models [text|image] [model] - list or set models for current vendor.',
-    '/keys - show provider key status.',
-    '/setkey <KEY> <VALUE> - store runtime credential.',
-    '/unsetkey <KEY> - remove runtime credential.',
-    '/list_options - list config paths with predefined options.',
-    '/options <path> - show options for one path.',
-    '/prompts - show active prompt templates.',
-    '/set_prompt story <text> - customize story prompt.',
-    '/set_prompt panel <text> - customize panel prompt suffix.',
-    '/set_prompt objective <name> <text> - customize objective prompt override.',
-    '/reset_config - clear your config overrides.',
-    '/restart - reset your user state and config to defaults.',
-    '',
-    'Provider key links (Gemini free first):',
-    '- Gemini: https://aistudio.google.com/apikey',
-    '- OpenAI: https://platform.openai.com/api-keys',
-    '- OpenRouter: https://openrouter.ai/settings/keys',
-    '- Cloudflare: https://dash.cloudflare.com/profile/api-tokens',
-    '- Hugging Face: https://huggingface.co/settings/tokens',
-    '',
-    `Docs: ${REPO_DOCS_BASE_URL}/docs`
-  ];
-  if (isAdminChat(chatId)) {
-    lines.push('');
-    lines.push('Admin commands:');
-    lines.push('/peek - list latest generated comics.');
-    lines.push('/peek <n> or /peek<n> - show one comic from the latest list.');
-    lines.push('/log, /log <n>, /log<n> - list latest interaction logs.');
-    lines.push('/users - list known users.');
-    lines.push('/ban - list banned users.');
-    lines.push('/ban <user_id|username> - ban user.');
-    lines.push('/unban <user_id|username> - unban user.');
-    lines.push('/share <user_id> - allow a user to use your runtime keys.');
-    lines.push('/watermark <on|off> - set global panel watermark.');
-    lines.push('/echo <on|off> - test mode input echo.');
-  }
-  return lines.join('\n');
+  return buildHelpMessage(chatId, {
+    isAdmin: isAdminChat(chatId),
+    objectiveShortcutLines,
+    styleShortcutLines
+  });
 }
 
 function keysStatusMessage(chatId) {
@@ -651,6 +484,9 @@ function normalizeStyleName(raw) {
 
 function normalizeCommandToken(rawToken) {
   const token = String(rawToken || '').trim().toLowerCase();
+  if (!token.startsWith('/')) return token;
+  const at = token.indexOf('@');
+  if (at > 0) return token.slice(0, at);
   return token;
 }
 
@@ -703,7 +539,7 @@ async function applyProvider(chatId, providerName, applyText, applyImage) {
   const key = String(providerName || '').trim().toLowerCase();
   const defaults = PROVIDER_DEFAULT_MODELS[key];
   if (!defaults) {
-    throw new Error(`Unknown provider '${providerName}'. Use: ${Object.keys(PROVIDER_DEFAULT_MODELS).join(', ')}`);
+    throw new Error(`Unknown provider '${providerName}'. Use: ${PROVIDER_NAMES.join(', ')}`);
   }
   if (applyText) {
     await configStore.setConfigValue(chatId, 'providers.text.provider', key);
@@ -717,29 +553,7 @@ async function applyProvider(chatId, providerName, applyText, applyImage) {
 }
 
 function onboardingMessage(chatId) {
-  const lines = [
-    `Welcome to ${BOT_DISPLAY_NAME}.`,
-    BOT_SHORT_DESCRIPTION,
-    '',
-    'Fastest way to start:',
-    '1) Run /user',
-    '2) Send your ID to Sasha and ask for shared key access',
-    '',
-    'Or go solo with a free Gemini key:',
-    '1) Get key: https://aistudio.google.com/apikey',
-    `2) How-to: ${PROMPT_MANUAL_URL}`,
-    '3) Set it: /setkey GEMINI_API_KEY <YOUR_KEY>',
-    '4) Verify: /keys',
-    '',
-    'Once connected, useful commands:',
-    '/help  /config  /vendor <name>  /panels <count>  /style <preset>'
-  ];
-  if (isAdminChat(chatId)) {
-    lines.push('');
-    lines.push('Admin commands:');
-    lines.push('/peek  /peek<n>  /log  /log<n>  /users  /ban  /unban  /share <user_id>');
-  }
-  return lines.join('\n');
+  return buildOnboardingMessage(chatId, { isAdmin: isAdminChat(chatId), promptManualUrl: PROMPT_MANUAL_URL });
 }
 
 function formatUsersMessage() {
@@ -788,6 +602,14 @@ async function sendLongMessage(chatId, text) {
     if (!chunk) continue;
     await api.sendMessage(chatId, chunk);
   }
+}
+
+function parseTelegramRetryAfterSeconds(errorLike) {
+  const msg = String(errorLike?.message || errorLike || '');
+  const m = msg.match(/retry after\s+(\d+)/i);
+  if (!m) return 0;
+  const sec = Number(m[1]);
+  return Number.isFinite(sec) && sec > 0 ? sec : 0;
 }
 
 function buildPromptCatalog(cfg) {
@@ -942,13 +764,20 @@ async function sendPanelWithRetry(chatId, panel, index, debugPromptsEnabled = fa
     await sendLongMessage(chatId, buildPanelPromptDebugMessage(panel));
   }
   let last = null;
-  for (let attempt = 1; attempt <= 3; attempt += 1) {
+  for (let attempt = 1; attempt <= 5; attempt += 1) {
     try {
       await api.sendPhoto(chatId, panel.imagePath, panel.caption || '');
       return;
     } catch (error) {
       last = error;
-      if (attempt < 3) await new Promise((r) => setTimeout(r, 250 * attempt));
+      if (debugPromptsEnabled) {
+        await safeNotifyUser(chatId, `Debug: send panel ${index + 1} attempt ${attempt} failed: ${String(error?.message || error)}`);
+      }
+      if (attempt < 5) {
+        const retryAfterSec = parseTelegramRetryAfterSeconds(error);
+        const waitMs = retryAfterSec > 0 ? ((retryAfterSec * 1000) + 250) : (500 * attempt);
+        await new Promise((r) => setTimeout(r, waitMs));
+      }
     }
   }
   throw new Error(`Failed sending panel ${index + 1}: ${String(last?.message || last)}`);
@@ -998,15 +827,22 @@ function normalizeDeliveryMode(raw) {
   return '';
 }
 
-async function sendMediaGroupWithRetry(chatId, panels) {
+async function sendMediaGroupWithRetry(chatId, panels, debugPromptsEnabled = false) {
   let last = null;
-  for (let attempt = 1; attempt <= 3; attempt += 1) {
+  for (let attempt = 1; attempt <= 5; attempt += 1) {
     try {
       await api.sendMediaGroup(chatId, panels);
       return;
     } catch (error) {
       last = error;
-      if (attempt < 3) await new Promise((r) => setTimeout(r, 250 * attempt));
+      if (debugPromptsEnabled) {
+        await safeNotifyUser(chatId, `Debug: send media_group attempt ${attempt} failed: ${String(error?.message || error)}`);
+      }
+      if (attempt < 5) {
+        const retryAfterSec = parseTelegramRetryAfterSeconds(error);
+        const waitMs = retryAfterSec > 0 ? ((retryAfterSec * 1000) + 250) : (500 * attempt);
+        await new Promise((r) => setTimeout(r, waitMs));
+      }
     }
   }
   throw new Error(`Failed sending media group: ${String(last?.message || last)}`);
@@ -1042,7 +878,10 @@ async function sendSingleFormattedComic(chatId, panelResult, sourceMode, cfg, de
       outputPath: outPath
     });
     await sendPanelWithRetry(chatId, { imagePath: outPath, caption: caption.slice(0, 1000) }, 0, false);
-  } catch (_) {
+  } catch (error) {
+    if (debugPromptsEnabled) {
+      await safeNotifyUser(chatId, `Debug: single-message compose fallback: ${String(error?.message || error)}`);
+    }
     await sendPanelWithRetry(chatId, { imagePath: firstPath, caption: caption.slice(0, 1000) }, 0, false);
   }
 }
@@ -1061,7 +900,7 @@ async function sendPanelSequence(chatId, panelResult, sourceModeLabel, configLin
         await sendLongMessage(chatId, buildPanelPromptDebugMessage(remaining[i]));
       }
     }
-    await sendMediaGroupWithRetry(chatId, remaining);
+    await sendMediaGroupWithRetry(chatId, remaining, debugPromptsEnabled);
   } else if (selectedMode === 'single' && panels.length) {
     await sendSingleFormattedComic(chatId, panelResult, sourceMode, cfg, debugPromptsEnabled);
   } else {
@@ -1209,8 +1048,8 @@ async function handleCommand(chatId, text) {
   const parts = splitCommand(text);
   const commandToken = String(parts[0] || '').toLowerCase();
   const command = normalizeCommandToken(commandToken);
-  const peekTokenMatch = commandToken.match(/^\/peek(\d{1,3})$/);
-  const logTokenMatch = commandToken.match(/^\/log(\d{1,3})$/);
+  const peekTokenMatch = command.match(/^\/peek(\d{1,3})$/);
+  const logTokenMatch = command.match(/^\/log(\d{1,3})$/);
 
   if (command === '/start') {
     await api.sendMessage(chatId, onboardingMessage(chatId));
@@ -1384,9 +1223,9 @@ async function handleCommand(chatId, text) {
       const currentText = String(configStore.getCurrent(chatId, 'providers.text.provider') || '-');
       const currentImage = String(configStore.getCurrent(chatId, 'providers.image.provider') || '-');
       await api.sendMessage(chatId, [
-        `Usage: ${command} <${Object.keys(PROVIDER_DEFAULT_MODELS).join('|')}>`,
+        `Usage: ${command} <${PROVIDER_NAMES.join('|')}>`,
         'Explanation: switch provider defaults for text/image generation.',
-        `Allowed: ${Object.keys(PROVIDER_DEFAULT_MODELS).join(', ')}`,
+        `Allowed: ${PROVIDER_NAMES.join(', ')}`,
         `Current: text=${currentText}, image=${currentImage}`
       ].join('\n'));
       return true;
@@ -2195,7 +2034,7 @@ async function processMessage(message, context = {}) {
 
     await api.sendChatAction(chatId, 'upload_photo');
     if (hasWebPageUrl) {
-      await api.sendMessage(chatId, 'Detected link, parsing page.');
+      await api.sendMessage(chatId, `Detected link, parsing page: ${parsedInput.value}`);
     }
     if (shortPromptExpanded) {
       await api.sendMessage(chatId, 'Generating your comic from the expanded story...');
@@ -2292,6 +2131,16 @@ async function processMessage(message, context = {}) {
       config: configStore.getEffectiveConfig(chatId)
     }, userMeta));
   } catch (error) {
+    const debugPromptsEnabled = Boolean(configStore && configStore.getCurrent(chatId, 'generation.debug_prompts'));
+    if (debugPromptsEnabled) {
+      const stack = String(error?.stack || '').split('\n').slice(0, 5).join('\n');
+      const debugText = [
+        'Debug: generation exception',
+        `message: ${String(error?.message || error)}`,
+        stack ? `stack:\n${stack}` : ''
+      ].filter(Boolean).join('\n');
+      await safeNotifyUser(chatId, debugText);
+    }
     await safeNotifyUser(chatId, `Generation failed: ${String(error?.message || error)}`);
     runBackgroundTask('record generation failure', () => safeRecordInteraction(chatId, {
       kind: incoming.kind,

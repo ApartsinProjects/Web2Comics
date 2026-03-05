@@ -434,12 +434,18 @@ describe('render webhook bot REST + telegram flow', () => {
         '/facts -',
         '/compare -',
         '/5yold -',
+        '/eli5 -',
         '/study -',
         '/meeting -',
         '/howto -',
         '/debate -',
         '/style <preset-or-your-style> -',
+        '/classic -',
         '/noir -',
+        '/manga -',
+        '/superhero -',
+        '/watercolor -',
+        '/newspaper -',
         '/new_style <name> <text> -',
         '/language <code> -',
         '/mode <default|media_group|single> -',
@@ -493,6 +499,28 @@ describe('render webhook bot REST + telegram flow', () => {
       expect(texts.some((t) => t.includes('Unrecognized command.'))).toBe(true);
       expect(texts.some((t) => t.includes('Confirmed changes: none.'))).toBe(true);
       expect(texts.some((t) => t.includes('Done:'))).toBe(false);
+    } finally {
+      await bot.stop();
+      await tg.close();
+    }
+  }, 20000);
+
+  it('accepts shortcut commands with @bot mention suffix', async () => {
+    const tg = await startFakeTelegramServer();
+    const botPort = await getFreePort();
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'render-bot-shortcut-mention-'));
+    const bot = await startBotProcess(
+      botPort,
+      `http://127.0.0.1:${tg.port}/botTEST_TOKEN`,
+      path.join(tmpDir, 'runtime-state.json')
+    );
+
+    try {
+      const res = await postUpdate(botPort, { chat: { id: 777 }, text: '/fun@Web2ComicBot' });
+      expect(res.status).toBe(200);
+      await waitFor(() => tg.calls.some((c) =>
+        c.url.endsWith('/sendMessage') && String(c.body.text || '').includes('Updated generation.objective = fun (via /fun)')
+      ), 8000, 100);
     } finally {
       await bot.stop();
       await tg.close();
@@ -748,9 +776,45 @@ describe('render webhook bot REST + telegram flow', () => {
       expect(captions[1]).toContain(`2(${total}) Fake panel 2`);
       expect(captions[2]).toContain(`3(${total}) Fake panel 3`);
       const msgTexts = chunk.filter((c) => c.url.endsWith('/sendMessage')).map((c) => String(c.body.text || ''));
-      expect(msgTexts.some((m) => m.includes('Detected link, parsing page.'))).toBe(true);
+      expect(msgTexts.some((m) => m.includes('Detected link, parsing page: https://example.com'))).toBe(true);
       expect(msgTexts.some((m) => m.includes('Generating your comic'))).toBe(true);
       expect(msgTexts.some((m) => m.includes('Done: url -> comic panels'))).toBe(true);
+    } finally {
+      await bot.stop();
+      await tg.close();
+    }
+  }, 30000);
+
+  it('prints resolved URL when link is inferred from short text without protocol', async () => {
+    const tg = await startFakeTelegramServer();
+    const botPort = await getFreePort();
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'render-bot-inferred-url-'));
+    const bot = await startBotProcess(
+      botPort,
+      `http://127.0.0.1:${tg.port}/botTEST_TOKEN`,
+      path.join(tmpDir, 'runtime-state.json')
+    );
+
+    try {
+      const before = tg.calls.length;
+      const res = await postUpdate(botPort, {
+        chat: { id: 777 },
+        from: { id: 777, username: 'infer_user', first_name: 'Infer' },
+        text: 'www.cnn.com'
+      });
+      expect(res.status).toBe(200);
+      await waitFor(() => tg.calls.filter((c) => c.url.endsWith('/sendPhoto')).length >= 3, 12000, 100);
+      await waitFor(() => tg.calls
+        .slice(before)
+        .filter((c) => c.url.endsWith('/sendMessage'))
+        .map((c) => String(c.body.text || ''))
+        .some((m) => m.includes('Done: url -> comic panels') || m.includes('Done: text -> comic panels') || m.includes('Generation failed:')), 12000, 100);
+      const msgTexts = tg.calls
+        .slice(before)
+        .filter((c) => c.url.endsWith('/sendMessage'))
+        .map((c) => String(c.body.text || ''));
+      expect(msgTexts.some((m) => m.includes('Detected link, parsing page: https://www.cnn.com'))).toBe(true);
+      expect(msgTexts.some((m) => m.includes('Done: url -> comic panels') || m.includes('Done: text -> comic panels'))).toBe(true);
     } finally {
       await bot.stop();
       await tg.close();
@@ -783,7 +847,7 @@ describe('render webhook bot REST + telegram flow', () => {
         .slice(before)
         .filter((c) => c.url.endsWith('/sendMessage'))
         .map((c) => String(c.body.text || ''))
-        .some((m) => m.includes('Done: text -> comic panels')), 12000, 100);
+        .some((m) => m.includes('Done: text -> comic panels') || m.includes('Done: url -> comic panels') || m.includes('Generation failed:')), 12000, 100);
 
       const chunk = tg.calls.slice(before);
       const photos = chunk.filter((c) => c.url.endsWith('/sendPhoto'));

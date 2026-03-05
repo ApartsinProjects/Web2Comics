@@ -13,8 +13,8 @@ generation:
   panel_count: 8
   objective: explain-like-im-five
   output_language: auto
-  consistency: false
-  panel_watermark: false
+  consistency: true
+  panel_watermark: true
   debug_prompts: false
   invent_temperature: 0.95
   delivery_mode: default

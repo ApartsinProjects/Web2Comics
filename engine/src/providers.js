@@ -60,6 +60,22 @@ function getGeminiText(json) {
   return parts.map((p) => p?.text || '').filter(Boolean).join(' ').trim();
 }
 
+function extractGeminiInlineImage(json) {
+  const candidates = Array.isArray(json?.candidates) ? json.candidates : [];
+  for (const candidate of candidates) {
+    const parts = Array.isArray(candidate?.content?.parts) ? candidate.content.parts : [];
+    for (const part of parts) {
+      const data = String(part?.inlineData?.data || '').trim();
+      if (!data) continue;
+      return {
+        data,
+        mimeType: String(part?.inlineData?.mimeType || 'image/png').trim() || 'image/png'
+      };
+    }
+  }
+  return null;
+}
+
 function decodeDataUri(value) {
   const raw = String(value || '');
   const match = raw.match(/^data:[^;]+;base64,(.+)$/i);
@@ -225,30 +241,49 @@ async function generateImageWithProvider(providerConfig, prompt, runtimeConfig, 
     const apiKey = resolveProviderValue(providerConfig, 'api_key', 'GEMINI_API_KEY');
     if (!apiKey) throw new Error('Missing GEMINI_API_KEY for Gemini image provider');
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
-    const parts = [{ text: safePrompt }];
-    if (referenceImage && Buffer.isBuffer(referenceImage.buffer) && referenceImage.buffer.length) {
-      parts.unshift({
-        inlineData: {
-          mimeType: String(referenceImage.mimeType || 'image/png'),
-          data: referenceImage.buffer.toString('base64')
-        }
-      });
-    }
-    const { json } = await fetchJson(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{ parts }],
-        generationConfig: { responseModalities: ['image', 'text'], maxOutputTokens: 512 }
-      })
-    }, timeoutMs, 'Gemini image');
-    const responseParts = json?.candidates?.[0]?.content?.parts || [];
-    const imagePart = responseParts.find((p) => p?.inlineData?.data);
-    if (!imagePart?.inlineData?.data) throw new Error('Gemini image response did not include inline image bytes');
-    return {
-      buffer: Buffer.from(imagePart.inlineData.data, 'base64'),
-      mimeType: imagePart.inlineData.mimeType || 'image/png'
+    const requestOnce = async (responseModalities, promptText) => {
+      const requestParts = [];
+      if (referenceImage && Buffer.isBuffer(referenceImage.buffer) && referenceImage.buffer.length) {
+        requestParts.push({
+          inlineData: {
+            mimeType: String(referenceImage.mimeType || 'image/png'),
+            data: referenceImage.buffer.toString('base64')
+          }
+        });
+      }
+      requestParts.push({ text: promptText });
+      const { json } = await fetchJson(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: requestParts }],
+          generationConfig: { responseModalities, maxOutputTokens: 512 }
+        })
+      }, timeoutMs, 'Gemini image');
+      const inline = extractGeminiInlineImage(json);
+      if (inline && inline.data) {
+        return {
+          buffer: Buffer.from(inline.data, 'base64'),
+          mimeType: inline.mimeType || 'image/png'
+        };
+      }
+      const finishReason = String((json?.candidates?.[0]?.finishReason || '')).trim();
+      const firstText = getGeminiText(json);
+      const hint = firstText ? `; text="${firstText.slice(0, 180)}"` : '';
+      const finishHint = finishReason ? `; finishReason=${finishReason}` : '';
+      throw new Error(`Gemini image response did not include inline image bytes${finishHint}${hint}`);
     };
+
+    try {
+      return await requestOnce(['image', 'text'], safePrompt);
+    } catch (firstError) {
+      const fallbackPrompt = `${safePrompt}\nReturn image output only. Do not return any text.`.trim();
+      try {
+        return await requestOnce(['image'], fallbackPrompt);
+      } catch (_) {
+        throw firstError;
+      }
+    }
   }
 
   if (provider === 'openai') {
@@ -374,5 +409,6 @@ module.exports = {
   generateTextWithProvider,
   generateImageWithProvider,
   supportsImageReferenceInput,
-  enforceNoTextImagePrompt
+  enforceNoTextImagePrompt,
+  extractGeminiInlineImage
 };

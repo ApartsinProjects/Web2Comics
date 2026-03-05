@@ -11,7 +11,7 @@ input:
 
 generation:
   panel_count: 3
-  objective: summarize
+  objective: explain-like-im-five
   output_language: en
   detail_level: low
   style_prompt: "clean comic panel art, readable characters, coherent scene progression"

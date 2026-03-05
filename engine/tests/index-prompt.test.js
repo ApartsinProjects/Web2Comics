@@ -1,7 +1,7 @@
 const { buildPanelImagePrompt } = require('../src');
 
 describe('engine panel prompt builder', () => {
-  it('includes story summary and panel-specific visual brief', () => {
+  it('includes background and panel-specific image description fields', () => {
     const prompt = buildPanelImagePrompt(
       { caption: 'Hero enters the lab', image_prompt: 'Wide shot of hero opening lab door, neon lights' },
       0,
@@ -10,10 +10,10 @@ describe('engine panel prompt builder', () => {
       { title: 'Lab Mystery', description: 'A rookie investigator follows clues through a high-tech lab at night.' }
     );
 
-    expect(prompt).toContain('Story title: Lab Mystery');
-    expect(prompt).toContain('Story summary: A rookie investigator follows clues through a high-tech lab at night.');
-    expect(prompt).toContain('Panel visual brief: Wide shot of hero opening lab door, neon lights');
+    expect(prompt).toContain('Background: A rookie investigator follows clues through a high-tech lab at night.');
+    expect(prompt).toContain('Image description: Wide shot of hero opening lab door, neon lights');
     expect(prompt).toContain('Style: clean comic style');
+    expect(prompt).not.toContain('Story title:');
     expect(prompt).not.toContain('Comic panel scene');
     expect(prompt).not.toContain('Panel caption:');
     expect(prompt).not.toMatch(/\b\d+\s*\/\s*\d+\b/);
@@ -37,7 +37,7 @@ describe('engine panel prompt builder', () => {
       }
     );
 
-    expect(prompt).toContain('Story title: Vault Mystery');
-    expect(prompt).toContain('Story summary: Hero finds a coded map Hero opens the hidden vault A drone escapes with the artifact');
+    expect(prompt).toContain('Background: Hero finds a coded map Hero opens the hidden vault A drone escapes with the artifact');
+    expect(prompt).not.toContain('Story title:');
   });
 });

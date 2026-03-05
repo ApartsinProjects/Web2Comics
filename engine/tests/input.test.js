@@ -1,4 +1,6 @@
 const path = require('path');
+const fs = require('fs');
+const os = require('os');
 const { extractFromHtml, loadSource } = require('../src/input');
 
 describe('engine input', () => {
@@ -40,5 +42,34 @@ describe('engine input', () => {
     expect(out.text).not.toMatch(/values your feedback/i);
     expect(out.text).not.toMatch(/how relevant is this ad/i);
     expect(out.text).not.toMatch(/did you encounter any technical issues/i);
+  });
+
+  it('uses meta description to improve short generic extraction', () => {
+    const html = `
+      <html>
+        <head>
+          <title>Example Site</title>
+          <meta name="description" content="A short summary from metadata for this page." />
+        </head>
+        <body>
+          <main><div>Login</div><div>Sign up</div></main>
+        </body>
+      </html>
+    `;
+    const out = extractFromHtml(html, {});
+    expect(out.text).toContain('A short summary from metadata for this page.');
+  });
+
+  it('flags access-block pages and loadSource throws a clear error', () => {
+    const html = `
+      <html>
+        <head><title>Just a moment...</title></head>
+        <body><main>Verification successful. Waiting for chatgpt.com to respond.</main></body>
+      </html>
+    `;
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'w2c-input-block-'));
+    const p = path.join(tmp, 'blocked.html');
+    fs.writeFileSync(p, html, 'utf8');
+    expect(() => loadSource(p, { format: 'html', max_chars: 10000 })).toThrow(/blocked or gated/i);
   });
 });

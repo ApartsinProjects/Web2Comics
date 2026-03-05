@@ -6,6 +6,11 @@ const { loadSource } = require('./input');
 const { buildStoryboardPrompt, parseStoryboardResponse } = require('./prompts');
 const { generateTextWithProvider, generateImageWithProvider, supportsImageReferenceInput } = require('./providers');
 const { composeComicSheet } = require('./compose');
+const {
+  STYLE_REFERENCE_PROMPT_LINES,
+  PANEL_IMAGE_PROMPT_LINES,
+  NO_TEXT_RULE_BLOCK
+} = require('./data/prompt-templates');
 
 function isConsistencyEnabled(settings) {
   const raw = settings && settings.consistency;
@@ -26,14 +31,14 @@ function buildStyleReferencePrompt(storyboard, settings) {
   const customStoryPrompt = String(settings?.custom_story_prompt || '').trim();
   const customPanelPrompt = String(settings?.custom_panel_prompt || '').trim();
   const out = [
-    'Create one reference image that defines a consistent visual style for the full comic.',
+    STYLE_REFERENCE_PROMPT_LINES.intro,
     `Story title: ${title}`,
     `Story summary: ${summary || 'No summary provided.'}`,
     `Objective: ${objective}`,
     `Style: ${style}`,
     `Output language: ${language}`,
     `Detail level: ${detail}`,
-    'Show key characters and setting mood in one scene.'
+    STYLE_REFERENCE_PROMPT_LINES.sceneRule
   ];
   if (objectiveOverride) {
     out.push(`Objective-specific guidance: ${objectiveOverride}`);
@@ -44,35 +49,63 @@ function buildStyleReferencePrompt(storyboard, settings) {
   if (customPanelPrompt) {
     out.push(`Custom panel guidance: ${customPanelPrompt}`);
   }
-  out.push(
-    'STRICT NO-TEXT RULE: no letters, words, numbers, symbols, labels, signs, logos, UI text, subtitles, speech bubbles, captions, or watermarks.'
-  );
+  out.push(...NO_TEXT_RULE_BLOCK);
   return out.join('\n');
 }
 
 function buildPanelImagePrompt(panel, index, total, settings, storyboard, opts = {}) {
-  const storyTitle = String(storyboard?.title || '').trim();
   const storySummary = buildStorySummaryContext(storyboard, panel);
   const shortSummary = storySummary.length > 280 ? `${storySummary.slice(0, 280)}...` : storySummary;
   const panelSpecificPrompt = String(panel?.image_prompt || '').trim();
   const out = [
-    `Story title: ${storyTitle || 'Comic Summary'}`,
-    `Story summary: ${shortSummary || 'No summary provided.'}`,
-    `Panel visual brief: ${panelSpecificPrompt || panel.caption}`,
+    `Background: ${shortSummary || 'No summary provided.'}`,
+    `Image description: ${panelSpecificPrompt || panel.caption}`,
     `Style: ${settings.style_prompt}`,
-    'Create one clear scene, no collage.',
-    'STRICT NO-TEXT RULE: do not render any text in the image.',
-    'No words, letters, numbers, symbols, subtitles, labels, signs, logos, UI text, speech bubbles, captions, or watermarks.',
-    'If any text appears, regenerate mentally and output a text-free scene.'
+    PANEL_IMAGE_PROMPT_LINES.sceneRule,
+    ...NO_TEXT_RULE_BLOCK
   ];
   if (opts && opts.hasStyleReferenceImage) {
-    out.push('Use the style of the provided summary reference image. Keep rendering style consistent with it.');
+    out.push(PANEL_IMAGE_PROMPT_LINES.styleLock1);
+    out.push(PANEL_IMAGE_PROMPT_LINES.styleLock2);
+    out.push(PANEL_IMAGE_PROMPT_LINES.styleLock3);
+    out.push(PANEL_IMAGE_PROMPT_LINES.styleLock4);
   }
   const customPanelPrompt = String(settings.custom_panel_prompt || '').trim();
   if (customPanelPrompt) {
     out.push(`Custom user panel prompt: ${customPanelPrompt}`);
   }
   return out.join('\n');
+}
+
+function detectImageKind(buffer) {
+  if (!Buffer.isBuffer(buffer) || buffer.length < 12) return '';
+  if (buffer[0] === 0x89 && buffer[1] === 0x50 && buffer[2] === 0x4E && buffer[3] === 0x47) return 'png';
+  if (buffer[0] === 0xFF && buffer[1] === 0xD8 && buffer[2] === 0xFF) return 'jpeg';
+  if (buffer.slice(0, 6).toString('ascii') === 'GIF87a' || buffer.slice(0, 6).toString('ascii') === 'GIF89a') return 'gif';
+  if (
+    buffer.slice(0, 4).toString('ascii') === 'RIFF' &&
+    buffer.slice(8, 12).toString('ascii') === 'WEBP'
+  ) return 'webp';
+  return '';
+}
+
+function validateGeneratedReferenceImage(image) {
+  if (!image || typeof image !== 'object') {
+    throw new Error('Consistency summary image is missing');
+  }
+  const buffer = image.buffer;
+  if (!Buffer.isBuffer(buffer) || !buffer.length) {
+    throw new Error('Consistency summary image buffer is empty');
+  }
+  const mimeType = String(image.mimeType || '').trim().toLowerCase();
+  if (!mimeType.startsWith('image/')) {
+    throw new Error(`Consistency summary image mime type is invalid: ${mimeType || 'unknown'}`);
+  }
+  const kind = detectImageKind(buffer);
+  if (!kind) {
+    throw new Error('Consistency summary image bytes are invalid (unknown image signature)');
+  }
+  return { kind, mimeType, bytes: buffer.length };
 }
 
 function buildStorySummaryContext(storyboard, panel = null) {
@@ -110,6 +143,7 @@ async function generateConsistencyReferenceImage(config, storyboard) {
     config.runtime.retries,
     'Consistency summary image'
   );
+  validateGeneratedReferenceImage(image);
   return { enabled: true, used: true, reason: 'ok', prompt, image };
 }
 
@@ -357,6 +391,7 @@ module.exports = {
   buildStyleReferencePrompt,
   buildStorySummaryContext,
   generateConsistencyReferenceImage,
+  validateGeneratedReferenceImage,
   buildPanelImagePrompt,
   mapWithConcurrency,
   withRetries,

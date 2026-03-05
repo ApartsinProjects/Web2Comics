@@ -2,7 +2,8 @@ const {
   isConsistencyEnabled,
   buildStyleReferencePrompt,
   buildPanelImagePrompt,
-  generateConsistencyReferenceImage
+  generateConsistencyReferenceImage,
+  validateGeneratedReferenceImage
 } = require('../src');
 const { supportsImageReferenceInput } = require('../src/providers');
 
@@ -31,7 +32,9 @@ describe('engine consistency flow helpers', () => {
       { title: 'T', description: 'D' },
       { hasStyleReferenceImage: true }
     );
-    expect(prompt).toContain('Use the style of the provided summary reference image');
+    expect(prompt).toContain('STYLE LOCK: a summary reference image is provided as image input.');
+    expect(prompt).toContain('authoritative style guide');
+    expect(prompt).toContain('Match its linework, color palette, shading, lighting mood');
   });
 
   it('builds reference prompt from full generation settings', () => {
@@ -74,5 +77,21 @@ describe('engine consistency flow helpers', () => {
       providers: { image: { provider: 'openai', model: 'dall-e-2' } },
       runtime: { retries: 0 }
     }, storyboard)).rejects.toThrow('does not support reference images');
+  });
+
+  it('validates summary reference image payload', () => {
+    const valid = validateGeneratedReferenceImage({
+      mimeType: 'image/png',
+      buffer: Buffer.from([0x89, 0x50, 0x4E, 0x47, 0x00, 0x00, 0x00, 0x00, 0x49, 0x48, 0x44, 0x52])
+    });
+    expect(valid.kind).toBe('png');
+    expect(valid.bytes).toBeGreaterThan(0);
+  });
+
+  it('rejects invalid summary reference image payload', () => {
+    expect(() => validateGeneratedReferenceImage({ mimeType: 'text/plain', buffer: Buffer.from('abc') }))
+      .toThrow('mime type is invalid');
+    expect(() => validateGeneratedReferenceImage({ mimeType: 'image/png', buffer: Buffer.from('abc') }))
+      .toThrow('unknown image signature');
   });
 });

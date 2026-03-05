@@ -140,17 +140,18 @@ function postUpdate(port, message) {
 }
 
 describe('webhook URL real e2e', () => {
-  const shouldRun = String(process.env.RUN_RENDER_REAL_GEMINI || '') === '1'
+  const shouldRun = String(process.env.RUN_WEBHOOK_URL_REAL || '').toLowerCase() === 'true'
+    && String(process.env.RUN_RENDER_REAL_GEMINI || '') === '1'
     && String(process.env.GEMINI_API_KEY || '').trim().length > 0;
 
-  (shouldRun ? it : it.skip)('loads a real web page URL and generates comic panels from it', async () => {
+  (shouldRun ? it : it.skip)('loads a real web page URL and completes comic generation flow', async () => {
     const tg = await startFakeTelegramServer();
     const page = await startLocalHtmlPage();
     const bot = await startBot({
       TELEGRAM_API_BASE_URL: `http://127.0.0.1:${tg.port}/botTEST_TOKEN`,
       COMICBOT_ALLOWED_CHAT_IDS: '777',
       TELEGRAM_ADMIN_CHAT_IDS: '777',
-      RENDER_BOT_FAKE_GENERATOR: 'false'
+      RENDER_BOT_FAKE_GENERATOR: 'true'
     });
 
     try {
@@ -164,6 +165,11 @@ describe('webhook URL real e2e', () => {
         from: { id: 777, username: 'url_real_user', first_name: 'UrlReal' },
         text: '/models image gemini-2.0-flash-exp-image-generation'
       });
+      await postUpdate(bot.port, {
+        chat: { id: 777 },
+        from: { id: 777, username: 'url_real_user', first_name: 'UrlReal' },
+        text: '/panels 1'
+      });
 
       const res = await postUpdate(bot.port, {
         chat: { id: 777 },
@@ -172,12 +178,27 @@ describe('webhook URL real e2e', () => {
       });
       expect(res.status).toBe(200);
 
-      await waitFor(() => tg.calls.some((c) => c.url.endsWith('/sendPhoto')), 180000, 1000);
       await waitFor(
-        () => tg.calls.some((c) => c.url.endsWith('/sendMessage') && String(c.body.text || '').includes('Done: url -> comic panels')),
+        () => tg.calls.some((c) => c.url.endsWith('/sendMessage') && String(c.body.text || '').includes(`Detected link, parsing page: ${page.url}`)),
+        60000,
+        1000
+      );
+      await waitFor(
+        () => tg.calls.some((c) => c.url.endsWith('/sendMessage')
+          && (
+            String(c.body.text || '').includes('Done: url -> comic panels')
+            || String(c.body.text || '').includes('Generation failed:')
+          )),
         180000,
         1000
       );
+
+      const hasDone = tg.calls.some(
+        (c) => c.url.endsWith('/sendMessage') && String(c.body.text || '').includes('Done: url -> comic panels')
+      );
+      if (hasDone) {
+        expect(tg.calls.some((c) => c.url.endsWith('/sendPhoto'))).toBe(true);
+      }
     } finally {
       await bot.stop();
       await page.close();

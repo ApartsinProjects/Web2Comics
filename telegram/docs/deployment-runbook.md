@@ -25,10 +25,9 @@ Set these in GitHub Secrets (recommended) or local env for manual deployment.
   - `RENDER_OWNER_ID`
   - `TELEGRAM_BOT_TOKEN`
   - `TELEGRAM_WEBHOOK_SECRET`
-- Telegram routing/admin:
+- Telegram routing:
   - `TELEGRAM_NOTIFY_CHAT_ID`
   - `TELEGRAM_TEST_CHAT_ID`
-  - `TELEGRAM_ADMIN_CHAT_IDS`
   - `COMICBOT_ALLOWED_CHAT_IDS`
 - Providers:
   - `GEMINI_API_KEY`
@@ -36,7 +35,10 @@ Set these in GitHub Secrets (recommended) or local env for manual deployment.
   - `OPENROUTER_API_KEY`
   - `HUGGINGFACE_INFERENCE_API_TOKEN`
   - `CLOUDFLARE_ACCOUNT_ID`
-  - `CLOUDFLARE_API_TOKEN`
+  - `CLOUDFLARE_WORKERS_AI_TOKEN` (Cloudflare Workers AI provider token)
+  - `CLOUDFLARE_ACCOUNT_API_TOKEN` (Cloudflare account token for R2 bucket API/provisioning)
+  - `CLOUDFLARE_API_TOKEN` (compatibility alias; set to the same value as `CLOUDFLARE_WORKERS_AI_TOKEN`)
+  - Do not use legacy `--cloudflare-api-token` deploy argument (deprecated and rejected)
 - Storage/database:
   - `R2_S3_ENDPOINT`
   - `R2_BUCKET`
@@ -50,6 +52,11 @@ Validate mapping and required env values before deploy:
 npm run secrets:validate:deploy
 npm run secrets:validate:deploy:ci
 ```
+
+Predeploy also enforces strict Cloudflare token roles:
+- `CLOUDFLARE_WORKERS_AI_TOKEN` = Workers AI provider token
+- `CLOUDFLARE_ACCOUNT_API_TOKEN` = Cloudflare account API token
+- If `CLOUDFLARE_API_TOKEN` is set, it must match `CLOUDFLARE_WORKERS_AI_TOKEN`
 
 CI workflows also enforce these checks:
 - `.github/workflows/bot-deploy.yml`
@@ -96,6 +103,7 @@ npm run bot:deploy:auto -- --target render --branch engine --env-only --skip-san
   - panel image watermark appears bottom-right (`made with Web2Comics`)
   - messages/photos are forwardable (not content-protected)
 - Send URL and verify URL rendering flow works
+  - bot prints exact parsed URL before extraction (`Detected link, parsing page: <url>`)
 - Sanity script (automatic in deploy wrapper):
   - health endpoint check
   - webhook generation trigger
@@ -103,20 +111,7 @@ npm run bot:deploy:auto -- --target render --branch engine --env-only --skip-san
   - R2 image growth (live provider path)
   - Telegram `sendMessage` API probe
 
-## 7) Admin Provisioning
-Admin id controls hidden commands.
-
-- Get user id: send `/user` to bot
-- Set admin list with `TELEGRAM_ADMIN_CHAT_IDS`
-- Admin commands include:
-  - `/peek`, `/peek<n>`
-  - `/log`, `/log<n>`
-  - `/users`
-  - `/ban`, `/ban <user_id|username>`
-  - `/unban <user_id|username>`
-  - `/share <user_id>`
-
-## 8) Rollback/Hotfix
+## 7) Rollback/Hotfix
 - Re-run deploy with previous branch/commit
 - Keep webhook secret stable unless rotation is required
 - If rotated, redeploy and re-register webhook immediately

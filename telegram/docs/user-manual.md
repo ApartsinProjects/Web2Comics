@@ -17,14 +17,13 @@ Panel captions are prefixed as `X(Y)`:
 1. Send `/start`
 2. Send `/help`
 3. Run `/user` to get your Telegram id
-4. Add provider key with `/setkey GEMINI_API_KEY <YOUR_KEY>` (or ask admin for shared access)
+4. Add provider key with `/setkey GEMINI_API_KEY <YOUR_KEY>`
 5. Send a story or URL
 
 ## Core Commands
 - `/help` command list
 - `/about` creator and project links
 - `/config` current runtime config
-- `/presets` common options
 - `/user` show your Telegram id
 - `/keys` key status
 
@@ -39,7 +38,7 @@ Panel captions are prefixed as `X(Y)`:
 - `/objective` list objectives
 - `/objective <name>` set objective
 - `/style <preset>`
-- `/set_style <text>`
+- `/new_style <name> <text>`
 - `/detail <low|medium|high>`
 - `/concurrency <1..5>`
 - `/retries <0..3>`
@@ -60,33 +59,30 @@ If `/options` is called without required args, the bot explains usage and lists 
 ## Story Modes
 - Normal text: generate directly
 - Very short prompt: bot first expands story with AI, shows invented story, then generates comic
-- URL input: bot renders page content and uses it as source
+- URL input: bot prints the exact parsed URL, renders page content, then uses it as source
 
 ## Image Prompt Context
 For each panel image, the bot sends context that includes:
-- storyboard title
-- short storyboard summary
-- panel caption
-- panel visual brief (`image_prompt`)
+- `Background` (short story summary context)
+- `Image description` (`panel.image_prompt`)
+- `Style`
+- strict no-text requirements (English, Hebrew, Russian)
 
 This keeps panel visuals coherent across the full story.
 
 ## Consistency Mode
-- Default: `off`
+- Default: `on`
 - Command: `/consistency on` or `/consistency off`
 - When enabled, after storyboard generation the bot first creates one summary style-reference image.
 - Then each panel uses prompt text that explicitly asks to follow that reference style and passes the summary image as reference input.
 - This is used only when the active image provider/model supports image-as-input; otherwise the bot falls back to normal panel generation.
 
 ## Panel Output Details
-- Watermark is configurable and defaults to `off`
+- Watermark is configurable and defaults to `on`
 - Bot messages/photos are forwardable (content protection is disabled)
+- Panel captions are sent in order and prefixed as `X(Y)`
 
 ## Reset And Recovery
 - `/reset_config` clear runtime overrides
 - `/restart` reset user state and re-onboard
 - `/unsetkey <KEY>` remove runtime key override
-
-## Hidden/Admin Features
-Standard users do not see admin commands in `/help`.
-

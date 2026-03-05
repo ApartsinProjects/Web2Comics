@@ -1,3 +1,8 @@
+const {
+  STORYBOARD_PROMPT_PREFIX_LINES,
+  STORYBOARD_RULE_LINES
+} = require('./data/prompt-templates');
+
 function buildStoryboardPrompt({
   sourceTitle,
   sourceLabel,
@@ -10,17 +15,13 @@ function buildStoryboardPrompt({
   customStoryPrompt
 }) {
   const out = [
-    'Create a comic storyboard as strict JSON only. No markdown fences.',
-    'Schema: {"title": string, "description": string, "panels":[{"caption": string, "image_prompt": string}]}',
+    ...STORYBOARD_PROMPT_PREFIX_LINES,
     `Panel count: ${panelCount}`,
     `Objective: ${objective || 'summarize'}`,
     `Output language: ${outputLanguage || 'en'}`,
     `Visual style: ${stylePrompt}`,
     'Rules:',
-    '- Keep captions concise, factual, and sequential.',
-    '- Keep each image_prompt visual and concrete for a single panel scene.',
-    '- Each image prompt should include a description of the scene, characters, and interactions for the panel.',
-    '- Image prompt should not include requirements for in-image text or panel number.'
+    ...STORYBOARD_RULE_LINES
   ];
   const objectiveOverride = String(objectivePromptOverride || '').trim();
   if (objectiveOverride) {

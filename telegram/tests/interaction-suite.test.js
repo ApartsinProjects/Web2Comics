@@ -357,6 +357,7 @@ describe('render bot comprehensive interaction suite', () => {
       await runCommandAndExpect('/meeting', 'Updated generation.objective = meeting-recap (via /meeting)');
       await runCommandAndExpect('/howto', 'Updated generation.objective = how-to-guide (via /howto)');
       await runCommandAndExpect('/debate', 'Updated generation.objective = debate-map (via /debate)');
+      await runCommandAndExpect('/eli5', 'Updated generation.objective = explain-like-im-five (via /eli5)');
       await runCommandAndExpect('/crazyness 1.2', 'Updated generation.invent_temperature = 1.2');
       await runCommandAndExpect('/detail low', 'Updated generation.detail_level = low');
       await runCommandAndExpect('/new_style my-style bold inks, dramatic shadows', "Saved style 'my-style'");
@@ -368,7 +369,7 @@ describe('render bot comprehensive interaction suite', () => {
       await runCommandAndExpect('/set_prompt objective summarize Keep it extra concise', 'Updated objective prompt override for summarize');
       await runCommandAndExpect('/prompts', 'Prompt catalog');
       await runCommandAndExpect('/prompts', 'Source title: <source title>');
-      await runCommandAndExpect('/prompts', 'Panel visual brief: <panel.image_prompt>');
+      await runCommandAndExpect('/prompts', 'Image description: <panel.image_prompt>');
       await runCommandAndExpect('/prompts', '[Panel image prompt | with style reference image]');
       await runCommandAndExpect('/prompts', '[Style reference image prompt (consistency mode)]');
       await runCommandAndExpect('/prompts', 'Image prompt should not include requirements for in-image text or panel number.');

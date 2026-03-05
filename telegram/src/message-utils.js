@@ -1,5 +1,6 @@
 function looksLikeUrl(value) {
   const text = String(value || '').trim();
+  if (!text || /\s/.test(text)) return false;
   if (!/^https?:\/\//i.test(text)) return false;
   try {
     const parsed = new URL(text);
@@ -31,8 +32,7 @@ function stripUrls(value) {
 function isLongStoryText(value) {
   const cleaned = stripUrls(value).replace(/\s+/g, ' ').trim();
   if (!cleaned) return false;
-  const wordCount = cleaned.split(' ').filter(Boolean).length;
-  return cleaned.length >= 220 || wordCount >= 45;
+  return cleaned.length >= LONG_STORY_TEXT_MIN_CHARS;
 }
 
 function isLikelyMediaUrl(value) {
@@ -81,6 +81,59 @@ function extractTextFallbackFromUrlMessage(value) {
   return raw;
 }
 
+function extractLinksFromEntities(baseText, entities) {
+  const text = String(baseText || '');
+  const list = Array.isArray(entities) ? entities : [];
+  const links = [];
+  for (const entity of list) {
+    const type = String(entity?.type || '').trim().toLowerCase();
+    if (type === 'text_link') {
+      const url = String(entity?.url || '').trim();
+      if (url) links.push(url);
+      continue;
+    }
+    if (type === 'url') {
+      const offset = Number(entity?.offset || 0);
+      const length = Number(entity?.length || 0);
+      if (Number.isFinite(offset) && Number.isFinite(length) && length > 0 && offset >= 0) {
+        const raw = text.slice(offset, offset + length).trim();
+        if (raw) links.push(raw);
+      }
+    }
+  }
+  return links;
+}
+
+function extractMessageInputText(message) {
+  const parts = [];
+  const links = [];
+  const pushPart = (value, entities) => {
+    const body = String(value || '').trim();
+    if (!body) return;
+    parts.push(body);
+    links.push(...extractLinksFromEntities(body, entities));
+  };
+
+  pushPart(message?.text, message?.entities);
+  pushPart(message?.caption, message?.caption_entities);
+  pushPart(message?.quote?.text, message?.quote?.entities);
+  pushPart(message?.reply_to_message?.text, message?.reply_to_message?.entities);
+  pushPart(message?.reply_to_message?.caption, message?.reply_to_message?.caption_entities);
+
+  const uniq = new Set();
+  return [...parts, ...links]
+    .map((v) => String(v || '').trim())
+    .filter(Boolean)
+    .filter((v) => {
+      const key = v.toLowerCase();
+      if (uniq.has(key)) return false;
+      uniq.add(key);
+      return true;
+    })
+    .join('\n')
+    .trim();
+}
+
 function classifyMessageInput(text) {
   const value = String(text || '').trim();
   if (!value) return { kind: 'empty', value: '' };
@@ -104,5 +157,7 @@ module.exports = {
   classifyMessageInput,
   isLikelyWebPageUrl,
   extractTextFallbackFromUrlMessage,
-  inferLikelyWebUrlFromText
+  inferLikelyWebUrlFromText,
+  extractMessageInputText
 };
+const { LONG_STORY_TEXT_MIN_CHARS } = require('./data/thresholds');

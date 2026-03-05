@@ -1,6 +1,6 @@
 const fs = require('fs');
 const path = require('path');
-const { JSDOM } = require('jsdom');
+const { JSDOM, VirtualConsole } = require('jsdom');
 
 function collapseWhitespace(text) {
   return String(text || '').replace(/\s+/g, ' ').trim();
@@ -35,6 +35,17 @@ const BOILERPLATE_PATTERNS = [
   /manage privacy settings/i
 ];
 
+const ACCESS_BLOCK_PATTERNS = [
+  /just a moment/i,
+  /verification successful/i,
+  /waiting for .* to respond/i,
+  /you've been blocked by network security/i,
+  /access denied/i,
+  /enable javascript and cookies/i,
+  /checking if the site connection is secure/i,
+  /cf-browser-verification/i
+];
+
 function isBoilerplateChunk(chunk) {
   return BOILERPLATE_PATTERNS.some((re) => re.test(chunk));
 }
@@ -55,12 +66,27 @@ function stripBoilerplate(text) {
   );
 }
 
-function scoreCandidate(text) {
-  const normalized = collapseWhitespace(text);
+function collectReadableBlocks(node) {
+  if (!node || typeof node.querySelectorAll !== 'function') return [];
+  const blocks = [];
+  const selectors = ['p', 'article p', 'main p', '[itemprop="articleBody"] p', '.article-body p', 'li'];
+  selectors.forEach((selector) => {
+    node.querySelectorAll(selector).forEach((el) => {
+      const text = collapseWhitespace(el?.textContent || '');
+      if (text.length < 40) return;
+      blocks.push(text);
+    });
+  });
+  return blocks;
+}
+
+function scoreCandidate(text, paragraphCount = 0) {
+  const normalized = collapseWhitespace(stripBoilerplate(text));
   if (!normalized) return -Infinity;
   const wordCount = normalized.split(' ').filter(Boolean).length;
   const boilerplateHits = BOILERPLATE_PATTERNS.reduce((acc, re) => acc + (re.test(normalized) ? 1 : 0), 0);
-  return wordCount - (boilerplateHits * 120);
+  const sentenceCount = (normalized.match(/[.!?]\s/g) || []).length;
+  return wordCount + (paragraphCount * 12) + (sentenceCount * 6) - (boilerplateHits * 120);
 }
 
 function chooseBestContentNode(doc) {
@@ -69,8 +95,11 @@ function chooseBestContentNode(doc) {
   for (const selector of ARTICLE_CANDIDATE_SELECTORS) {
     const nodes = doc.querySelectorAll(selector);
     nodes.forEach((node) => {
-      const text = collapseWhitespace(node?.textContent || '');
-      const score = scoreCandidate(stripBoilerplate(text));
+      const readableBlocks = collectReadableBlocks(node);
+      const paragraphText = collapseWhitespace(readableBlocks.join(' '));
+      const rawText = collapseWhitespace(node?.textContent || '');
+      const text = paragraphText || rawText;
+      const score = scoreCandidate(text, readableBlocks.length);
       if (score > bestScore) {
         bestScore = score;
         bestNode = node;
@@ -80,21 +109,51 @@ function chooseBestContentNode(doc) {
   return bestNode || doc.body;
 }
 
+function extractMetaDescription(doc) {
+  const selectors = [
+    'meta[property="og:description"]',
+    'meta[name="description"]',
+    'meta[name="twitter:description"]'
+  ];
+  for (const selector of selectors) {
+    const val = collapseWhitespace(doc.querySelector(selector)?.getAttribute('content') || '');
+    if (val) return val;
+  }
+  return '';
+}
+
+function detectAccessBlock(title, text) {
+  const probe = `${String(title || '')}\n${String(text || '')}`;
+  const matched = ACCESS_BLOCK_PATTERNS.find((re) => re.test(probe));
+  return matched ? String(matched) : '';
+}
+
 function extractFromHtml(html, options = {}) {
-  const dom = new JSDOM(String(html || ''));
+  const virtualConsole = new VirtualConsole();
+  virtualConsole.on('error', () => {});
+  virtualConsole.on('warn', () => {});
+  const dom = new JSDOM(String(html || ''), { virtualConsole });
   const doc = dom.window.document;
   const selectors = Array.isArray(options.strip_selectors) ? options.strip_selectors : [];
   selectors.forEach((selector) => {
     doc.querySelectorAll(selector).forEach((el) => el.remove());
   });
-  doc.querySelectorAll('script,style,noscript,template,svg').forEach((el) => el.remove());
+  doc.querySelectorAll('script,style,noscript,template,svg,header,footer,nav,aside').forEach((el) => el.remove());
 
   const title = collapseWhitespace(doc.querySelector('title')?.textContent || doc.querySelector('h1')?.textContent || 'Untitled Source');
   const main = chooseBestContentNode(doc);
-  const text = stripBoilerplate(main?.textContent || '');
+  const readableBlocks = collectReadableBlocks(main);
+  const primaryText = stripBoilerplate(collapseWhitespace(readableBlocks.join(' ')) || main?.textContent || '');
+  const metaDescription = extractMetaDescription(doc);
+  let text = primaryText;
+  if (metaDescription && text.length < 220 && !text.toLowerCase().includes(metaDescription.toLowerCase())) {
+    text = collapseWhitespace(`${metaDescription}. ${text}`);
+  }
+  const blockedReason = detectAccessBlock(title, text);
   return {
     title,
-    text
+    text,
+    blockedReason
   };
 }
 
@@ -120,6 +179,9 @@ function loadSource(inputPath, inputConfig = {}) {
     const extracted = extractFromHtml(raw, inputConfig);
     title = extracted.title || title;
     text = extracted.text || '';
+    if (extracted.blockedReason) {
+      throw new Error(`Web page extraction blocked or gated (${extracted.blockedReason})`);
+    }
   } else {
     text = collapseWhitespace(raw);
   }

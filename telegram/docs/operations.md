@@ -38,9 +38,3 @@ Cross references:
 - Start locally: `npm run telegram:start`
 - Register webhook: `npm run telegram:set-webhook -- --url <base-url>`
 - Auto deploy: `npm run telegram:deploy:auto`
-
-## Admin command operations
-- `/peek` list last generated comics, `/peek<n>` view one.
-- `/users` list known users.
-- `/ban` list blacklist, `/ban <user_id|username>` add block.
-- `/unban <user_id|username>` remove block.

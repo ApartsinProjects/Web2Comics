@@ -10,6 +10,8 @@ Cross references:
 - Entry point: `telegram/src/webhook-bot.js`
 - Generator bridge: `telegram/src/generate.js`
 - Shared engine: `engine/src/*`
+- Bot data modules: `telegram/src/data/*` (messages, providers, styles/objectives, options, thresholds)
+- Engine prompt templates: `engine/src/data/prompt-templates.js`
 - Runtime state/config: `telegram/src/config-store.js`
 - Persistence adapters: `telegram/src/persistence.js` + request/crash log stores
 
@@ -32,15 +34,15 @@ URL flow snapshots rendered page HTML before generation.
 2. Apply secrets (runtime/shared/env)
 3. Build storyboard with text provider
 4. Optional consistency flow (if enabled and supported): generate one summary reference image
-5. Generate panel images (each prompt includes story title + short story summary + panel visual brief, and references summary style when available)
+5. Generate panel images (each prompt includes `Background` + `Image description`; `Story title` line removed; references summary style when available)
 6. Stream panel sends to Telegram as each panel becomes ready
 7. Send final completion summary
 
 Important behavior:
 - Panel captions in chat use `X(Y)` prefix
-- Image prompt explicitly forbids rendering caption text inside artwork
-- Watermark is configurable (`generation.panel_watermark`, default `false`)
-- Consistency mode is configurable (`generation.consistency`, default `false`)
+- Image prompt explicitly forbids rendering text inside artwork (rule repeated in English/Hebrew/Russian)
+- Watermark is configurable (`generation.panel_watermark`, default `true`)
+- Consistency mode is configurable (`generation.consistency`, default `true`)
 - Telegram sends use `protect_content=false` to keep forwarding enabled
 
 ## Command System
@@ -51,13 +53,7 @@ Notable UX behavior:
 - `/crazyness <0..2>` controls story invention temperature
 - `/options` without args explains valid paths/options; apply via dedicated commands (`/objective`, `/panels`, `/mode`, `/vendor`, `/models`, etc.)
 - `/keys` shows runtime key status
-
-Admin-only commands:
-- `/peek`, `/peek<n>`
-- `/log`, `/log<n>`
-- `/users`
-- `/ban`, `/unban`
-- `/share`
+- URL flow sends `Detected link, parsing page: <url>` with the exact parsed URL
 
 ## Blacklist Model
 Blacklist is persistent in config state:
@@ -82,6 +78,7 @@ Primary suites:
 - `npm run test:telegram`
 - `npm run test:telegram:r2-real`
 - `npm run test:telegram:full-stack`
+- `npx vitest run -c telegram/vitest.config.js telegram/tests/webhook-url-real.e2e.test.js` (opt-in with `RUN_WEBHOOK_URL_REAL=true`)
 
 Secret checks before deploy/tests:
 - `npm run secrets:validate:deploy:ci`

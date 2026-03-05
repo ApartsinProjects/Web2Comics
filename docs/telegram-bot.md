@@ -26,7 +26,6 @@ Bot docs:
 - Generates comic panels and streams them as Telegram images
 - Panel caption prefix format `X(Y)`
 - Per-user settings and secrets
-- Admin controls: `/users`, `/ban`, `/unban`, `/peek`, `/log`, `/share`
 - Persistent storage via Postgres + Cloudflare R2
 
 ## Deploy

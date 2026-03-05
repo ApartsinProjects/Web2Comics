@@ -31,6 +31,10 @@ services:
         sync: false
       - key: CLOUDFLARE_ACCOUNT_ID
         sync: false
+      - key: CLOUDFLARE_WORKERS_AI_TOKEN
+        sync: false
+      - key: CLOUDFLARE_ACCOUNT_API_TOKEN
+        sync: false
       - key: CLOUDFLARE_API_TOKEN
         sync: false
       - key: HUGGINGFACE_INFERENCE_API_TOKEN

@@ -1,4 +1,9 @@
-const { classifyMessageInput, extractFirstUrl, inferLikelyWebUrlFromText } = require('../src/message-utils');
+const {
+  classifyMessageInput,
+  extractFirstUrl,
+  inferLikelyWebUrlFromText,
+  extractMessageInputText
+} = require('../src/message-utils');
 
 describe('message utils URL parsing', () => {
   it('detects plain URL', () => {
@@ -26,6 +31,24 @@ describe('message utils URL parsing', () => {
     expect(out.value).toContain('https://example.com/background');
   });
 
+  it('treats mixed text+URL as URL when story text is below 200 chars', () => {
+    const shortMixed = 'Quick context for this link only. https://example.com/article';
+    const out = classifyMessageInput(shortMixed);
+    expect(out.kind).toBe('url');
+    expect(out.value).toBe('https://example.com/article');
+  });
+
+  it('uses 200-char threshold for mixed text+URL story override', () => {
+    const base = 'a'.repeat(199);
+    const below = `${base} https://example.com/a`;
+    const belowOut = classifyMessageInput(below);
+    expect(belowOut.kind).toBe('url');
+
+    const atLeast = `${base}b https://example.com/a`;
+    const atLeastOut = classifyMessageInput(atLeast);
+    expect(atLeastOut.kind).toBe('text');
+  });
+
   it('strips trailing punctuation from URL', () => {
     const extracted = extractFirstUrl('Please use https://example.com/page).');
     expect(extracted).toBe('https://example.com/page');
@@ -38,5 +61,36 @@ describe('message utils URL parsing', () => {
 
   it('does not infer URL from plain short phrase', () => {
     expect(inferLikelyWebUrlFromText('Space cat')).toBe('');
+  });
+
+  it('extracts and merges multiple telegram text fields', () => {
+    const merged = extractMessageInputText({
+      caption: 'https://example.com/article',
+      caption_entities: [{ type: 'url', offset: 0, length: 27 }],
+      reply_to_message: {
+        text: [
+          'This is a long continuation from replied content that should count as part of current input.',
+          'It contains story details, events, and context so combined input is above two hundred characters.',
+          'Parser should treat this as text story and ignore URL source mode.'
+        ].join(' ')
+      }
+    });
+    expect(merged).toContain('https://example.com/article');
+    expect(merged.length).toBeGreaterThan(200);
+    const out = classifyMessageInput(merged);
+    expect(out.kind).toBe('text');
+  });
+
+  it('extracts text_link entity URLs across fields', () => {
+    const merged = extractMessageInputText({
+      text: 'Check this out',
+      entities: [{ type: 'text_link', offset: 0, length: 14, url: 'https://example.com/x' }],
+      quote: {
+        text: 'and this one',
+        entities: [{ type: 'text_link', offset: 0, length: 12, url: 'https://example.com/y' }]
+      }
+    });
+    expect(merged).toContain('https://example.com/x');
+    expect(merged).toContain('https://example.com/y');
   });
 });

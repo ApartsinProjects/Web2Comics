@@ -23,7 +23,7 @@ npm run test:telegram
 ```
 
 ## 2) Focused Suites
-- Interaction command matrix and admin flows:
+- Interaction command matrix:
 
 ```bash
 npx vitest run -c telegram/vitest.config.js telegram/tests/interaction-suite.test.js
@@ -53,6 +53,14 @@ Gemini live tests:
 ```bash
 set RUN_RENDER_REAL_GEMINI=1
 npm run test:telegram:gemini-real
+```
+
+Real local URL ingestion e2e (opt-in):
+
+```bash
+set RUN_RENDER_REAL_GEMINI=1
+set RUN_WEBHOOK_URL_REAL=true
+npx vitest run -c telegram/vitest.config.js telegram/tests/webhook-url-real.e2e.test.js
 ```
 
 ## 4) R2 Integration Tests
@@ -93,12 +101,13 @@ Validated interfaces include:
 - Streaming panel delivery (panels sent as ready)
 - Caption prefix format `X(Y)` on each panel
 - Story-summary context present in image prompts (engine prompt builder test)
-- Panel watermark toggle works (`generation.panel_watermark`, default off)
+- Panel image prompt field names are `Background` and `Image description` (no `Story title` line)
+- URL flow prints exact parsed URL before extraction
+- Panel watermark toggle works (`generation.panel_watermark`, default on)
 - Consistency toggle works (`/consistency on|off`) and unsupported models fall back safely
 - Prompt controls (`/options`, dedicated setting commands)
 - `/crazyness` command updates story invention temperature
 - Objective listing with `/objective` (no args)
-- Admin commands (`/peek`, `/users`, `/ban`, `/unban`)
 - Secret redaction in user-visible messages
 
 ## 7) CI

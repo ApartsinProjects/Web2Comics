@@ -73,6 +73,8 @@ function buildRenderDeployArgs(args) {
     'admin-chat-ids',
     'cloudflare-account-id',
     'cloudflare-api-token',
+    'cloudflare-ai-token',
+    'cloudflare-account-api-token',
     'r2-endpoint',
     'r2-bucket',
     'r2-access-key-id',

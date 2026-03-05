@@ -18,3 +18,7 @@ Quick deploy:
 ```bash
 npm run bot:deploy:auto -- --target render --branch engine --env-only
 ```
+
+Notes:
+- Deployment preflight enforces strict Cloudflare token roles (`CLOUDFLARE_WORKERS_AI_TOKEN` vs `CLOUDFLARE_ACCOUNT_API_TOKEN`).
+- Legacy deploy arg `--cloudflare-api-token` is deprecated/rejected; use explicit `--cloudflare-ai-token` and `--cloudflare-account-api-token`.
