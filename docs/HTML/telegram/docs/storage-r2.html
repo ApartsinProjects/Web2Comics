@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>storage-r2 - Web2Comics Docs</title>
+  <style>
+    :root { --bg:#f7f4ed; --panel:#fff; --ink:#1d2a3f; --muted:#5c6b82; --line:#ddd6ca; --link:#155eef; }
+    * { box-sizing: border-box; }
+    body { margin:0; font-family:"Segoe UI",Tahoma,Arial,sans-serif; color:var(--ink); background:var(--bg); line-height:1.6; }
+    .wrap { max-width:980px; margin:0 auto; padding:18px; }
+    .topbar { display:flex; flex-wrap:wrap; gap:10px; align-items:center; margin-bottom:14px; padding:10px 12px; border:1px solid var(--line); background:#fff; border-radius:10px; }
+    .topbar a { color:var(--link); text-decoration:none; font-weight:600; }
+    article { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:20px; overflow-wrap:anywhere; }
+    h1,h2,h3 { line-height:1.25; }
+    pre { background:#0f172a; color:#e2e8f0; padding:12px; border-radius:8px; overflow:auto; }
+    code { font-family:Consolas,"Courier New",monospace; font-size:0.92em; }
+    a { color:var(--link); }
+    table { border-collapse:collapse; width:100%; display:block; overflow-x:auto; }
+    th,td { border:1px solid #cdd5e1; padding:6px 8px; text-align:left; vertical-align:top; }
+    .footer { margin-top:12px; color:var(--muted); font-size:0.92rem; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <nav class="topbar">
+      <a href="../../../index.html">Docs Home</a>
+      <a href="../../../user-manual.html">User Manual</a>
+      <a href="https://github.com/ApartsinProjects/Web2Comics" target="_blank" rel="noopener noreferrer">GitHub Repo</a>
+      <a href="https://github.com/ApartsinProjects/Web2Comics#readme" target="_blank" rel="noopener noreferrer">Project README</a>
+      <a href="https://www.apartsin.com" target="_blank" rel="noopener noreferrer">Creator Site</a>
+      <a href="../../../privacy.html">Privacy</a>
+      <a href="../../../support.html">Support</a>
+    </nav>
+    <article>
+<h1 id="bot-r2-storage">Bot R2 Storage</h1>
+<p>Cross references:</p>
+<ul>
+<li>Extension README (Markdown): <a href="../../README.html"><code>../../README.md</code></a></li>
+<li>Extension docs home (GitHub Pages): <a href="https://apartsinprojects.github.io/Web2Comics/">https://apartsinprojects.github.io/Web2Comics/</a></li>
+<li>Bot docs bridge page (Markdown): <a href="../../docs/telegram-bot.md"><code>../../docs/telegram-bot.md</code></a></li>
+<li>Bot docs page (GitHub Pages): <a href="https://apartsinprojects.github.io/Web2Comics/HTML/telegram-bot.html">https://apartsinprojects.github.io/Web2Comics/HTML/telegram-bot.html</a></li>
+</ul>
+<h2 id="storage-classes-used">Storage classes used</h2>
+<ul>
+<li><code>logs/requests/</code> for request audit records.</li>
+<li><code>crash-logs/</code> for crash records and latest pointer.</li>
+<li><code>images/</code> for generated panel images.</li>
+<li>status objects:
+<ul>
+<li><code>status/image-storage-status.json</code></li>
+<li><code>crash-logs/status.json</code></li>
+</ul>
+</li>
+</ul>
+<h2 id="free-tier-safety-defaults">Free-tier safety defaults</h2>
+<p>Applied by deploy script and runtime defaults:</p>
+<ul>
+<li>Images: <code>4GB</code> capacity, cleanup at <code>50%</code> (about <code>2GB</code> watermark).</li>
+<li>Crash logs: <code>512MB</code> capacity, cleanup at <code>80%</code>.</li>
+<li>Request logs: <code>512MB</code> capacity, cleanup at <code>80%</code>.</li>
+</ul>
+<p>Hard safety:</p>
+<ul>
+<li>Image storage manager enforces a hard cap of <code>5GB</code>.</li>
+<li>Retention cleanup:
+<ul>
+<li>crash logs older than 5 days are deleted</li>
+<li>request logs older than 5 days are deleted</li>
+</ul>
+</li>
+</ul>
+<h2 id="relevant-env-vars">Relevant env vars</h2>
+<ul>
+<li><code>R2_S3_ENDPOINT</code></li>
+<li><code>R2_BUCKET</code></li>
+<li><code>R2_ACCESS_KEY_ID</code></li>
+<li><code>R2_SECRET_ACCESS_KEY</code></li>
+<li><code>R2_IMAGE_PREFIX</code></li>
+<li><code>R2_IMAGE_STATUS_KEY</code></li>
+<li><code>R2_CRASH_LOG_PREFIX</code></li>
+<li><code>R2_CRASH_LOG_STATUS_KEY</code></li>
+<li><code>RENDER_BOT_IMAGE_CAPACITY_BYTES</code></li>
+<li><code>RENDER_BOT_IMAGE_CLEANUP_THRESHOLD_RATIO</code></li>
+<li><code>R2_CRASH_LOG_CAPACITY_BYTES</code></li>
+<li><code>R2_CRASH_LOG_CLEANUP_THRESHOLD_RATIO</code></li>
+</ul>
+<h2 id="notes">Notes</h2>
+<ul>
+<li>R2 does not require pre-created folders. Prefixes are created on write.</li>
+<li>Use global endpoint format for S3 clients:
+<ul>
+<li><code>https://&lt;account_id&gt;.r2.cloudflarestorage.com</code></li>
+</ul>
+</li>
+</ul>
+
+    </article>
+    <div class="footer">
+      Generated from <code>telegram/docs/storage-r2.md</code> •
+      Creator: <a href="https://www.apartsin.com" target="_blank" rel="noopener noreferrer">www.apartsin.com</a>
+    </div>
+  </div>
+</body>
+</html>

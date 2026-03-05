@@ -8,6 +8,12 @@ Project documentation and user-facing reference pages for Web2Comics.
 - `INSTALL.md` : installation + first-run guide.
 - [`user-manual.html`](./user-manual.html) : end-user manual (popup, side panel, options, workflows).
 - [`telegram-bot.md`](./telegram-bot.md) : Telegram bot overview, deployment, and testing links.
+- Telegram bot docs pages (GitHub Pages):
+  - [`../telegram/README.md`](../telegram/README.md)
+  - [`../telegram/docs/deployment-runbook.md`](../telegram/docs/deployment-runbook.md)
+  - [`../telegram/docs/testing.md`](../telegram/docs/testing.md)
+  - [`../telegram/docs/user-manual.md`](../telegram/docs/user-manual.md)
+  - [`../telegram/docs/developer-guide.md`](../telegram/docs/developer-guide.md)
 - `RELEASE_NOTES.md` : versioned release history.
 - Extension root README (GitHub): <https://github.com/ApartsinProjects/Web2Comics/blob/main/README.md>
 - Telegram bot README (GitHub): <https://github.com/ApartsinProjects/Web2Comics/blob/main/telegram/README.md>

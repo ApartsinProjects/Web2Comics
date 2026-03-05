@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>README - Web2Comics Docs</title>
+  <style>
+    :root { --bg:#f7f4ed; --panel:#fff; --ink:#1d2a3f; --muted:#5c6b82; --line:#ddd6ca; --link:#155eef; }
+    * { box-sizing: border-box; }
+    body { margin:0; font-family:"Segoe UI",Tahoma,Arial,sans-serif; color:var(--ink); background:var(--bg); line-height:1.6; }
+    .wrap { max-width:980px; margin:0 auto; padding:18px; }
+    .topbar { display:flex; flex-wrap:wrap; gap:10px; align-items:center; margin-bottom:14px; padding:10px 12px; border:1px solid var(--line); background:#fff; border-radius:10px; }
+    .topbar a { color:var(--link); text-decoration:none; font-weight:600; }
+    article { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:20px; overflow-wrap:anywhere; }
+    h1,h2,h3 { line-height:1.25; }
+    pre { background:#0f172a; color:#e2e8f0; padding:12px; border-radius:8px; overflow:auto; }
+    code { font-family:Consolas,"Courier New",monospace; font-size:0.92em; }
+    a { color:var(--link); }
+    table { border-collapse:collapse; width:100%; display:block; overflow-x:auto; }
+    th,td { border:1px solid #cdd5e1; padding:6px 8px; text-align:left; vertical-align:top; }
+    .footer { margin-top:12px; color:var(--muted); font-size:0.92rem; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <nav class="topbar">
+      <a href="../../index.html">Docs Home</a>
+      <a href="../../user-manual.html">User Manual</a>
+      <a href="https://github.com/ApartsinProjects/Web2Comics" target="_blank" rel="noopener noreferrer">GitHub Repo</a>
+      <a href="https://github.com/ApartsinProjects/Web2Comics#readme" target="_blank" rel="noopener noreferrer">Project README</a>
+      <a href="https://www.apartsin.com" target="_blank" rel="noopener noreferrer">Creator Site</a>
+      <a href="../../privacy.html">Privacy</a>
+      <a href="../../support.html">Support</a>
+    </nav>
+    <article>
+<h1 id="web2comic-telegram-bot">Web2Comic Telegram Bot</h1>
+<p>Telegram bot backend for Web2Comics.<br />
+The bot accepts text or URL messages, generates comic panels, and sends ordered panel images back to chat.</p>
+<p>Extension README (Markdown): <a href="../README.html">../README.md</a><br />
+Extension docs home (GitHub Pages): <a href="https://apartsinprojects.github.io/Web2Comics/">https://apartsinprojects.github.io/Web2Comics/</a><br />
+Extension docs index (Markdown): <a href="../docs/README.md">../docs/README.md</a><br />
+GitHub Pages bot docs: <a href="https://apartsinprojects.github.io/Web2Comics/HTML/telegram-bot.html">https://apartsinprojects.github.io/Web2Comics/HTML/telegram-bot.html</a>
+Bot docs bridge page (Markdown): <a href="../docs/telegram-bot.md">../docs/telegram-bot.md</a></p>
+<h2 id="what-it-does">What It Does</h2>
+<ul>
+<li>Receives Telegram webhook updates</li>
+<li>Detects text vs URL inputs</li>
+<li>Builds storyboard and panel images with configured providers</li>
+<li>Streams panels to users as they are generated</li>
+<li>Uses per-user runtime settings and credentials</li>
+<li>Persists runtime state in Cloudflare R2</li>
+<li>Persists artifacts/logs/images in Cloudflare R2</li>
+</ul>
+<h2 id="runtime-highlights">Runtime Highlights</h2>
+<ul>
+<li>Fast webhook ACK + per-chat processing queue</li>
+<li>Caption prefix format <code>X(Y)</code> for each panel</li>
+<li>Watermark is configurable (default: <code>on</code>)</li>
+<li>Panel image prompts include <code>Background</code> + <code>Image description</code> fields (no <code>Story title</code> line)</li>
+<li>Image no-text rule is enforced in English, Hebrew, and Russian</li>
+<li>Optional style consistency flow (<code>/consistency on</code>): generate summary reference image first, then use it as style reference for panel generation on supported image models</li>
+<li>Outbound Telegram messages/photos are sent with forwarding allowed (<code>protect_content=false</code>)</li>
+<li><code>/objective</code> without args lists all objectives</li>
+<li>For URL inputs, bot prints the exact parsed URL before extraction</li>
+</ul>
+<h2 id="key-commands">Key Commands</h2>
+<p>User:</p>
+<ul>
+<li><code>/help</code></li>
+<li><code>/about</code></li>
+<li><code>/version</code></li>
+<li><code>/user</code></li>
+<li><code>/config</code></li>
+<li><code>/vendor</code>, <code>/text_vendor</code>, <code>/image_vendor</code></li>
+<li><code>/panels</code>, <code>/objective</code>, <code>/language</code>, <code>/style</code>, <code>/crazyness</code></li>
+<li><code>/consistency</code></li>
+<li><code>/models</code></li>
+<li><code>/options</code>, <code>/list_options</code></li>
+<li><code>/keys</code> or <code>/credentials</code></li>
+<li><code>/setkey</code>, <code>/unsetkey</code></li>
+<li><code>/new_style</code></li>
+<li><code>/set_prompt</code></li>
+<li><code>/invent</code></li>
+</ul>
+<h2 id="documentation">Documentation</h2>
+<ul>
+<li>Deployment hub: <a href="docs/deployment.md">docs/deployment.md</a></li>
+<li>Deployment runbook: <a href="docs/deployment-runbook.md">docs/deployment-runbook.md</a></li>
+<li>Testing: <a href="docs/testing.md">docs/testing.md</a></li>
+<li>Operations: <a href="docs/operations.md">docs/operations.md</a></li>
+<li>Storage (R2): <a href="docs/storage-r2.md">docs/storage-r2.md</a></li>
+<li>Data/config reference: <a href="docs/data-reference.md">docs/data-reference.md</a></li>
+<li>User manual: <a href="docs/user-manual.md">docs/user-manual.md</a></li>
+<li>Developer guide: <a href="docs/developer-guide.md">docs/developer-guide.md</a></li>
+</ul>
+<h2 id="local-development">Local Development</h2>
+<pre><code class="language-bash">npm install
+npm run telegram:start
+</code></pre>
+<h2 id="testing">Testing</h2>
+<pre><code class="language-bash">npm run test:telegram:local
+npm run test:telegram
+</code></pre>
+<p>Optional:</p>
+<pre><code class="language-bash">npm run test:telegram:gemini-real
+npm run test:telegram:r2-real
+npm run test:telegram:full-stack
+npx vitest run -c telegram/vitest.config.js telegram/tests/webhook-url-real.e2e.test.js
+</code></pre>
+<p>Optional real URL e2e is opt-in and requires:</p>
+<ul>
+<li><code>RUN_WEBHOOK_URL_REAL=true</code></li>
+<li><code>RUN_RENDER_REAL_GEMINI=1</code></li>
+<li><code>GEMINI_API_KEY</code> set</li>
+</ul>
+<h2 id="deployment">Deployment</h2>
+<p>Recommended automatic path:</p>
+<pre><code class="language-bash">npm run bot:deploy:auto -- --target render --branch engine --env-only
+</code></pre>
+<p>Includes:</p>
+<ul>
+<li>secret validation</li>
+<li>predeploy checks + local tests</li>
+<li>Render deploy automation</li>
+<li>post-deploy sanity E2E check (health + webhook + Telegram + R2 evidence)</li>
+</ul>
+
+    </article>
+    <div class="footer">
+      Generated from <code>telegram/README.md</code> •
+      Creator: <a href="https://www.apartsin.com" target="_blank" rel="noopener noreferrer">www.apartsin.com</a>
+    </div>
+  </div>
+</body>
+</html>

@@ -13,13 +13,14 @@ Extension docs:
 Bot docs:
 - Bot README (GitHub): <https://github.com/ApartsinProjects/Web2Comics/blob/main/telegram/README.md>
 - Bot docs page (GitHub Pages): <https://apartsinprojects.github.io/Web2Comics/HTML/telegram-bot.html>
+- Bot README (GitHub Pages): [`../telegram/README.md`](../telegram/README.md)
 - Bot docs folder (GitHub): <https://github.com/ApartsinProjects/Web2Comics/tree/main/telegram/docs>
 
 ## Quick Links
-- Bot deployment runbook (GitHub): <https://github.com/ApartsinProjects/Web2Comics/blob/main/telegram/docs/deployment-runbook.md>
-- Bot testing guide (GitHub): <https://github.com/ApartsinProjects/Web2Comics/blob/main/telegram/docs/testing.md>
-- Bot user manual (GitHub): <https://github.com/ApartsinProjects/Web2Comics/blob/main/telegram/docs/user-manual.md>
-- Bot developer guide (GitHub): <https://github.com/ApartsinProjects/Web2Comics/blob/main/telegram/docs/developer-guide.md>
+- Bot deployment runbook: [`../telegram/docs/deployment-runbook.md`](../telegram/docs/deployment-runbook.md)
+- Bot testing guide: [`../telegram/docs/testing.md`](../telegram/docs/testing.md)
+- Bot user manual: [`../telegram/docs/user-manual.md`](../telegram/docs/user-manual.md)
+- Bot developer guide: [`../telegram/docs/developer-guide.md`](../telegram/docs/developer-guide.md)
 
 ## Features
 - Accepts plain text and URL messages

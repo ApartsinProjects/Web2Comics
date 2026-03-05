@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>developer-guide - Web2Comics Docs</title>
+  <style>
+    :root { --bg:#f7f4ed; --panel:#fff; --ink:#1d2a3f; --muted:#5c6b82; --line:#ddd6ca; --link:#155eef; }
+    * { box-sizing: border-box; }
+    body { margin:0; font-family:"Segoe UI",Tahoma,Arial,sans-serif; color:var(--ink); background:var(--bg); line-height:1.6; }
+    .wrap { max-width:980px; margin:0 auto; padding:18px; }
+    .topbar { display:flex; flex-wrap:wrap; gap:10px; align-items:center; margin-bottom:14px; padding:10px 12px; border:1px solid var(--line); background:#fff; border-radius:10px; }
+    .topbar a { color:var(--link); text-decoration:none; font-weight:600; }
+    article { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:20px; overflow-wrap:anywhere; }
+    h1,h2,h3 { line-height:1.25; }
+    pre { background:#0f172a; color:#e2e8f0; padding:12px; border-radius:8px; overflow:auto; }
+    code { font-family:Consolas,"Courier New",monospace; font-size:0.92em; }
+    a { color:var(--link); }
+    table { border-collapse:collapse; width:100%; display:block; overflow-x:auto; }
+    th,td { border:1px solid #cdd5e1; padding:6px 8px; text-align:left; vertical-align:top; }
+    .footer { margin-top:12px; color:var(--muted); font-size:0.92rem; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <nav class="topbar">
+      <a href="../../../index.html">Docs Home</a>
+      <a href="../../../user-manual.html">User Manual</a>
+      <a href="https://github.com/ApartsinProjects/Web2Comics" target="_blank" rel="noopener noreferrer">GitHub Repo</a>
+      <a href="https://github.com/ApartsinProjects/Web2Comics#readme" target="_blank" rel="noopener noreferrer">Project README</a>
+      <a href="https://www.apartsin.com" target="_blank" rel="noopener noreferrer">Creator Site</a>
+      <a href="../../../privacy.html">Privacy</a>
+      <a href="../../../support.html">Support</a>
+    </nav>
+    <article>
+<h1 id="web2comic-bot-developer-guide">Web2Comic Bot Developer Guide</h1>
+<p>Cross references:</p>
+<ul>
+<li>Extension README (Markdown): <a href="../../README.html"><code>../../README.md</code></a></li>
+<li>Extension docs home (GitHub Pages): <a href="https://apartsinprojects.github.io/Web2Comics/">https://apartsinprojects.github.io/Web2Comics/</a></li>
+<li>Bot docs bridge page (Markdown): <a href="../../docs/telegram-bot.md"><code>../../docs/telegram-bot.md</code></a></li>
+<li>Bot docs page (GitHub Pages): <a href="https://apartsinprojects.github.io/Web2Comics/HTML/telegram-bot.html">https://apartsinprojects.github.io/Web2Comics/HTML/telegram-bot.html</a></li>
+</ul>
+<h2 id="architecture">Architecture</h2>
+<ul>
+<li>Entry point: <code>telegram/src/webhook-bot.js</code></li>
+<li>Generator bridge: <code>telegram/src/generate.js</code></li>
+<li>Shared engine: <code>engine/src/*</code></li>
+<li>Bot data modules: <code>telegram/src/data/*</code> (messages, providers, styles/objectives, options, thresholds)</li>
+<li>Engine prompt templates: <code>engine/src/data/prompt-templates.js</code></li>
+<li>Runtime state/config: <code>telegram/src/config-store.js</code></li>
+<li>Persistence adapters: <code>telegram/src/persistence.js</code> + request/crash log stores</li>
+</ul>
+<p>Processing model:</p>
+<ul>
+<li>Webhook handler ACKs immediately</li>
+<li>Update is enqueued per chat id</li>
+<li>One active job per chat queue preserves per-user order</li>
+</ul>
+<h2 id="input-classification">Input Classification</h2>
+<p>Input from <code>message.text</code> or <code>message.caption</code> is classified as:</p>
+<ul>
+<li>command</li>
+<li>url</li>
+<li>text</li>
+<li>empty/unsupported</li>
+</ul>
+<p>URL flow snapshots rendered page HTML before generation.</p>
+<h2 id="generation-pipeline">Generation Pipeline</h2>
+<ol>
+<li>Resolve effective per-user config</li>
+<li>Apply secrets (runtime/shared/env)</li>
+<li>Build storyboard with text provider</li>
+<li>Optional consistency flow (if enabled and supported): generate one summary reference image</li>
+<li>Generate panel images (each prompt includes <code>Background</code> + <code>Image description</code>; <code>Story title</code> line removed; references summary style when available)</li>
+<li>Stream panel sends to Telegram as each panel becomes ready</li>
+<li>Send final completion summary</li>
+</ol>
+<p>Important behavior:</p>
+<ul>
+<li>Panel captions in chat use <code>X(Y)</code> prefix</li>
+<li>Image prompt explicitly forbids rendering text inside artwork (rule repeated in English/Hebrew/Russian)</li>
+<li>Watermark is configurable (<code>generation.panel_watermark</code>, default <code>true</code>)</li>
+<li>Consistency mode is configurable (<code>generation.consistency</code>, default <code>true</code>)</li>
+<li>Telegram sends use <code>protect_content=false</code> to keep forwarding enabled</li>
+</ul>
+<h2 id="command-system">Command System</h2>
+<p>Primary command handling is in <code>handleCommand</code>.</p>
+<p>Notable UX behavior:</p>
+<ul>
+<li><code>/objective</code> without args lists all objectives</li>
+<li><code>/crazyness &lt;0..2&gt;</code> controls story invention temperature</li>
+<li><code>/options</code> without args explains valid paths/options; apply via dedicated commands (<code>/objective</code>, <code>/panels</code>, <code>/mode</code>, <code>/vendor</code>, <code>/models</code>, etc.)</li>
+<li><code>/keys</code> shows runtime key status</li>
+<li>URL flow sends <code>Detected link, parsing page: &lt;url&gt;</code> with the exact parsed URL</li>
+</ul>
+<h2 id="blacklist-model">Blacklist Model</h2>
+<p>Blacklist is persistent in config state:</p>
+<ul>
+<li>ids list</li>
+<li>usernames list (normalized)</li>
+</ul>
+<p>Ban checks run before allowlist checks during message processing.</p>
+<h2 id="security">Security</h2>
+<ul>
+<li>Secrets are redacted from user-visible output</li>
+<li><code>BOT_SECRETS_ENV_ONLY=true</code> disables YAML fallback for deployment/CI</li>
+<li>Provider switching checks required keys and blocks missing-key changes</li>
+</ul>
+<h2 id="storage">Storage</h2>
+<ul>
+<li>R2 state object: user runtime config/secrets/profile + history</li>
+<li>R2: images, request logs, crash logs, status markers</li>
+<li>Capacity/retention cleanup is enforced by runtime/storage managers</li>
+</ul>
+<h2 id="testing">Testing</h2>
+<p>Primary suites:</p>
+<ul>
+<li><code>npm run test:telegram:local</code></li>
+<li><code>npm run test:telegram</code></li>
+<li><code>npm run test:telegram:r2-real</code></li>
+<li><code>npm run test:telegram:full-stack</code></li>
+<li><code>npx vitest run -c telegram/vitest.config.js telegram/tests/webhook-url-real.e2e.test.js</code> (opt-in with <code>RUN_WEBHOOK_URL_REAL=true</code>)</li>
+</ul>
+<p>Secret checks before deploy/tests:</p>
+<ul>
+<li><code>npm run secrets:validate:deploy:ci</code></li>
+<li><code>npm run secrets:validate:tests:ci</code></li>
+</ul>
+<h2 id="deployment">Deployment</h2>
+<p>Use:</p>
+<pre><code class="language-bash">npm run bot:deploy:auto -- --target render --branch engine --env-only
+</code></pre>
+<p>See:</p>
+<ul>
+<li><code>telegram/docs/deployment-runbook.md</code></li>
+<li><code>telegram/docs/testing.md</code></li>
+</ul>
+
+    </article>
+    <div class="footer">
+      Generated from <code>telegram/docs/developer-guide.md</code> •
+      Creator: <a href="https://www.apartsin.com" target="_blank" rel="noopener noreferrer">www.apartsin.com</a>
+    </div>
+  </div>
+</body>
+</html>

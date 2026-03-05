@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>telegram-bot - Web2Comics Docs</title>
+  <title>deployment - Web2Comics Docs</title>
   <style>
     :root { --bg:#f7f4ed; --panel:#fff; --ink:#1d2a3f; --muted:#5c6b82; --line:#ddd6ca; --link:#155eef; }
     * { box-sizing: border-box; }
@@ -24,58 +24,45 @@
 <body>
   <div class="wrap">
     <nav class="topbar">
-      <a href="../index.html">Docs Home</a>
-      <a href="../user-manual.html">User Manual</a>
+      <a href="../../../index.html">Docs Home</a>
+      <a href="../../../user-manual.html">User Manual</a>
       <a href="https://github.com/ApartsinProjects/Web2Comics" target="_blank" rel="noopener noreferrer">GitHub Repo</a>
       <a href="https://github.com/ApartsinProjects/Web2Comics#readme" target="_blank" rel="noopener noreferrer">Project README</a>
       <a href="https://www.apartsin.com" target="_blank" rel="noopener noreferrer">Creator Site</a>
-      <a href="../privacy.html">Privacy</a>
-      <a href="../support.html">Support</a>
+      <a href="../../../privacy.html">Privacy</a>
+      <a href="../../../support.html">Support</a>
     </nav>
     <article>
-<h1 id="web2comic-telegram-bot">Web2Comic Telegram Bot</h1>
-<p>The Telegram bot is the server-side companion to the Web2Comics extension.</p>
-<h2 id="cross-references">Cross References</h2>
-<p>Extension docs:</p>
+<h1 id="bot-documentation-hub">Bot Documentation Hub</h1>
+<p>Cross references:</p>
 <ul>
-<li>Extension README (GitHub): <a href="https://github.com/ApartsinProjects/Web2Comics/blob/main/README.md">https://github.com/ApartsinProjects/Web2Comics/blob/main/README.md</a></li>
-<li>Extension docs index (Markdown): <a href="README.html"><code>./README.md</code></a></li>
+<li>Extension README (Markdown): <a href="../../README.html"><code>../../README.md</code></a></li>
 <li>Extension docs home (GitHub Pages): <a href="https://apartsinprojects.github.io/Web2Comics/">https://apartsinprojects.github.io/Web2Comics/</a></li>
-<li>Extension user manual (GitHub Pages): <a href="https://apartsinprojects.github.io/Web2Comics/user-manual.html">https://apartsinprojects.github.io/Web2Comics/user-manual.html</a></li>
-</ul>
-<p>Bot docs:</p>
-<ul>
-<li>Bot README (GitHub): <a href="https://github.com/ApartsinProjects/Web2Comics/blob/main/telegram/README.md">https://github.com/ApartsinProjects/Web2Comics/blob/main/telegram/README.md</a></li>
+<li>Bot docs bridge page (Markdown): <a href="../../docs/telegram-bot.md"><code>../../docs/telegram-bot.md</code></a></li>
 <li>Bot docs page (GitHub Pages): <a href="https://apartsinprojects.github.io/Web2Comics/HTML/telegram-bot.html">https://apartsinprojects.github.io/Web2Comics/HTML/telegram-bot.html</a></li>
-<li>Bot README (GitHub Pages): <a href="telegram/README.html"><code>../telegram/README.md</code></a></li>
-<li>Bot docs folder (GitHub): <a href="https://github.com/ApartsinProjects/Web2Comics/tree/main/telegram/docs">https://github.com/ApartsinProjects/Web2Comics/tree/main/telegram/docs</a></li>
 </ul>
-<h2 id="quick-links">Quick Links</h2>
+<p>Core bot docs:</p>
 <ul>
-<li>Bot deployment runbook: <a href="telegram/docs/deployment-runbook.html"><code>../telegram/docs/deployment-runbook.md</code></a></li>
-<li>Bot testing guide: <a href="telegram/docs/testing.html"><code>../telegram/docs/testing.md</code></a></li>
-<li>Bot user manual: <a href="telegram/docs/user-manual.html"><code>../telegram/docs/user-manual.md</code></a></li>
-<li>Bot developer guide: <a href="telegram/docs/developer-guide.html"><code>../telegram/docs/developer-guide.md</code></a></li>
+<li><a href="deployment-runbook.html">deployment-runbook.md</a></li>
+<li><a href="testing.html">testing.md</a></li>
+<li><a href="user-manual.html">user-manual.md</a></li>
+<li><a href="developer-guide.html">developer-guide.md</a></li>
+<li><a href="operations.html">operations.md</a></li>
+<li><a href="storage-r2.html">storage-r2.md</a></li>
+<li><a href="data-reference.html">data-reference.md</a></li>
 </ul>
-<h2 id="features">Features</h2>
-<ul>
-<li>Accepts plain text and URL messages</li>
-<li>Generates comic panels and streams them as Telegram images</li>
-<li>Panel caption prefix format <code>X(Y)</code></li>
-<li>Per-user settings and secrets</li>
-<li>Persistent storage via Postgres + Cloudflare R2</li>
-</ul>
-<h2 id="deploy">Deploy</h2>
+<p>Quick deploy:</p>
 <pre><code class="language-bash">npm run bot:deploy:auto -- --target render --branch engine --env-only
 </code></pre>
-<h2 id="test">Test</h2>
-<pre><code class="language-bash">npm run test:telegram:local
-npm run test:telegram
-</code></pre>
+<p>Notes:</p>
+<ul>
+<li>Deployment preflight enforces strict Cloudflare token roles (<code>CLOUDFLARE_WORKERS_AI_TOKEN</code> vs <code>CLOUDFLARE_ACCOUNT_API_TOKEN</code>).</li>
+<li>Legacy deploy arg <code>--cloudflare-api-token</code> is deprecated/rejected; use explicit <code>--cloudflare-ai-token</code> and <code>--cloudflare-account-api-token</code>.</li>
+</ul>
 
     </article>
     <div class="footer">
-      Generated from <code>telegram-bot.md</code> •
+      Generated from <code>telegram/docs/deployment.md</code> •
       Creator: <a href="https://www.apartsin.com" target="_blank" rel="noopener noreferrer">www.apartsin.com</a>
     </div>
   </div>

@@ -17,6 +17,7 @@ Web2Comics is a Chrome extension that:
 - shows the result in a comic viewer side panel
 - saves history and exports a single composite comic image
 - supports right-click selected-text flows (instant generate or open composer prefilled)
+- includes a Telegram bot version: [telegram/README.md](telegram/README.md)
 
 ## Install (Release ZIP)
 

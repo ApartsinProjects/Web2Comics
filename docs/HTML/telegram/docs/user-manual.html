@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>user-manual - Web2Comics Docs</title>
+  <style>
+    :root { --bg:#f7f4ed; --panel:#fff; --ink:#1d2a3f; --muted:#5c6b82; --line:#ddd6ca; --link:#155eef; }
+    * { box-sizing: border-box; }
+    body { margin:0; font-family:"Segoe UI",Tahoma,Arial,sans-serif; color:var(--ink); background:var(--bg); line-height:1.6; }
+    .wrap { max-width:980px; margin:0 auto; padding:18px; }
+    .topbar { display:flex; flex-wrap:wrap; gap:10px; align-items:center; margin-bottom:14px; padding:10px 12px; border:1px solid var(--line); background:#fff; border-radius:10px; }
+    .topbar a { color:var(--link); text-decoration:none; font-weight:600; }
+    article { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:20px; overflow-wrap:anywhere; }
+    h1,h2,h3 { line-height:1.25; }
+    pre { background:#0f172a; color:#e2e8f0; padding:12px; border-radius:8px; overflow:auto; }
+    code { font-family:Consolas,"Courier New",monospace; font-size:0.92em; }
+    a { color:var(--link); }
+    table { border-collapse:collapse; width:100%; display:block; overflow-x:auto; }
+    th,td { border:1px solid #cdd5e1; padding:6px 8px; text-align:left; vertical-align:top; }
+    .footer { margin-top:12px; color:var(--muted); font-size:0.92rem; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <nav class="topbar">
+      <a href="../../../index.html">Docs Home</a>
+      <a href="../../../user-manual.html">User Manual</a>
+      <a href="https://github.com/ApartsinProjects/Web2Comics" target="_blank" rel="noopener noreferrer">GitHub Repo</a>
+      <a href="https://github.com/ApartsinProjects/Web2Comics#readme" target="_blank" rel="noopener noreferrer">Project README</a>
+      <a href="https://www.apartsin.com" target="_blank" rel="noopener noreferrer">Creator Site</a>
+      <a href="../../../privacy.html">Privacy</a>
+      <a href="../../../support.html">Support</a>
+    </nav>
+    <article>
+<h1 id="web2comic-bot-user-manual">Web2Comic Bot User Manual</h1>
+<p>Cross references:</p>
+<ul>
+<li>Extension README (Markdown): <a href="../../README.html"><code>../../README.md</code></a></li>
+<li>Extension user manual (GitHub Pages): <a href="https://apartsinprojects.github.io/Web2Comics/user-manual.html">https://apartsinprojects.github.io/Web2Comics/user-manual.html</a></li>
+<li>Bot docs bridge page (Markdown): <a href="../../docs/telegram-bot.md"><code>../../docs/telegram-bot.md</code></a></li>
+<li>Bot docs page (GitHub Pages): <a href="https://apartsinprojects.github.io/Web2Comics/HTML/telegram-bot.html">https://apartsinprojects.github.io/Web2Comics/HTML/telegram-bot.html</a></li>
+</ul>
+<h2 id="what-the-bot-does">What The Bot Does</h2>
+<p>Send plain text or a URL, and the bot generates comic panels and sends them back as ordered Telegram images.</p>
+<p>Panel captions are prefixed as <code>X(Y)</code>:</p>
+<ul>
+<li><code>X</code> = current panel number</li>
+<li><code>Y</code> = total panel count</li>
+</ul>
+<h2 id="quick-start">Quick Start</h2>
+<ol>
+<li>Send <code>/start</code></li>
+<li>Send <code>/help</code></li>
+<li>Run <code>/user</code> to get your Telegram id</li>
+<li>Add provider key with <code>/setkey GEMINI_API_KEY &lt;YOUR_KEY&gt;</code></li>
+<li>Send a story or URL</li>
+</ol>
+<h2 id="core-commands">Core Commands</h2>
+<ul>
+<li><code>/help</code> command list</li>
+<li><code>/about</code> creator and project links</li>
+<li><code>/config</code> current runtime config</li>
+<li><code>/user</code> show your Telegram id</li>
+<li><code>/keys</code> key status</li>
+</ul>
+<h2 id="generation-controls">Generation Controls</h2>
+<ul>
+<li><code>/vendor &lt;name&gt;</code></li>
+<li><code>/text_vendor &lt;name&gt;</code></li>
+<li><code>/image_vendor &lt;name&gt;</code></li>
+<li><code>/language &lt;code&gt;</code></li>
+<li><code>/consistency &lt;on|off&gt;</code> enable style-consistency flow (supported image models only)</li>
+<li><code>/crazyness &lt;0..2&gt;</code> control story-invention temperature (higher = wilder twists)</li>
+<li><code>/panels &lt;count&gt;</code></li>
+<li><code>/objective</code> list objectives</li>
+<li><code>/objective &lt;name&gt;</code> set objective</li>
+<li><code>/style &lt;preset&gt;</code></li>
+<li><code>/new_style &lt;name&gt; &lt;text&gt;</code></li>
+<li><code>/detail &lt;low|medium|high&gt;</code></li>
+<li><code>/concurrency &lt;1..5&gt;</code></li>
+<li><code>/retries &lt;0..3&gt;</code></li>
+</ul>
+<h2 id="prompt-controls">Prompt Controls</h2>
+<ul>
+<li><code>/prompts</code> show active prompt templates</li>
+<li><code>/set_prompt story &lt;text&gt;</code></li>
+<li><code>/set_prompt panel &lt;text&gt;</code></li>
+<li><code>/set_prompt objective &lt;name&gt; &lt;text&gt;</code></li>
+</ul>
+<h2 id="options-ui-in-chat">Options UI In Chat</h2>
+<ul>
+<li><code>/list_options</code> list all config paths with predefined options</li>
+<li><code>/options &lt;path&gt;</code> show numbered options for one path</li>
+<li>Apply options via dedicated commands (<code>/objective</code>, <code>/panels</code>, <code>/mode</code>, <code>/vendor</code>, <code>/models</code>, <code>/language</code>, etc.)</li>
+</ul>
+<p>If <code>/options</code> is called without required args, the bot explains usage and lists valid paths/options.</p>
+<h2 id="story-modes">Story Modes</h2>
+<ul>
+<li>Normal text: generate directly</li>
+<li>Very short prompt: bot first expands story with AI, shows invented story, then generates comic</li>
+<li>URL input: bot prints the exact parsed URL, renders page content, then uses it as source</li>
+</ul>
+<h2 id="image-prompt-context">Image Prompt Context</h2>
+<p>For each panel image, the bot sends context that includes:</p>
+<ul>
+<li><code>Background</code> (short story summary context)</li>
+<li><code>Image description</code> (<code>panel.image_prompt</code>)</li>
+<li><code>Style</code></li>
+<li>strict no-text requirements (English, Hebrew, Russian)</li>
+</ul>
+<p>This keeps panel visuals coherent across the full story.</p>
+<h2 id="consistency-mode">Consistency Mode</h2>
+<ul>
+<li>Default: <code>on</code></li>
+<li>Command: <code>/consistency on</code> or <code>/consistency off</code></li>
+<li>When enabled, after storyboard generation the bot first creates one summary style-reference image.</li>
+<li>Then each panel uses prompt text that explicitly asks to follow that reference style and passes the summary image as reference input.</li>
+<li>This is used only when the active image provider/model supports image-as-input; otherwise the bot falls back to normal panel generation.</li>
+</ul>
+<h2 id="panel-output-details">Panel Output Details</h2>
+<ul>
+<li>Watermark is configurable and defaults to <code>on</code></li>
+<li>Bot messages/photos are forwardable (content protection is disabled)</li>
+<li>Panel captions are sent in order and prefixed as <code>X(Y)</code></li>
+</ul>
+<h2 id="reset-and-recovery">Reset And Recovery</h2>
+<ul>
+<li><code>/reset_config</code> clear runtime overrides</li>
+<li><code>/restart</code> reset user state and re-onboard</li>
+<li><code>/unsetkey &lt;KEY&gt;</code> remove runtime key override</li>
+</ul>
+
+    </article>
+    <div class="footer">
+      Generated from <code>telegram/docs/user-manual.md</code> •
+      Creator: <a href="https://www.apartsin.com" target="_blank" rel="noopener noreferrer">www.apartsin.com</a>
+    </div>
+  </div>
+</body>
+</html>

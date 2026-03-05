@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>operations - Web2Comics Docs</title>
+  <style>
+    :root { --bg:#f7f4ed; --panel:#fff; --ink:#1d2a3f; --muted:#5c6b82; --line:#ddd6ca; --link:#155eef; }
+    * { box-sizing: border-box; }
+    body { margin:0; font-family:"Segoe UI",Tahoma,Arial,sans-serif; color:var(--ink); background:var(--bg); line-height:1.6; }
+    .wrap { max-width:980px; margin:0 auto; padding:18px; }
+    .topbar { display:flex; flex-wrap:wrap; gap:10px; align-items:center; margin-bottom:14px; padding:10px 12px; border:1px solid var(--line); background:#fff; border-radius:10px; }
+    .topbar a { color:var(--link); text-decoration:none; font-weight:600; }
+    article { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:20px; overflow-wrap:anywhere; }
+    h1,h2,h3 { line-height:1.25; }
+    pre { background:#0f172a; color:#e2e8f0; padding:12px; border-radius:8px; overflow:auto; }
+    code { font-family:Consolas,"Courier New",monospace; font-size:0.92em; }
+    a { color:var(--link); }
+    table { border-collapse:collapse; width:100%; display:block; overflow-x:auto; }
+    th,td { border:1px solid #cdd5e1; padding:6px 8px; text-align:left; vertical-align:top; }
+    .footer { margin-top:12px; color:var(--muted); font-size:0.92rem; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <nav class="topbar">
+      <a href="../../../index.html">Docs Home</a>
+      <a href="../../../user-manual.html">User Manual</a>
+      <a href="https://github.com/ApartsinProjects/Web2Comics" target="_blank" rel="noopener noreferrer">GitHub Repo</a>
+      <a href="https://github.com/ApartsinProjects/Web2Comics#readme" target="_blank" rel="noopener noreferrer">Project README</a>
+      <a href="https://www.apartsin.com" target="_blank" rel="noopener noreferrer">Creator Site</a>
+      <a href="../../../privacy.html">Privacy</a>
+      <a href="../../../support.html">Support</a>
+    </nav>
+    <article>
+<h1 id="bot-operations">Bot Operations</h1>
+<p>Cross references:</p>
+<ul>
+<li>Extension README (Markdown): <a href="../../README.html"><code>../../README.md</code></a></li>
+<li>Extension docs home (GitHub Pages): <a href="https://apartsinprojects.github.io/Web2Comics/">https://apartsinprojects.github.io/Web2Comics/</a></li>
+<li>Bot docs bridge page (Markdown): <a href="../../docs/telegram-bot.md"><code>../../docs/telegram-bot.md</code></a></li>
+<li>Bot docs page (GitHub Pages): <a href="https://apartsinprojects.github.io/Web2Comics/HTML/telegram-bot.html">https://apartsinprojects.github.io/Web2Comics/HTML/telegram-bot.html</a></li>
+</ul>
+<h2 id="health">Health</h2>
+<ul>
+<li>Service health endpoint:
+<ul>
+<li><code>GET /healthz</code></li>
+</ul>
+</li>
+</ul>
+<h2 id="webhook">Webhook</h2>
+<ul>
+<li>Path:
+<ul>
+<li><code>/telegram/webhook/&lt;TELEGRAM_WEBHOOK_SECRET&gt;</code></li>
+</ul>
+</li>
+<li>Header validation:
+<ul>
+<li><code>x-telegram-bot-api-secret-token</code></li>
+</ul>
+</li>
+<li>Dedup:
+<ul>
+<li>update IDs are deduplicated with TTL.</li>
+</ul>
+</li>
+</ul>
+<h2 id="runtime-behavior">Runtime behavior</h2>
+<ul>
+<li>Immediate webhook ACK, processing continues asynchronously.</li>
+<li>Per-chat queue to avoid concurrent conflicts.</li>
+<li>Per-user config + secrets persisted in R2 state object.</li>
+<li>Banned users are blocked before allowlist evaluation.</li>
+<li>Panels are sent to Telegram progressively as they are generated.</li>
+</ul>
+<h2 id="secrets-handling">Secrets handling</h2>
+<ul>
+<li>Secrets are redacted in user-facing responses.</li>
+<li>Keys can be set at runtime with <code>/setkey</code>.</li>
+<li>For CI/deploy hardening use <code>BOT_SECRETS_ENV_ONLY=true</code> so scripts use environment secrets only.</li>
+</ul>
+<h2 id="failure-handling">Failure handling</h2>
+<ul>
+<li>Fatal events (<code>uncaughtException</code>, <code>unhandledRejection</code>, startup failure) are persisted to crash storage.</li>
+<li>Generation/storage failures are reported back to chat.</li>
+</ul>
+<h2 id="useful-scripts">Useful scripts</h2>
+<ul>
+<li>Start locally: <code>npm run telegram:start</code></li>
+<li>Register webhook: <code>npm run telegram:set-webhook -- --url &lt;base-url&gt;</code></li>
+<li>Auto deploy: <code>npm run telegram:deploy:auto</code></li>
+</ul>
+
+    </article>
+    <div class="footer">
+      Generated from <code>telegram/docs/operations.md</code> •
+      Creator: <a href="https://www.apartsin.com" target="_blank" rel="noopener noreferrer">www.apartsin.com</a>
+    </div>
+  </div>
+</body>
+</html>

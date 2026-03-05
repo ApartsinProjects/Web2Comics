@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>testing - Web2Comics Docs</title>
+  <style>
+    :root { --bg:#f7f4ed; --panel:#fff; --ink:#1d2a3f; --muted:#5c6b82; --line:#ddd6ca; --link:#155eef; }
+    * { box-sizing: border-box; }
+    body { margin:0; font-family:"Segoe UI",Tahoma,Arial,sans-serif; color:var(--ink); background:var(--bg); line-height:1.6; }
+    .wrap { max-width:980px; margin:0 auto; padding:18px; }
+    .topbar { display:flex; flex-wrap:wrap; gap:10px; align-items:center; margin-bottom:14px; padding:10px 12px; border:1px solid var(--line); background:#fff; border-radius:10px; }
+    .topbar a { color:var(--link); text-decoration:none; font-weight:600; }
+    article { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:20px; overflow-wrap:anywhere; }
+    h1,h2,h3 { line-height:1.25; }
+    pre { background:#0f172a; color:#e2e8f0; padding:12px; border-radius:8px; overflow:auto; }
+    code { font-family:Consolas,"Courier New",monospace; font-size:0.92em; }
+    a { color:var(--link); }
+    table { border-collapse:collapse; width:100%; display:block; overflow-x:auto; }
+    th,td { border:1px solid #cdd5e1; padding:6px 8px; text-align:left; vertical-align:top; }
+    .footer { margin-top:12px; color:var(--muted); font-size:0.92rem; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <nav class="topbar">
+      <a href="../../../index.html">Docs Home</a>
+      <a href="../../../user-manual.html">User Manual</a>
+      <a href="https://github.com/ApartsinProjects/Web2Comics" target="_blank" rel="noopener noreferrer">GitHub Repo</a>
+      <a href="https://github.com/ApartsinProjects/Web2Comics#readme" target="_blank" rel="noopener noreferrer">Project README</a>
+      <a href="https://www.apartsin.com" target="_blank" rel="noopener noreferrer">Creator Site</a>
+      <a href="../../../privacy.html">Privacy</a>
+      <a href="../../../support.html">Support</a>
+    </nav>
+    <article>
+<h1 id="web2comic-bot-testing-guide">Web2Comic Bot Testing Guide</h1>
+<p>Cross references:</p>
+<ul>
+<li>Extension README (Markdown): <a href="../../README.html"><code>../../README.md</code></a></li>
+<li>Extension docs home (GitHub Pages): <a href="https://apartsinprojects.github.io/Web2Comics/">https://apartsinprojects.github.io/Web2Comics/</a></li>
+<li>Bot docs bridge page (Markdown): <a href="../../docs/telegram-bot.md"><code>../../docs/telegram-bot.md</code></a></li>
+<li>Bot docs page (GitHub Pages): <a href="https://apartsinprojects.github.io/Web2Comics/HTML/telegram-bot.html">https://apartsinprojects.github.io/Web2Comics/HTML/telegram-bot.html</a></li>
+</ul>
+<h2 id="scope">Scope</h2>
+<p>This document covers local, integration, and remote validation for the Render webhook bot.</p>
+<h2 id="fast-local-suite">1) Fast Local Suite</h2>
+<p>Run core local checks:</p>
+<pre><code class="language-bash">npm run test:telegram:local
+</code></pre>
+<p>Run full render test suite:</p>
+<pre><code class="language-bash">npm run test:telegram
+</code></pre>
+<h2 id="focused-suites">2) Focused Suites</h2>
+<ul>
+<li>Interaction command matrix:</li>
+</ul>
+<pre><code class="language-bash">npx vitest run -c telegram/vitest.config.js telegram/tests/interaction-suite.test.js
+</code></pre>
+<ul>
+<li>Webhook REST behavior:</li>
+</ul>
+<pre><code class="language-bash">npx vitest run -c telegram/vitest.config.js telegram/tests/webhook-rest.test.js
+</code></pre>
+<ul>
+<li>Generator behavior:</li>
+</ul>
+<pre><code class="language-bash">npx vitest run -c telegram/vitest.config.js telegram/tests/generate.test.js
+</code></pre>
+<ul>
+<li>Telegram payload behavior (forwardable messages/photos):</li>
+</ul>
+<pre><code class="language-bash">npx vitest run -c telegram/vitest.config.js telegram/tests/telegram-api.test.js
+</code></pre>
+<h2 id="real-provider-tests">3) Real Provider Tests</h2>
+<p>Gemini live tests:</p>
+<pre><code class="language-bash">set RUN_RENDER_REAL_GEMINI=1
+npm run test:telegram:gemini-real
+</code></pre>
+<p>Real local URL ingestion e2e (opt-in):</p>
+<pre><code class="language-bash">set RUN_RENDER_REAL_GEMINI=1
+set RUN_WEBHOOK_URL_REAL=true
+npx vitest run -c telegram/vitest.config.js telegram/tests/webhook-url-real.e2e.test.js
+</code></pre>
+<h2 id="r2-integration-tests">4) R2 Integration Tests</h2>
+<p>Requires valid <code>R2_*</code> env vars.</p>
+<pre><code class="language-bash">set RUN_R2_E2E=true
+npm run test:telegram:r2-real
+</code></pre>
+<h2 id="post-deploy-sanity-e2e">4.1) Post-Deploy Sanity E2E</h2>
+<p>Run the lightweight deploy sanity probe manually:</p>
+<pre><code class="language-bash">npm run telegram:deploy:sanity
+</code></pre>
+<p>This is executed automatically by <code>npm run bot:deploy:auto</code> unless <code>--skip-sanity</code> is set.</p>
+<h2 id="full-remote-interface-test">5) Full Remote Interface Test</h2>
+<p>Requires deployed bot URL and Telegram test routing values.</p>
+<pre><code class="language-bash">set RUN_FULL_STACK_E2E=true
+npm run test:telegram:full-stack
+</code></pre>
+<p>Validated interfaces include:</p>
+<ul>
+<li>service health endpoint</li>
+<li>webhook ingestion path and secret handling</li>
+<li>Telegram outbound API calls</li>
+<li>R2 request logs and generated image objects</li>
+<li>crash log observability</li>
+</ul>
+<h2 id="required-behavior-to-verify">6) Required Behavior to Verify</h2>
+<ul>
+<li>Per-user queueing and no dropped updates</li>
+<li>Text input and URL input flows</li>
+<li>Streaming panel delivery (panels sent as ready)</li>
+<li>Caption prefix format <code>X(Y)</code> on each panel</li>
+<li>Story-summary context present in image prompts (engine prompt builder test)</li>
+<li>Panel image prompt field names are <code>Background</code> and <code>Image description</code> (no <code>Story title</code> line)</li>
+<li>URL flow prints exact parsed URL before extraction</li>
+<li>Panel watermark toggle works (<code>generation.panel_watermark</code>, default on)</li>
+<li>Consistency toggle works (<code>/consistency on|off</code>) and unsupported models fall back safely</li>
+<li>Prompt controls (<code>/options</code>, dedicated setting commands)</li>
+<li><code>/crazyness</code> command updates story invention temperature</li>
+<li>Objective listing with <code>/objective</code> (no args)</li>
+<li>Secret redaction in user-visible messages</li>
+</ul>
+<h2 id="ci">7) CI</h2>
+<p>Workflow:</p>
+<ul>
+<li><code>.github/workflows/bot-tests.yml</code></li>
+</ul>
+<p>Before tests run, CI enforces secret checks:</p>
+<pre><code class="language-bash">npm run secrets:validate:tests:ci
+</code></pre>
+
+    </article>
+    <div class="footer">
+      Generated from <code>telegram/docs/testing.md</code> •
+      Creator: <a href="https://www.apartsin.com" target="_blank" rel="noopener noreferrer">www.apartsin.com</a>
+    </div>
+  </div>
+</body>
+</html>

@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>data-reference - Web2Comics Docs</title>
+  <style>
+    :root { --bg:#f7f4ed; --panel:#fff; --ink:#1d2a3f; --muted:#5c6b82; --line:#ddd6ca; --link:#155eef; }
+    * { box-sizing: border-box; }
+    body { margin:0; font-family:"Segoe UI",Tahoma,Arial,sans-serif; color:var(--ink); background:var(--bg); line-height:1.6; }
+    .wrap { max-width:980px; margin:0 auto; padding:18px; }
+    .topbar { display:flex; flex-wrap:wrap; gap:10px; align-items:center; margin-bottom:14px; padding:10px 12px; border:1px solid var(--line); background:#fff; border-radius:10px; }
+    .topbar a { color:var(--link); text-decoration:none; font-weight:600; }
+    article { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:20px; overflow-wrap:anywhere; }
+    h1,h2,h3 { line-height:1.25; }
+    pre { background:#0f172a; color:#e2e8f0; padding:12px; border-radius:8px; overflow:auto; }
+    code { font-family:Consolas,"Courier New",monospace; font-size:0.92em; }
+    a { color:var(--link); }
+    table { border-collapse:collapse; width:100%; display:block; overflow-x:auto; }
+    th,td { border:1px solid #cdd5e1; padding:6px 8px; text-align:left; vertical-align:top; }
+    .footer { margin-top:12px; color:var(--muted); font-size:0.92rem; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <nav class="topbar">
+      <a href="../../../index.html">Docs Home</a>
+      <a href="../../../user-manual.html">User Manual</a>
+      <a href="https://github.com/ApartsinProjects/Web2Comics" target="_blank" rel="noopener noreferrer">GitHub Repo</a>
+      <a href="https://github.com/ApartsinProjects/Web2Comics#readme" target="_blank" rel="noopener noreferrer">Project README</a>
+      <a href="https://www.apartsin.com" target="_blank" rel="noopener noreferrer">Creator Site</a>
+      <a href="../../../privacy.html">Privacy</a>
+      <a href="../../../support.html">Support</a>
+    </nav>
+    <article>
+<h1 id="web2comic-data-configuration-reference">Web2Comic Data &amp; Configuration Reference</h1>
+<p>This document lists the data-focused files used by the bot/engine, what each file represents, and where it is located.</p>
+<h2 id="bot-data-modules-telegramsrcdata">Bot Data Modules (<code>telegram/src/data</code>)</h2>
+<table>
+<thead>
+<tr>
+<th>File</th>
+<th>Represents</th>
+<th>Used By</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>telegram/src/data/messages.js</code></td>
+<td>Static bot text content and message templates (welcome/help/base labels, docs links).</td>
+<td><code>telegram/src/webhook-bot.js</code></td>
+</tr>
+<tr>
+<td><code>telegram/src/data/options.js</code></td>
+<td>Config option catalogs (<code>OPTION_MAP</code>) and secret key names (<code>SECRET_KEYS</code>).</td>
+<td><code>telegram/src/options.js</code>, command validation/printing</td>
+</tr>
+<tr>
+<td><code>telegram/src/data/providers.js</code></td>
+<td>Provider definitions: default models, model catalog, required key mapping, provider name list.</td>
+<td><code>telegram/src/webhook-bot.js</code>, provider/model commands</td>
+</tr>
+<tr>
+<td><code>telegram/src/data/styles-objectives.js</code></td>
+<td>Objective values, style presets, style shortcuts, objective shortcuts.</td>
+<td><code>telegram/src/webhook-bot.js</code></td>
+</tr>
+<tr>
+<td><code>telegram/src/data/thresholds.js</code></td>
+<td>Input classification thresholds (short prompt / long story length).</td>
+<td><code>telegram/src/webhook-bot.js</code>, <code>telegram/src/message-utils.js</code></td>
+</tr>
+</tbody>
+</table>
+<h2 id="engine-data-modules-enginesrcdata">Engine Data Modules (<code>engine/src/data</code>)</h2>
+<table>
+<thead>
+<tr>
+<th>File</th>
+<th>Represents</th>
+<th>Used By</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>engine/src/data/prompt-templates.js</code></td>
+<td>Prompt template fragments/rules for storyboard, style-reference, panel image prompts; includes multilingual no-text block.</td>
+<td><code>engine/src/prompts.js</code>, <code>engine/src/index.js</code></td>
+</tr>
+</tbody>
+</table>
+<h2 id="yaml-runtime-configuration-files">YAML Runtime Configuration Files</h2>
+<table>
+<thead>
+<tr>
+<th>File</th>
+<th>Represents</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>telegram/config/default.render.yml</code></td>
+<td>Default runtime configuration for Render webhook bot (generation/runtime/providers/output defaults).</td>
+<td>Main bot deployment baseline config</td>
+</tr>
+<tr>
+<td><code>comicbot/config/default.bot.yml</code></td>
+<td>Legacy/default config for <code>comicbot</code> path.</td>
+<td>Separate from <code>telegram</code> webhook runtime</td>
+</tr>
+</tbody>
+</table>
+<h2 id="runtime-persisted-data-not-source-controlled-defaults">Runtime-Persisted Data (not source-controlled defaults)</h2>
+<p>These are data artifacts written during runtime/testing (storage backend depends on environment settings):</p>
+<ul>
+<li>User state/config: per-user config + secrets + metadata (R2 object in persistence mode).</li>
+<li>Request logs: request + result metadata/status (R2/file based on persistence).</li>
+<li>Crash logs: structured crash/error events (R2/file).</li>
+<li>Generated images/status indexes: panel artifacts and storage accounting metadata (R2/file).</li>
+<li>Known users + blacklist indexes: persisted operational lists.</li>
+</ul>
+<p>Primary code paths for persisted data:</p>
+<ul>
+<li><code>telegram/src/config-store.js</code></li>
+<li><code>telegram/src/persistence.js</code></li>
+<li><code>telegram/src/request-log-store.js</code></li>
+<li><code>telegram/src/crash-log-store.js</code></li>
+<li><code>telegram/src/image-storage.js</code></li>
+<li><code>telegram/src/known-users-store.js</code></li>
+<li><code>telegram/src/blacklist-store.js</code></li>
+</ul>
+
+    </article>
+    <div class="footer">
+      Generated from <code>telegram/docs/data-reference.md</code> •
+      Creator: <a href="https://www.apartsin.com" target="_blank" rel="noopener noreferrer">www.apartsin.com</a>
+    </div>
+  </div>
+</body>
+</html>

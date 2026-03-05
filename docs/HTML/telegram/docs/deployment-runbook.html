@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>deployment-runbook - Web2Comics Docs</title>
+  <style>
+    :root { --bg:#f7f4ed; --panel:#fff; --ink:#1d2a3f; --muted:#5c6b82; --line:#ddd6ca; --link:#155eef; }
+    * { box-sizing: border-box; }
+    body { margin:0; font-family:"Segoe UI",Tahoma,Arial,sans-serif; color:var(--ink); background:var(--bg); line-height:1.6; }
+    .wrap { max-width:980px; margin:0 auto; padding:18px; }
+    .topbar { display:flex; flex-wrap:wrap; gap:10px; align-items:center; margin-bottom:14px; padding:10px 12px; border:1px solid var(--line); background:#fff; border-radius:10px; }
+    .topbar a { color:var(--link); text-decoration:none; font-weight:600; }
+    article { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:20px; overflow-wrap:anywhere; }
+    h1,h2,h3 { line-height:1.25; }
+    pre { background:#0f172a; color:#e2e8f0; padding:12px; border-radius:8px; overflow:auto; }
+    code { font-family:Consolas,"Courier New",monospace; font-size:0.92em; }
+    a { color:var(--link); }
+    table { border-collapse:collapse; width:100%; display:block; overflow-x:auto; }
+    th,td { border:1px solid #cdd5e1; padding:6px 8px; text-align:left; vertical-align:top; }
+    .footer { margin-top:12px; color:var(--muted); font-size:0.92rem; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <nav class="topbar">
+      <a href="../../../index.html">Docs Home</a>
+      <a href="../../../user-manual.html">User Manual</a>
+      <a href="https://github.com/ApartsinProjects/Web2Comics" target="_blank" rel="noopener noreferrer">GitHub Repo</a>
+      <a href="https://github.com/ApartsinProjects/Web2Comics#readme" target="_blank" rel="noopener noreferrer">Project README</a>
+      <a href="https://www.apartsin.com" target="_blank" rel="noopener noreferrer">Creator Site</a>
+      <a href="../../../privacy.html">Privacy</a>
+      <a href="../../../support.html">Support</a>
+    </nav>
+    <article>
+<h1 id="web2comic-bot-deployment-runbook">Web2Comic Bot Deployment Runbook</h1>
+<p>Cross references:</p>
+<ul>
+<li>Extension README (Markdown): <a href="../../README.html"><code>../../README.md</code></a></li>
+<li>Extension docs home (GitHub Pages): <a href="https://apartsinprojects.github.io/Web2Comics/">https://apartsinprojects.github.io/Web2Comics/</a></li>
+<li>Bot docs bridge page (Markdown): <a href="../../docs/telegram-bot.md"><code>../../docs/telegram-bot.md</code></a></li>
+<li>Bot docs page (GitHub Pages): <a href="https://apartsinprojects.github.io/Web2Comics/HTML/telegram-bot.html">https://apartsinprojects.github.io/Web2Comics/HTML/telegram-bot.html</a></li>
+</ul>
+<h2 id="scope">Scope</h2>
+<p>This runbook covers deployment of the Telegram webhook bot in <code>telegram/src/webhook-bot.js</code> with persistent storage in Cloudflare R2.</p>
+<h2 id="prerequisites">1) Prerequisites</h2>
+<ul>
+<li>Node 20+</li>
+<li>Repo checked out and dependencies installed (<code>npm ci</code>)</li>
+<li>Telegram bot token from BotFather</li>
+<li>Render API key + owner id</li>
+<li>Cloudflare R2 bucket and S3 credentials</li>
+<li>At least one text/image provider key (Gemini recommended)</li>
+</ul>
+<h2 id="required-secrets">2) Required Secrets</h2>
+<p>Set these in GitHub Secrets (recommended) or local env for manual deployment.</p>
+<ul>
+<li>Core:
+<ul>
+<li><code>RENDER_API_KEY</code></li>
+<li><code>RENDER_OWNER_ID</code></li>
+<li><code>TELEGRAM_BOT_TOKEN</code></li>
+<li><code>TELEGRAM_WEBHOOK_SECRET</code></li>
+</ul>
+</li>
+<li>Telegram routing:
+<ul>
+<li><code>TELEGRAM_NOTIFY_CHAT_ID</code></li>
+<li><code>TELEGRAM_TEST_CHAT_ID</code></li>
+<li><code>COMICBOT_ALLOWED_CHAT_IDS</code></li>
+</ul>
+</li>
+<li>Providers:
+<ul>
+<li><code>GEMINI_API_KEY</code></li>
+<li><code>OPENAI_API_KEY</code></li>
+<li><code>OPENROUTER_API_KEY</code></li>
+<li><code>HUGGINGFACE_INFERENCE_API_TOKEN</code></li>
+<li><code>CLOUDFLARE_ACCOUNT_ID</code></li>
+<li><code>CLOUDFLARE_WORKERS_AI_TOKEN</code> (Cloudflare Workers AI provider token)</li>
+<li><code>CLOUDFLARE_ACCOUNT_API_TOKEN</code> (Cloudflare account token for R2 bucket API/provisioning)</li>
+<li><code>CLOUDFLARE_API_TOKEN</code> (compatibility alias; set to the same value as <code>CLOUDFLARE_WORKERS_AI_TOKEN</code>)</li>
+<li>Do not use legacy <code>--cloudflare-api-token</code> deploy argument (deprecated and rejected)</li>
+</ul>
+</li>
+<li>Storage/database:
+<ul>
+<li><code>R2_S3_ENDPOINT</code></li>
+<li><code>R2_BUCKET</code></li>
+<li><code>R2_ACCESS_KEY_ID</code></li>
+<li><code>R2_SECRET_ACCESS_KEY</code></li>
+</ul>
+</li>
+</ul>
+<h2 id="secret-validation">3) Secret Validation</h2>
+<p>Validate mapping and required env values before deploy:</p>
+<pre><code class="language-bash">npm run secrets:validate:deploy
+npm run secrets:validate:deploy:ci
+</code></pre>
+<p>Predeploy also enforces strict Cloudflare token roles:</p>
+<ul>
+<li><code>CLOUDFLARE_WORKERS_AI_TOKEN</code> = Workers AI provider token</li>
+<li><code>CLOUDFLARE_ACCOUNT_API_TOKEN</code> = Cloudflare account API token</li>
+<li>If <code>CLOUDFLARE_API_TOKEN</code> is set, it must match <code>CLOUDFLARE_WORKERS_AI_TOKEN</code></li>
+</ul>
+<p>CI workflows also enforce these checks:</p>
+<ul>
+<li><code>.github/workflows/bot-deploy.yml</code></li>
+<li><code>.github/workflows/bot-tests.yml</code></li>
+</ul>
+<h2 id="deploy-commands">4) Deploy Commands</h2>
+<p>Primary path:</p>
+<pre><code class="language-bash">npm run bot:deploy:auto -- --target render --branch engine --env-only
+</code></pre>
+<p>Useful variants:</p>
+<pre><code class="language-bash">npm run bot:deploy:auto -- --target render --branch engine --env-only --with-render-smoke
+npm run bot:deploy:auto -- --target cloudflare --env-only --with-cloudflare-smoke
+npm run bot:deploy:auto -- --target both --branch engine --env-only --with-render-smoke --with-cloudflare-smoke
+</code></pre>
+<p>By default, <code>bot:deploy:auto</code> now runs a post-deploy sanity E2E check for Render (<code>telegram/scripts/postdeploy-sanity.js</code>).
+Skip it only when needed:</p>
+<pre><code class="language-bash">npm run bot:deploy:auto -- --target render --branch engine --env-only --skip-sanity
+</code></pre>
+<h2 id="what-automation-performs">5) What Automation Performs</h2>
+<ul>
+<li>Creates/reuses Render service</li>
+<li>Creates/reuses R2 bucket (if API token/account provided)</li>
+<li>Verifies R2 read/write/delete</li>
+<li>Syncs service environment variables</li>
+<li>Deploys service and waits for live status</li>
+<li>Registers Telegram webhook with <code>drop_pending_updates=true</code></li>
+</ul>
+<h2 id="post-deploy-checks">6) Post-Deploy Checks</h2>
+<ul>
+<li><code>GET /healthz</code> returns 200</li>
+<li>Send <code>/help</code> and <code>/about</code> in Telegram</li>
+<li>Send short text and verify:
+<ul>
+<li>prompt expansion notice for very short prompts</li>
+<li><code>/crazyness</code> value affects story invention intensity</li>
+<li>panel delivery starts as soon as panels are generated</li>
+<li>captions use <code>X(Y)</code> prefix format</li>
+<li>panel image watermark appears bottom-right (<code>made with Web2Comics</code>)</li>
+<li>messages/photos are forwardable (not content-protected)</li>
+</ul>
+</li>
+<li>Send URL and verify URL rendering flow works
+<ul>
+<li>bot prints exact parsed URL before extraction (<code>Detected link, parsing page: &lt;url&gt;</code>)</li>
+</ul>
+</li>
+<li>Sanity script (automatic in deploy wrapper):
+<ul>
+<li>health endpoint check</li>
+<li>webhook generation trigger</li>
+<li>R2 request-log marker detection</li>
+<li>R2 image growth (live provider path)</li>
+<li>Telegram <code>sendMessage</code> API probe</li>
+</ul>
+</li>
+</ul>
+<h2 id="rollbackhotfix">7) Rollback/Hotfix</h2>
+<ul>
+<li>Re-run deploy with previous branch/commit</li>
+<li>Keep webhook secret stable unless rotation is required</li>
+<li>If rotated, redeploy and re-register webhook immediately</li>
+</ul>
+
+    </article>
+    <div class="footer">
+      Generated from <code>telegram/docs/deployment-runbook.md</code> •
+      Creator: <a href="https://www.apartsin.com" target="_blank" rel="noopener noreferrer">www.apartsin.com</a>
+    </div>
+  </div>
+</body>
+</html>

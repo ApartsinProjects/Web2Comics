@@ -6,17 +6,49 @@ $ErrorActionPreference = 'Stop'
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $repo = (Resolve-Path (Join-Path $scriptDir '..')).Path
 $docsRoot = Join-Path $repo 'docs'
+$telegramRoot = Join-Path $repo 'telegram'
 $htmlRoot = Join-Path $docsRoot 'HTML'
 
 if (Test-Path $htmlRoot) { Remove-Item -Recurse -Force $htmlRoot }
 New-Item -ItemType Directory -Path $htmlRoot | Out-Null
 
-$mdFiles = Get-ChildItem -Path $docsRoot -Recurse -File -Filter *.md
+$mdSources = @()
+$docsMdFiles = Get-ChildItem -Path $docsRoot -Recurse -File -Filter *.md
+foreach ($f in $docsMdFiles) {
+  $rel = $f.FullName.Substring($docsRoot.Length + 1) -replace '\\','/'
+  $mdSources += [PSCustomObject]@{
+    FullName = $f.FullName
+    RelativeMd = $rel
+    RelativeHtml = ([System.IO.Path]::ChangeExtension($rel, '.html') -replace '\\','/')
+  }
+}
+
+$telegramDocsRoot = Join-Path $telegramRoot 'docs'
+if (Test-Path $telegramDocsRoot) {
+  $telegramMdFiles = Get-ChildItem -Path $telegramDocsRoot -Recurse -File -Filter *.md
+  foreach ($f in $telegramMdFiles) {
+    $rel = $f.FullName.Substring($telegramRoot.Length + 1) -replace '\\','/'
+    $mdSources += [PSCustomObject]@{
+      FullName = $f.FullName
+      RelativeMd = ('telegram/' + $rel)
+      RelativeHtml = ('telegram/' + ([System.IO.Path]::ChangeExtension($rel, '.html') -replace '\\','/'))
+    }
+  }
+}
+
+$telegramReadme = Join-Path $telegramRoot 'README.md'
+if (Test-Path $telegramReadme) {
+  $mdSources += [PSCustomObject]@{
+    FullName = $telegramReadme
+    RelativeMd = 'telegram/README.md'
+    RelativeHtml = 'telegram/README.html'
+  }
+}
+
 $rootHtmlFiles = Get-ChildItem -Path $docsRoot -File -Filter *.html
 $knownMd = @{}
-foreach ($md in $mdFiles) {
-  $rel = $md.FullName.Substring($docsRoot.Length + 1) -replace '\\','/'
-  $knownMd[$rel.ToLowerInvariant()] = [System.IO.Path]::ChangeExtension($rel, '.html') -replace '\\','/'
+foreach ($md in $mdSources) {
+  $knownMd[$md.RelativeMd.ToLowerInvariant()] = $md.RelativeHtml
 }
 $knownRootHtml = @{}
 foreach ($html in $rootHtmlFiles) {
@@ -141,9 +173,9 @@ function Convert-LinkTarget([string]$currentRelativeMd, [string]$target) {
   return $rebuilt
 }
 
-foreach ($file in $mdFiles) {
-  $relativeMd = $file.FullName.Substring($docsRoot.Length + 1) -replace '\\','/'
-  $relativeHtml = [System.IO.Path]::ChangeExtension($relativeMd, '.html')
+foreach ($file in $mdSources) {
+  $relativeMd = $file.RelativeMd
+  $relativeHtml = $file.RelativeHtml
   $outputPath = Join-Path $htmlRoot ($relativeHtml -replace '/', [System.IO.Path]::DirectorySeparatorChar)
   $outDir = Split-Path -Parent $outputPath
   if (!(Test-Path $outDir)) { New-Item -ItemType Directory -Path $outDir | Out-Null }
@@ -187,7 +219,7 @@ foreach ($file in $mdFiles) {
   try { $fragment = (ConvertFrom-Markdown -Path $tempPath).Html }
   finally { Remove-Item -Path $tempPath -Force -ErrorAction SilentlyContinue }
 
-  $title = [System.IO.Path]::GetFileNameWithoutExtension($file.Name)
+  $title = [System.IO.Path]::GetFileNameWithoutExtension([System.IO.Path]::GetFileName($file.FullName))
   $depth = ($relativeHtml.Split('/').Length) - 1
   $homePrefix = ''
   if ($depth -gt 0) { $homePrefix = ('../' * $depth) }
@@ -242,4 +274,4 @@ $fragment
   Set-Content -Path $outputPath -Value $page -Encoding UTF8
 }
 
-Write-Output "Converted $($mdFiles.Count) markdown files to HTML under docs/HTML"
+Write-Output "Converted $($mdSources.Count) markdown files to HTML under docs/HTML"

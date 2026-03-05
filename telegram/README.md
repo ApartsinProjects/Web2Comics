@@ -1,5 +1,11 @@
 # Web2Comic Telegram Bot
 
+[![Bot Docs](https://img.shields.io/badge/Bot%20Docs-GitHub%20Pages-0ea5e9?logo=githubpages&logoColor=white)](https://apartsinprojects.github.io/Web2Comics/HTML/telegram-bot.html)
+![Runtime](https://img.shields.io/badge/runtime-node%2020-3c873a)
+![Deploy](https://img.shields.io/badge/deploy-render-46E3B7?logo=render&logoColor=000000)
+![Storage](https://img.shields.io/badge/storage-Cloudflare%20R2-F48120?logo=cloudflare&logoColor=white)
+![Tests](https://img.shields.io/badge/tests-vitest-6E9F18?logo=vitest&logoColor=white)
+
 Telegram bot backend for Web2Comics.  
 The bot accepts text or URL messages, generates comic panels, and sends ordered panel images back to chat.
 
