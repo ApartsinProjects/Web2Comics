@@ -29,6 +29,10 @@ Bot docs:
 - Per-user settings and secrets
 - Persistent storage via Postgres + Cloudflare R2
 
+## Scope
+- This bridge page documents public user-facing behavior only.
+- Admin-only bot commands are intentionally excluded from published docs.
+
 ## Deploy
 ```bash
 npm run bot:deploy:auto -- --target render --branch engine --env-only

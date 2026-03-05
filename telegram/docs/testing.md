@@ -6,6 +6,10 @@ Cross references:
 - Bot docs bridge page (Markdown): [`../../docs/telegram-bot.md`](../../docs/telegram-bot.md)
 - Bot docs page (GitHub Pages): <https://apartsinprojects.github.io/Web2Comics/HTML/telegram-bot.html>
 
+Scope note:
+- Test flows here target public user behavior and deployment reliability.
+- Admin-only bot commands are intentionally excluded from published docs.
+
 ## Scope
 This document covers local, integration, and remote validation for the Render webhook bot.
 

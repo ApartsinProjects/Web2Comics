@@ -6,6 +6,10 @@ Cross references:
 - Bot docs bridge page (Markdown): [`../../docs/telegram-bot.md`](../../docs/telegram-bot.md)
 - Bot docs page (GitHub Pages): <https://apartsinprojects.github.io/Web2Comics/HTML/telegram-bot.html>
 
+Scope note:
+- Developer docs describe architecture, prompts, storage, and testing.
+- Admin-only bot commands are intentionally excluded from published command references.
+
 ## Architecture
 - Entry point: `telegram/src/webhook-bot.js`
 - Generator bridge: `telegram/src/generate.js`

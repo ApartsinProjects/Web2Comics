@@ -6,6 +6,10 @@ Cross references:
 - Bot docs bridge page (Markdown): [`../../docs/telegram-bot.md`](../../docs/telegram-bot.md)
 - Bot docs page (GitHub Pages): <https://apartsinprojects.github.io/Web2Comics/HTML/telegram-bot.html>
 
+Scope note:
+- This document covers deployment/runtime behavior only.
+- Admin-only bot commands are intentionally excluded from user documentation.
+
 Core bot docs:
 - [deployment-runbook.md](deployment-runbook.md)
 - [testing.md](testing.md)

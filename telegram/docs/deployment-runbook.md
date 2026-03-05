@@ -6,6 +6,10 @@ Cross references:
 - Bot docs bridge page (Markdown): [`../../docs/telegram-bot.md`](../../docs/telegram-bot.md)
 - Bot docs page (GitHub Pages): <https://apartsinprojects.github.io/Web2Comics/HTML/telegram-bot.html>
 
+Scope note:
+- This runbook documents deployment and operational checks only.
+- Admin-only bot commands are intentionally excluded from user-facing docs.
+
 ## Scope
 This runbook covers deployment of the Telegram webhook bot in `telegram/src/webhook-bot.js` with persistent storage in Cloudflare R2.
 

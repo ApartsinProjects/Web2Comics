@@ -1,0 +1,10 @@
+{
+  "generatedAt": "2026-02-26T08:08:04.874Z",
+  "provider": "gemini",
+  "model": "gemini-2.0-flash-exp-image-generation",
+  "prompt": "Create a polished visual abstract hero image for a Chrome extension named Web2Comics. Wide banner composition, clean modern flat illustration, friendly and professional. Show a left-to-right workflow with 4 stages: 1) a web page/article in a browser tab, 2) an AI processing/storyboard stage (robot/AI spark icon), 3) comic strip panels being generated, 4) a side panel viewer and an exported PNG image. Use bright colors, strong contrast, white or very light background, subtle gradients. No logos from other companies. No watermarks. No tiny unreadable text. If text is included, keep it minimal and legible: \"Web Page\", \"AI\", \"Comic\", \"Export\". Style should feel inviting for a README visual abstract. 16:9 landscape.",
+  "mimeType": "image/png",
+  "textParts": [
+    "I will generate a wide, 16:9 visual abstract hero image for the Chrome extension \"Web2Comics\". The illustration will use a clean, modern flat style with bright colors and strong contrast against a white background with subtle gradients. It will depict a left-to-right workflow in four stages: first, a simplified web page displayed in a browser tab labeled \"Web Page\"; second, an abstract AI processing or storyboard stage represented by a friendly robot icon emitting a spark, labeled \"AI\"; third, comic strip panels in the process of being generated; and fourth, a side panel viewer displaying a completed comic strip next to an exported PNG image icon, labeled \"Comic\" above the viewer and \"Export\" above the PNG icon.\n\n"
+  ]
+}

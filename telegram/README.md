@@ -15,6 +15,10 @@ Extension docs index (Markdown): [../docs/README.md](../docs/README.md)
 GitHub Pages bot docs: <https://apartsinprojects.github.io/Web2Comics/HTML/telegram-bot.html>
 Bot docs bridge page (Markdown): [../docs/telegram-bot.md](../docs/telegram-bot.md)
 
+## Documentation Scope
+- Bot documentation lists public user-facing commands and flows only.
+- Internal/admin-only commands are intentionally excluded from published docs.
+
 ## What It Does
 - Receives Telegram webhook updates
 - Detects text vs URL inputs

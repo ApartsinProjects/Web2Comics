@@ -6,6 +6,10 @@ Cross references:
 - Bot docs bridge page (Markdown): [`../../docs/telegram-bot.md`](../../docs/telegram-bot.md)
 - Bot docs page (GitHub Pages): <https://apartsinprojects.github.io/Web2Comics/HTML/telegram-bot.html>
 
+Scope note:
+- This manual documents public user commands and flows only.
+- Admin-only bot commands are intentionally excluded.
+
 ## What The Bot Does
 Send plain text or a URL, and the bot generates comic panels and sends them back as ordered Telegram images.
 

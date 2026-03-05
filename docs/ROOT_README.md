@@ -1,7 +1,7 @@
 # Web2Comics: AI-Powered Chrome Extension That Turns Any Web Page Into a Comic-Strip Summary
 
 <p align="center">
-  <img src="docs/visual-abstract-gemini.png" alt="Web2Comics visual abstract" width="760">
+  <img src="visual-abstract-gemini.png" alt="Web2Comics visual abstract" width="760">
 </p>
 
 Web2Comics is a Chrome extension that:
@@ -27,7 +27,7 @@ Release links:
 7. Select the extracted folder that contains `manifest.json` (for example `Web2Comics-v1.0.3`).
 8. In `chrome://extensions`, confirm the `Web2Comics` card is enabled (toggle ON).
 9. Open the Chrome Extensions menu (puzzle icon), find `Web2Comics`, and click the pin icon to show it in the toolbar.
-10. Open the extension and configure a [`Google Gemini` API key (free tier)](docs/Gemini_key.md) in `Options -> Providers` (recommended first-run setup).
+10. Open the extension and configure a [`Google Gemini` API key (free tier)](Gemini_key.md) in `Options -> Providers` (recommended first-run setup).
 11. Open any article, click `Create Comic`, and generate a 3-panel summary.
 
 Note: `Code -> Download ZIP` downloads the full source repository. Use the release asset ZIP for installation.
@@ -75,7 +75,7 @@ Web2Comics also supports automatic fallback to other configured providers when a
 ## Example
 
 <p align="center">
-  <img src="samples/screen.png" alt="Web2Comics example output" width="720">
+  <img src="my-collection-collage.png" alt="Web2Comics example output" width="720">
 </p>
 
 ## First-Time Setup (Recommended Free-Tier Start)
@@ -89,7 +89,7 @@ Why: this reduces token/image usage and improves chances of success on free-tier
 
 If Gemini free tier is unavailable for your account/region, configure another provider (Cloudflare, OpenRouter, Hugging Face, OpenAI). Web2Comics can fall back automatically to other configured providers on quota/budget failures.
 
-Need a Gemini key for the free tier? See [`docs/Gemini_key.md`](docs/Gemini_key.md).
+Need a Gemini key for the free tier? See [`Gemini_key.md`](Gemini_key.md).
 
 ## Provider Keys / Tokens
 
@@ -101,8 +101,8 @@ The extension includes:
 - `Test Text Model` / `Test Image Model` buttons (where supported)
 
 For step-by-step key/token instructions, see:
-- [`docs/user-manual.html`](user-manual.html) (appendix)
-- [`docs/Gemini_key.md`](docs/Gemini_key.md) (quick Gemini API key setup for free tier access)
+- [`user-manual.html`](user-manual.html) (appendix)
+- [`Gemini_key.md`](Gemini_key.md) (quick Gemini API key setup for free tier access)
 
 ## Requirements / Compatibility
 

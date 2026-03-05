@@ -2,6 +2,10 @@
 
 This document lists the data-focused files used by the bot/engine, what each file represents, and where it is located.
 
+Scope note:
+- This reference is limited to public architecture/data behavior.
+- Admin-only bot commands are intentionally excluded from documentation.
+
 ## Bot Data Modules (`telegram/src/data`)
 
 | File | Represents | Used By |

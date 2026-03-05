@@ -6,6 +6,10 @@ Cross references:
 - Bot docs bridge page (Markdown): [`../../docs/telegram-bot.md`](../../docs/telegram-bot.md)
 - Bot docs page (GitHub Pages): <https://apartsinprojects.github.io/Web2Comics/HTML/telegram-bot.html>
 
+Scope note:
+- Storage behavior is documented for public deployment/usage only.
+- Admin-only bot commands are intentionally excluded from docs.
+
 ## Storage classes used
 - `logs/requests/` for request audit records.
 - `crash-logs/` for crash records and latest pointer.

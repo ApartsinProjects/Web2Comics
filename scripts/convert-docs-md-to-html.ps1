@@ -12,6 +12,19 @@ $htmlRoot = Join-Path $docsRoot 'HTML'
 if (Test-Path $htmlRoot) { Remove-Item -Recurse -Force $htmlRoot }
 New-Item -ItemType Directory -Path $htmlRoot | Out-Null
 
+# Copy static docs assets (images/json/html/etc.) into docs/HTML so generated pages
+# can resolve local references without escaping the published docs root.
+$assetFiles = Get-ChildItem -Path $docsRoot -Recurse -File | Where-Object {
+  ($_.FullName -notlike "$htmlRoot*") -and ($_.Extension -ne '.md') -and ($_.Extension -ne '.html')
+}
+foreach ($asset in $assetFiles) {
+  $rel = $asset.FullName.Substring($docsRoot.Length + 1)
+  $dest = Join-Path $htmlRoot $rel
+  $destDir = Split-Path -Parent $dest
+  if (!(Test-Path $destDir)) { New-Item -ItemType Directory -Path $destDir | Out-Null }
+  Copy-Item -Path $asset.FullName -Destination $dest -Force
+}
+
 $mdSources = @()
 $docsMdFiles = Get-ChildItem -Path $docsRoot -Recurse -File -Filter *.md
 foreach ($f in $docsMdFiles) {
@@ -81,7 +94,6 @@ function Resolve-DocHtmlTarget([string]$currentRelativeMd, [string]$target) {
   $base = $parts.base
   $suffix = $parts.suffix
   $normalized = ($base -replace '\\','/').Trim()
-  if ($normalized -match '^docs/') { $normalized = $normalized.Substring(5) }
   $normalized = $normalized.TrimStart('/')
 
   if (!$normalized.ToLowerInvariant().EndsWith('.md')) { return $null }
@@ -93,6 +105,7 @@ function Resolve-DocHtmlTarget([string]$currentRelativeMd, [string]$target) {
 
   $baseUri = [Uri]('https://local/' + $currentDir)
   $resolved = [Uri]::new($baseUri, $normalized).AbsolutePath.TrimStart('/')
+  if ($resolved.ToLowerInvariant().StartsWith('docs/')) { $resolved = $resolved.Substring(5) }
   $resolvedLower = $resolved.ToLowerInvariant()
   if ($resolvedLower -eq $currentRelativeMd.ToLowerInvariant()) { return $null }
   if (-not $knownMd.ContainsKey($resolvedLower)) { return $null }
@@ -113,7 +126,6 @@ function Resolve-DocsRootHtmlTarget([string]$currentRelativeMd, [string]$target)
   $base = $parts.base
   $suffix = $parts.suffix
   $normalized = ($base -replace '\\','/').Trim()
-  if ($normalized -match '^docs/') { $normalized = $normalized.Substring(5) }
   $normalized = $normalized.TrimStart('/')
   if (!$normalized.ToLowerInvariant().EndsWith('.html')) { return $null }
 
@@ -124,6 +136,7 @@ function Resolve-DocsRootHtmlTarget([string]$currentRelativeMd, [string]$target)
 
   $baseUri = [Uri]('https://local/' + $currentDir)
   $resolved = [Uri]::new($baseUri, $normalized).AbsolutePath.TrimStart('/')
+  if ($resolved.ToLowerInvariant().StartsWith('docs/')) { $resolved = $resolved.Substring(5) }
   $resolvedLower = $resolved.ToLowerInvariant()
   if (-not $knownRootHtml.ContainsKey($resolvedLower)) { return $null }
 
