@@ -47,6 +47,9 @@
     "test:render:full-stack": "npm run test:telegram:full-stack",
     "test:render:predeploy": "npm run test:telegram:predeploy",
     "cloudflare:create-tokens": "node scripts/cloudflare/create-scoped-tokens.js",
+    "fetch_logs": "node scripts/fetch_logs.js",
+    "analyze_logs": "node scripts/analyze_logs.js",
+    "tail_crash_log": "node scripts/tail_crash_log.js",
     "test:cloudflare": "vitest run -c cloudflare/vitest.config.mjs",
     "deploy:cloudflare": "node cloudflare/scripts/deploy-worker.js",
     "test:cloudflare:smoke": "node cloudflare/scripts/smoke-test.js"

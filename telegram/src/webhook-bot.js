@@ -12,6 +12,7 @@ const { createKnownUsersStoreFromEnv } = require('./known-users-store');
 const { redactSensitiveText } = require('./redact');
 const { createCrashLogStoreFromEnv, FileCrashLogStore } = require('./crash-log-store');
 const { createRequestLogStoreFromEnv } = require('./request-log-store');
+const { normalizeCloudflareR2Endpoint } = require('./r2-endpoint');
 const {
   classifyMessageInput,
   isLikelyWebPageUrl,
@@ -42,6 +43,7 @@ const {
 } = require('./data/messages');
 const { buildStoryboardPrompt } = require('../../engine/src/prompts');
 const { buildPanelImagePrompt, buildStyleReferencePrompt } = require('../../engine/src');
+const { generateTextWithProvider, generateImageWithProvider } = require('../../engine/src/providers');
 const { buildInventStoryPrompt } = require('./generate');
 const { composeComicSheet } = require('../../engine/src/compose');
 const packageJson = require('../../package.json');
@@ -53,6 +55,37 @@ loadEnvFiles([
   path.join(repoRoot, 'comicbot/.env'),
   path.join(repoRoot, 'telegram/.env')
 ]);
+
+process.env.R2_S3_ENDPOINT = normalizeCloudflareR2Endpoint(
+  String(process.env.R2_S3_ENDPOINT || '').trim(),
+  String(process.env.CLOUDFLARE_ACCOUNT_ID || '').trim()
+);
+
+function parseAllowAllFlag(value) {
+  const text = String(value == null ? '' : value).trim().toLowerCase();
+  return text === '1' || text === 'true' || text === 'yes' || text === 'on';
+}
+
+function parseAllowedChats(rawValue, allowAllFlag) {
+  const raw = String(rawValue == null ? '' : rawValue).trim();
+  const normalized = raw.toLowerCase();
+  if (allowAllFlag || !raw || normalized === 'all' || normalized === '*') {
+    return { allowAll: true, ids: [] };
+  }
+  const ids = raw
+    .split(',')
+    .map((v) => Number(String(v || '').trim()))
+    .filter((n) => Number.isFinite(n));
+  return {
+    allowAll: ids.length === 0,
+    ids
+  };
+}
+
+const allowedChatConfig = parseAllowedChats(
+  process.env.COMICBOT_ALLOWED_CHAT_IDS,
+  parseAllowAllFlag(process.env.RENDER_ALLOW_ALL_CHATS)
+);
 
 const runtime = {
   repoRoot,
@@ -68,8 +101,8 @@ const runtime = {
   r2ImageStatusKey: String(process.env.R2_IMAGE_STATUS_KEY || 'status/image-storage-status.json').trim(),
   fetchTimeoutMs: Math.max(5000, Number(process.env.RENDER_BOT_FETCH_TIMEOUT_MS || 45000)),
   debugArtifacts: String(process.env.RENDER_BOT_DEBUG_ARTIFACTS || '').toLowerCase() === 'true',
-  allowedChatIds: String(process.env.COMICBOT_ALLOWED_CHAT_IDS || '')
-    .split(',').map((v) => Number(v.trim())).filter((n) => Number.isFinite(n))
+  allowedChatIds: allowedChatConfig.ids,
+  allowAllChats: allowedChatConfig.allowAll
 };
 const notifyOnStart = String(process.env.TELEGRAM_NOTIFY_ON_START || '').trim().toLowerCase() === 'true';
 const notifyChatId = Number(process.env.TELEGRAM_NOTIFY_CHAT_ID || 0);
@@ -95,6 +128,7 @@ const processedUpdatesTtlMs = Math.max(60000, Number(process.env.RENDER_BOT_UPDA
 let coldStartNoticePending = true;
 let crashStore;
 let crashStoreMode = 'unknown';
+const localCrashLogDir = path.resolve(process.env.RENDER_BOT_LOCAL_CRASH_DIR || path.join(repoRoot, 'crash_log'));
 const BOT_PROCESS_START_TIME = new Date().toISOString();
 const BOT_TEST_MODE = String(process.env.RENDER_BOT_TEST_MODE || process.env.RENDER_BOT_FAKE_GENERATOR || '')
   .trim()
@@ -134,18 +168,63 @@ function normalizeErrorPayload(errorLike) {
   };
 }
 
+function sanitizeCrashValue(value, sensitiveValues) {
+  if (value == null) return value;
+  if (typeof value === 'string') {
+    const clipped = value.length > 4000 ? `${value.slice(0, 4000)}...` : value;
+    return redactSensitiveText(clipped, sensitiveValues);
+  }
+  if (typeof value === 'number' || typeof value === 'boolean') return value;
+  if (Array.isArray(value)) {
+    return value.slice(0, 40).map((v) => sanitizeCrashValue(v, sensitiveValues));
+  }
+  if (typeof value === 'object') {
+    const out = {};
+    Object.entries(value).slice(0, 80).forEach(([k, v]) => {
+      out[k] = sanitizeCrashValue(v, sensitiveValues);
+    });
+    return out;
+  }
+  return String(value);
+}
+
+function writeLocalCrashDiagnostics(payload) {
+  try {
+    fs.mkdirSync(localCrashLogDir, { recursive: true });
+    const ts = String(payload?.timestamp || new Date().toISOString());
+    const safeTs = ts.replace(/[:.]/g, '-');
+    const suffix = Math.random().toString(36).slice(2, 8);
+    const filePath = path.join(localCrashLogDir, `${safeTs}-${suffix}.json`);
+    fs.writeFileSync(filePath, JSON.stringify(payload, null, 2), 'utf8');
+    const latestPath = path.join(localCrashLogDir, 'latest.json');
+    fs.writeFileSync(latestPath, JSON.stringify({ filePath, timestamp: ts, event: payload?.event || 'unknown' }, null, 2), 'utf8');
+    const linePath = path.join(localCrashLogDir, 'events.log');
+    const line = `${ts} | ${String(payload?.event || 'unknown')} | ${String(payload?.error?.message || '').replace(/\s+/g, ' ').slice(0, 600)}\n`;
+    fs.appendFileSync(linePath, line, 'utf8');
+  } catch (localError) {
+    console.error('[render-bot] failed to write local crash diagnostics:', localError && localError.message ? localError.message : String(localError));
+  }
+}
+
 async function persistCrash(event, errorLike, context = {}) {
-  if (!crashStore || typeof crashStore.appendCrash !== 'function') return;
-  const error = normalizeErrorPayload(errorLike);
+  const sensitiveValues = collectSensitiveValues(0);
+  const error = sanitizeCrashValue(normalizeErrorPayload(errorLike), sensitiveValues);
+  const safeContext = sanitizeCrashValue(context || {}, sensitiveValues);
   const payload = {
     event: String(event || 'unknown'),
     pid: process.pid,
     crashStoreMode,
     node: process.version,
+    cwd: process.cwd(),
+    platform: process.platform,
+    uptimeSec: Math.floor(process.uptime()),
+    memory: process.memoryUsage(),
     timestamp: new Date().toISOString(),
     error,
-    context: context || {}
+    context: safeContext
   };
+  writeLocalCrashDiagnostics(payload);
+  if (!crashStore || typeof crashStore.appendCrash !== 'function') return;
   try {
     await crashStore.appendCrash(payload);
   } catch (persistError) {
@@ -193,6 +272,13 @@ async function safeNotifyUser(chatId, text) {
   }
 }
 
+async function notifyAdmins(text) {
+  const targets = Array.from(new Set((adminChatIds || []).map((id) => Number(id)).filter((id) => Number.isFinite(id) && id > 0)));
+  for (const id of targets) {
+    await safeNotifyUser(id, text);
+  }
+}
+
 function normalizeUpdateSource(update, message) {
   const raw = String(update?.source || message?.source || '').trim().toLowerCase();
   if (!raw) return '';
@@ -237,6 +323,7 @@ function runBackgroundTask(label, fn) {
     .then(fn)
     .catch((error) => {
       console.error(`[render-bot] ${label} failed:`, error && error.message ? error.message : String(error));
+      persistCrash('backgroundTaskError', error, { label }).catch(() => {});
     });
 }
 
@@ -298,7 +385,7 @@ function providerProvisioningMessage(providerName, missingKeys) {
 
 function isAllowedChat(chatId) {
   if (isAdminChat(chatId)) return true;
-  if (!runtime.allowedChatIds.length) return true;
+  if (runtime.allowAllChats || !runtime.allowedChatIds.length) return true;
   return runtime.allowedChatIds.includes(Number(chatId));
 }
 
@@ -527,6 +614,70 @@ function buildModelsStatusMessage(chatId, target = '') {
   lines.push('Usage: /models');
   lines.push('Usage: /models text <model>');
   lines.push('Usage: /models image <model>');
+  return lines.join('\n');
+}
+
+function shortenProbeError(errorLike) {
+  const raw = String(errorLike?.message || errorLike || '').replace(/\s+/g, ' ').trim();
+  if (!raw) return 'unknown error';
+  return raw.length > 180 ? `${raw.slice(0, 180)}...` : raw;
+}
+
+function getProbeTargets() {
+  const out = [];
+  for (const provider of PROVIDER_NAMES) {
+    const section = PROVIDER_MODEL_CATALOG[provider] || {};
+    const textModels = Array.isArray(section.text) ? section.text : [];
+    const imageModels = Array.isArray(section.image) ? section.image : [];
+    textModels.forEach((model) => out.push({ provider, kind: 'text', model: String(model || '').trim() }));
+    imageModels.forEach((model) => out.push({ provider, kind: 'image', model: String(model || '').trim() }));
+  }
+  return out.filter((row) => row.model);
+}
+
+function createProbeProviderConfig(target) {
+  const provider = String(target?.provider || '').trim().toLowerCase();
+  const model = String(target?.model || '').trim();
+  const cfg = { provider, model };
+  if (provider === 'cloudflare') {
+    cfg.account_id = String(process.env.CLOUDFLARE_ACCOUNT_ID || '').trim();
+    cfg.api_token = String(process.env.CLOUDFLARE_API_TOKEN || '').trim();
+  }
+  return cfg;
+}
+
+async function runProviderAvailabilityCheck(chatId) {
+  configStore.applySecretsToEnv(chatId);
+  const lines = ['Availability report:'];
+  const targets = getProbeTargets();
+  const runtimeConfig = { timeout_ms: 45000 };
+
+  for (const target of targets) {
+    const missing = getMissingProviderKeys(chatId, target.provider);
+    if (missing.length) {
+      lines.push(`[SKIP] ${target.provider}/${target.kind}/${target.model} :: missing keys: ${missing.join(', ')}`);
+      continue;
+    }
+    try {
+      const cfg = createProbeProviderConfig(target);
+      if (target.kind === 'text') {
+        const output = await generateTextWithProvider(cfg, 'health check: return one short line', runtimeConfig);
+        const snippet = String(output || '').trim().slice(0, 60);
+        lines.push(`[OK] ${target.provider}/${target.kind}/${target.model}${snippet ? ` :: ${snippet}` : ''}`);
+      } else {
+        const image = await generateImageWithProvider(
+          cfg,
+          'Generate a simple abstract scene with no text.',
+          runtimeConfig
+        );
+        const bytes = Number(Buffer.isBuffer(image?.buffer) ? image.buffer.length : 0);
+        lines.push(`[OK] ${target.provider}/${target.kind}/${target.model} :: bytes=${bytes}`);
+      }
+    } catch (error) {
+      lines.push(`[FAIL] ${target.provider}/${target.kind}/${target.model} :: ${shortenProbeError(error)}`);
+    }
+  }
+
   return lines.join('\n');
 }
 
@@ -1289,6 +1440,13 @@ async function handleCommand(chatId, text) {
     return true;
   }
 
+  if (command === '/test') {
+    await api.sendMessage(chatId, 'Running provider/model availability checks...');
+    const report = await runProviderAvailabilityCheck(chatId);
+    await sendLongMessage(chatId, report);
+    return true;
+  }
+
   if (command === '/language') {
     const value = String(parts[1] || '').trim().toLowerCase();
     const options = getOptions('generation.output_language');
@@ -1837,7 +1995,8 @@ async function processMessage(message, context = {}) {
     }
 
     if (!isAllowedChat(chatId)) {
-      console.warn(`[render-bot] denied chat ${chatId}; allowlist=${runtime.allowedChatIds.join(',') || '(none)'} admins=${adminChatIds.join(',') || '(none)'}`);
+      const allowlistLabel = runtime.allowAllChats ? 'all' : (runtime.allowedChatIds.join(',') || '(none)');
+      console.warn(`[render-bot] denied chat ${chatId}; allowlist=${allowlistLabel} admins=${adminChatIds.join(',') || '(none)'}`);
       await api.sendMessage(chatId, 'Access denied for this bot instance.');
       runBackgroundTask('record denied interaction', () => safeRecordInteraction(chatId, {
         kind: incoming.kind,
@@ -2131,6 +2290,13 @@ async function processMessage(message, context = {}) {
       config: configStore.getEffectiveConfig(chatId)
     }, userMeta));
   } catch (error) {
+    await persistCrash('processMessageError', error, {
+      chatId,
+      incomingKind: incoming?.kind || '',
+      incomingCommand: incoming?.command || '',
+      inputPreview: String(text || '').slice(0, 2000),
+      updateSource: String(context?.source || '')
+    });
     const debugPromptsEnabled = Boolean(configStore && configStore.getCurrent(chatId, 'generation.debug_prompts'));
     if (debugPromptsEnabled) {
       const stack = String(error?.stack || '').split('\n').slice(0, 5).join('\n');
@@ -2167,6 +2333,12 @@ function enqueueUpdate(update) {
     })
     .catch(async (error) => {
       const targetChatId = Number(update?.message?.chat?.id || 0);
+      await persistCrash('queueJobError', error, {
+        chatId: targetChatId,
+        updateId: Number(update?.update_id || 0),
+        source: String(updateSource || ''),
+        textPreview: String(update?.message?.text || update?.message?.caption || '').slice(0, 2000)
+      });
       await safeNotifyUser(targetChatId, `Unexpected bot error: ${String(error?.message || error)}`);
       await safeRecordInteraction(targetChatId, {
         kind: 'command',
@@ -2276,6 +2448,25 @@ async function startServer() {
   requestLogStore = requestStore.impl;
   requestLogStoreMode = requestStore.mode;
 
+  async function runStartupSelfChecks() {
+    if (String(crashStoreMode || '').toLowerCase() !== 'r2') return;
+    if (!crashStore || typeof crashStore.healthCheck !== 'function') {
+      await notifyAdmins('[alert] crash-log storage self-check unavailable (r2 mode without healthCheck).');
+      return;
+    }
+    const health = await crashStore.healthCheck();
+    if (health && health.ok) return;
+    const lines = [
+      '[alert] crash-log storage is unreachable.',
+      `mode: ${crashStoreMode}`,
+      `endpoint: ${String(process.env.R2_S3_ENDPOINT || '').trim() || '-'}`,
+      `bucket: ${String(process.env.R2_BUCKET || '').trim() || '-'}`,
+      `error: ${String(health?.error || 'unknown')}`
+    ];
+    if (health?.code) lines.push(`code: ${String(health.code)}`);
+    await notifyAdmins(lines.join('\n'));
+  }
+
   const server = http.createServer(async (req, res) => {
     try {
       if (req.method === 'GET' && req.url === '/healthz') {
@@ -2306,6 +2497,10 @@ async function startServer() {
 
       sendJson(res, 404, { ok: false, error: 'not found' });
     } catch (error) {
+      await persistCrash('httpRequestError', error, {
+        method: String(req?.method || ''),
+        url: String(req?.url || '')
+      });
       sendJson(res, 500, { ok: false, error: String(error?.message || error) });
     }
   });
@@ -2316,6 +2511,7 @@ async function startServer() {
     console.log(`[render-bot] webhook path: ${webhookPath}`);
     console.log(`[render-bot] persistence: ${persistenceMode.mode}`);
     console.log(`[render-bot] crash logs: ${crashStoreMode}`);
+    console.log(`[render-bot] local crash diagnostics: ${localCrashLogDir}`);
     console.log(`[render-bot] request logs: ${requestLogStoreMode}`);
     console.log(`[render-bot] blacklist store: ${blacklistStoreMode}`);
     console.log(`[render-bot] known users store: ${knownUsersStoreMode}`);
@@ -2323,6 +2519,9 @@ async function startServer() {
     console.log('[render-bot] ready');
     notifyDeploymentReady().catch((error) => {
       console.error('[render-bot] deployment notification failed:', error && error.message ? error.message : String(error));
+    });
+    runStartupSelfChecks().catch((error) => {
+      console.error('[render-bot] startup self-check failed:', error && error.message ? error.message : String(error));
     });
   });
 }

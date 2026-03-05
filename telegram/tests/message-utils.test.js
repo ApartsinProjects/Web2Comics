@@ -2,7 +2,8 @@ const {
   classifyMessageInput,
   extractFirstUrl,
   inferLikelyWebUrlFromText,
-  extractMessageInputText
+  extractMessageInputText,
+  extractFirstUrlLikeToken
 } = require('../src/message-utils');
 
 describe('message utils URL parsing', () => {
@@ -59,8 +60,39 @@ describe('message utils URL parsing', () => {
     expect(inferLikelyWebUrlFromText('www.example.com')).toBe('https://www.example.com/');
   });
 
+  it('classifies bare URL text without protocol as URL', () => {
+    const out1 = classifyMessageInput('www.cnn.com');
+    expect(out1.kind).toBe('url');
+    expect(out1.value).toBe('https://www.cnn.com/');
+    const out2 = classifyMessageInput('cnn.com/world');
+    expect(out2.kind).toBe('url');
+    expect(out2.value).toBe('https://cnn.com/world');
+  });
+
+  it('normalizes malformed protocol slashes and classifies as URL', () => {
+    const out = classifyMessageInput('http:\\\\www.cnn.com');
+    expect(out.kind).toBe('url');
+    expect(out.value).toBe('http://www.cnn.com');
+    const mixed = classifyMessageInput('see this http:\\\\example.com/news now');
+    expect(mixed.kind).toBe('url');
+    expect(mixed.value).toBe('http://example.com/news');
+  });
+
   it('does not infer URL from plain short phrase', () => {
     expect(inferLikelyWebUrlFromText('Space cat')).toBe('');
+  });
+
+  it('detects URL-like host token inside short text', () => {
+    expect(extractFirstUrlLikeToken('please open cnn.com now')).toBe('https://cnn.com/');
+    const out = classifyMessageInput('please open cnn.com now');
+    expect(out.kind).toBe('url');
+    expect(out.value).toBe('https://cnn.com/');
+  });
+
+  it('detects URL-like token with malformed protocol inside short text', () => {
+    const out = classifyMessageInput('go to https:\\\\cnn.com/world');
+    expect(out.kind).toBe('url');
+    expect(out.value).toBe('https://cnn.com/world');
   });
 
   it('extracts and merges multiple telegram text fields', () => {

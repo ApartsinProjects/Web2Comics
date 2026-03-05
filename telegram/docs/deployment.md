@@ -13,6 +13,7 @@ Core bot docs:
 - [developer-guide.md](developer-guide.md)
 - [operations.md](operations.md)
 - [storage-r2.md](storage-r2.md)
+- [data-reference.md](data-reference.md)
 
 Quick deploy:
 ```bash

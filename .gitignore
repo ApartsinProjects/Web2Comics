@@ -29,6 +29,7 @@ engine/out/
 telegram/out/
 telegram/cfgs/
 telegram/data/
+crash_log/
 comicbot/out/
 tmp/
 temp/

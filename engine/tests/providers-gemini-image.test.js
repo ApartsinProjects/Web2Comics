@@ -69,5 +69,81 @@ describe('gemini image provider resilience', () => {
       { timeout_ms: 5000 }
     )).rejects.toThrow('Gemini image response did not include inline image bytes');
   });
-});
 
+  it('falls back to gemini-2.5-flash-image on daily quota (RPD) 429 errors', async () => {
+    process.env.GEMINI_API_KEY = 'TEST_KEY';
+    const calls = [];
+    global.fetch = async (url, init) => {
+      calls.push({ url: String(url), body: JSON.parse(String(init?.body || '{}')) });
+      if (calls.length <= 2) {
+        return mockJsonResponse({
+          error: {
+            message: 'You exceeded your current quota. Request per day (RPD) limit reached. Please migrate to Gemini 2.5 Flash Image.'
+          }
+        }, 429);
+      }
+      return mockJsonResponse({
+        candidates: [{
+          content: {
+            parts: [{
+              inlineData: {
+                mimeType: 'image/png',
+                data: Buffer.from('fallback-image').toString('base64')
+              }
+            }]
+          }
+        }]
+      });
+    };
+
+    const out = await generateImageWithProvider(
+      { provider: 'gemini', model: 'gemini-2.0-flash-exp-image-generation' },
+      'Draw a mountain skyline at sunset',
+      { timeout_ms: 5000 }
+    );
+    expect(Buffer.isBuffer(out.buffer)).toBe(true);
+    expect(out.mimeType).toBe('image/png');
+    expect(calls.length).toBeGreaterThanOrEqual(3);
+    expect(calls[0].url).toContain('/models/gemini-2.0-flash-exp-image-generation:generateContent');
+    expect(calls.some((c) => c.url.includes('/models/gemini-2.5-flash-image:generateContent'))).toBe(true);
+  });
+
+  it('does not switch model on per-minute quota 429 errors', async () => {
+    process.env.GEMINI_API_KEY = 'TEST_KEY';
+    const calls = [];
+    global.fetch = async (url, init) => {
+      calls.push({ url: String(url), body: JSON.parse(String(init?.body || '{}')) });
+      return mockJsonResponse({
+        error: {
+          message: 'Rate limit exceeded',
+          details: [
+            {
+              '@type': 'type.googleapis.com/google.rpc.QuotaFailure',
+              violations: [
+                {
+                  quotaMetric: 'generativelanguage.googleapis.com/generate_content_requests_per_minute',
+                  quotaId: 'GenerateContentRequestsPerMinutePerProjectPerModel',
+                  quotaDimensions: { model: 'gemini-2.0-flash-exp-image-generation' }
+                }
+              ]
+            },
+            {
+              '@type': 'type.googleapis.com/google.rpc.RetryInfo',
+              retryDelay: '30s'
+            }
+          ]
+        }
+      }, 429);
+    };
+
+    await expect(generateImageWithProvider(
+      { provider: 'gemini', model: 'gemini-2.0-flash-exp-image-generation' },
+      'Draw a futuristic city skyline',
+      { timeout_ms: 5000 }
+    )).rejects.toThrow('PerMinute');
+
+    expect(calls.length).toBe(2);
+    expect(calls.every((c) => c.url.includes('/models/gemini-2.0-flash-exp-image-generation:generateContent'))).toBe(true);
+    expect(calls.some((c) => c.url.includes('/models/gemini-2.5-flash-image:generateContent'))).toBe(false);
+  });
+});

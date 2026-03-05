@@ -71,6 +71,7 @@ function buildHelpMessage(chatId, options = {}) {
     '/text_vendor <name> - set text provider only.',
     '/image_vendor <name> - set image provider only.',
     '/models [text|image] [model] - list/set model for current provider.',
+    '/test - probe provider/model availability and print report.',
     '/prompts - print active prompt templates and objective overrides.',
     '/set_prompt story <text> - override story prompt.',
     '/set_prompt panel <text> - override panel prompt fragment.',

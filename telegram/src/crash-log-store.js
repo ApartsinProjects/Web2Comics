@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const { createWriteLockClientFromEnv } = require('./r2-write-lock');
+const { normalizeCloudflareR2Endpoint } = require('./r2-endpoint');
 
 function randomId() {
   return Math.random().toString(36).slice(2, 10);
@@ -140,6 +141,15 @@ class S3Adapter {
       Bucket: bucket,
       Key: key
     }));
+  }
+
+  async verifyAccess(bucket, prefix = '') {
+    await this.client.send(new this.ListObjectsV2Command({
+      Bucket: bucket,
+      Prefix: String(prefix || ''),
+      MaxKeys: 1
+    }));
+    return true;
   }
 }
 
@@ -297,10 +307,25 @@ class R2CrashLogStore {
       return null;
     }
   }
+
+  async healthCheck() {
+    try {
+      await this.adapter.verifyAccess(this.bucket, this.prefix);
+      return { ok: true };
+    } catch (error) {
+      return {
+        ok: false,
+        error: String(error && error.message ? error.message : error),
+        code: String(error && (error.Code || error.code || error.name) ? (error.Code || error.code || error.name) : '')
+      };
+    }
+  }
 }
 
 function createCrashLogStoreFromEnv() {
-  const endpoint = String(process.env.R2_S3_ENDPOINT || '').trim();
+  const accountId = String(process.env.CLOUDFLARE_ACCOUNT_ID || '').trim();
+  const endpoint = normalizeCloudflareR2Endpoint(String(process.env.R2_S3_ENDPOINT || '').trim(), accountId);
+  if (endpoint) process.env.R2_S3_ENDPOINT = endpoint;
   const bucket = String(process.env.R2_BUCKET || '').trim();
   const accessKeyId = String(process.env.R2_ACCESS_KEY_ID || '').trim();
   const secretAccessKey = String(process.env.R2_SECRET_ACCESS_KEY || '').trim();

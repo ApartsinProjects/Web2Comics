@@ -11,18 +11,36 @@ function looksLikeUrl(value) {
 }
 
 function normalizeUrlCandidate(value) {
-  return String(value || '')
+  let out = String(value || '')
     .trim()
     .replace(/[)\].,!?;:]+$/, '');
+  if (/^https?:[\\/]+/i.test(out)) {
+    out = out.replace(/^([a-z]+):[\\/]+/i, '$1://');
+  }
+  if (/^https?:\/\//i.test(out)) {
+    out = out.replace(/\\/g, '/');
+  }
+  return out;
 }
 
 function extractFirstUrl(value) {
   const text = String(value || '').trim();
   if (!text) return '';
-  const match = text.match(/https?:\/\/[^\s<>"'`]+/i);
+  const match = text.match(/https?:[\\/]{2}[^\s<>"'`]+/i);
   if (!match || !match[0]) return '';
   const candidate = normalizeUrlCandidate(match[0]);
   return looksLikeUrl(candidate) ? candidate : '';
+}
+
+function extractFirstUrlLikeToken(value) {
+  const text = String(value || '').trim();
+  if (!text) return '';
+  const tokens = text.split(/\s+/).map((t) => normalizeUrlCandidate(t)).filter(Boolean);
+  for (const token of tokens) {
+    const inferred = inferLikelyWebUrlFromText(token);
+    if (inferred) return inferred;
+  }
+  return '';
 }
 
 function stripUrls(value) {
@@ -142,6 +160,14 @@ function classifyMessageInput(text) {
     if (isLikelyWebPageUrl(candidate)) return { kind: 'url', value: candidate };
     return { kind: 'text', value };
   }
+  const inferredDirect = inferLikelyWebUrlFromText(value);
+  if (inferredDirect && !isLongStoryText(value)) {
+    return { kind: 'url', value: inferredDirect };
+  }
+  const tokenUrl = extractFirstUrlLikeToken(value);
+  if (tokenUrl && !isLongStoryText(value)) {
+    return { kind: 'url', value: tokenUrl };
+  }
   const firstUrl = extractFirstUrl(value);
   if (firstUrl && isLikelyWebPageUrl(firstUrl)) {
     // If user sent a full story and included a reference URL, treat as text story.
@@ -158,6 +184,7 @@ module.exports = {
   isLikelyWebPageUrl,
   extractTextFallbackFromUrlMessage,
   inferLikelyWebUrlFromText,
-  extractMessageInputText
+  extractMessageInputText,
+  extractFirstUrlLikeToken
 };
 const { LONG_STORY_TEXT_MIN_CHARS } = require('./data/thresholds');

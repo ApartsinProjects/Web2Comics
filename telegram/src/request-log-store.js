@@ -2,6 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const { S3Adapter } = require('./crash-log-store');
 const { createWriteLockClientFromEnv } = require('./r2-write-lock');
+const { normalizeCloudflareR2Endpoint } = require('./r2-endpoint');
 
 function nowIso() {
   return new Date().toISOString();
@@ -173,7 +174,9 @@ class R2RequestLogStore {
 }
 
 function createRequestLogStoreFromEnv() {
-  const endpoint = String(process.env.R2_S3_ENDPOINT || '').trim();
+  const accountId = String(process.env.CLOUDFLARE_ACCOUNT_ID || '').trim();
+  const endpoint = normalizeCloudflareR2Endpoint(String(process.env.R2_S3_ENDPOINT || '').trim(), accountId);
+  if (endpoint) process.env.R2_S3_ENDPOINT = endpoint;
   const bucket = String(process.env.R2_BUCKET || '').trim();
   const accessKeyId = String(process.env.R2_ACCESS_KEY_ID || '').trim();
   const secretAccessKey = String(process.env.R2_SECRET_ACCESS_KEY || '').trim();

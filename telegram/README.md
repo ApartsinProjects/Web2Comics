@@ -53,6 +53,7 @@ User:
 - Testing: [docs/testing.md](docs/testing.md)
 - Operations: [docs/operations.md](docs/operations.md)
 - Storage (R2): [docs/storage-r2.md](docs/storage-r2.md)
+- Data/config reference: [docs/data-reference.md](docs/data-reference.md)
 - User manual: [docs/user-manual.md](docs/user-manual.md)
 - Developer guide: [docs/developer-guide.md](docs/developer-guide.md)
 

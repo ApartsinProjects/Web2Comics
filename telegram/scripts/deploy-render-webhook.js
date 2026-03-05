@@ -11,6 +11,7 @@ const {
   resolveLatestDeployId,
   validateProviderEnv
 } = require('./lib');
+const { normalizeCloudflareR2Endpoint } = require('../src/r2-endpoint');
 
 let globalStage = 'init';
 let globalOwnerId = '';
@@ -202,13 +203,14 @@ function resolveR2Config(args, cfYaml, awsYaml) {
     cfYaml && cfYaml.account_id
   );
   const bucket = firstNonEmpty(args['r2-bucket'], process.env.R2_BUCKET, cfR2.bucket, 'web2comics-bot-data');
-  const endpoint = firstNonEmpty(
+  const endpointRaw = firstNonEmpty(
     args['r2-endpoint'],
     process.env.R2_S3_ENDPOINT,
     endpoints.global_s3,
     endpoints.regional_s3_eu,
     accountId ? `https://${accountId}.r2.cloudflarestorage.com` : ''
   );
+  const endpoint = normalizeCloudflareR2Endpoint(endpointRaw, accountId);
   const accessKeyId = firstNonEmpty(
     args['r2-access-key-id'],
     process.env.R2_ACCESS_KEY_ID,
@@ -413,8 +415,8 @@ function resolveAllowedChatIds(args) {
   const explicit = String(args['allowed-chat-ids'] || '').trim();
   const allowAllFlag = parseBool(args['allow-all-chats'] || process.env.RENDER_ALLOW_ALL_CHATS);
   const token = String(explicit || '').trim().toLowerCase();
-  if (allowAllFlag || token === 'all' || token === '*') return '';
-  if (!explicit) return '';
+  if (allowAllFlag || token === 'all' || token === '*') return 'all';
+  if (!explicit) return 'all';
   return normalizeIdCsv(explicit);
 }
 
@@ -654,7 +656,8 @@ async function main() {
     RENDER_BOT_FETCH_TIMEOUT_MS: '45000',
     RENDER_BOT_DEBUG_ARTIFACTS: 'false',
     RENDER_BOT_DEFAULT_PROVIDER: firstNonEmpty(args['default-provider'], process.env.RENDER_BOT_DEFAULT_PROVIDER, 'gemini'),
-    RENDER_BOT_DEFAULT_OBJECTIVE: firstNonEmpty(args['default-objective'], process.env.RENDER_BOT_DEFAULT_OBJECTIVE, 'explain-like-im-five'),
+    // Force stable deployment default unless explicitly overridden by --default-objective.
+    RENDER_BOT_DEFAULT_OBJECTIVE: firstNonEmpty(args['default-objective'], 'explain-like-im-five'),
     TELEGRAM_NOTIFY_ON_START: 'true',
     TELEGRAM_NOTIFY_CHAT_ID: notifyChatId,
     TELEGRAM_TEST_CHAT_ID: telegramTestChatId,

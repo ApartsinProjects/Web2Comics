@@ -458,6 +458,7 @@ describe('render webhook bot REST + telegram flow', () => {
         '/text_vendor <name> -',
         '/image_vendor <name> -',
         '/models [text|image] [model] -',
+        '/test -',
         '/keys -',
         '/setkey <KEY> <VALUE> -',
         '/unsetkey <KEY> -',
@@ -504,6 +505,39 @@ describe('render webhook bot REST + telegram flow', () => {
       await tg.close();
     }
   }, 20000);
+
+  it('runs /test provider availability probe and returns a report', async () => {
+    const tg = await startFakeTelegramServer();
+    const botPort = await getFreePort();
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'render-bot-provider-test-'));
+    const bot = await startBotProcess(
+      botPort,
+      `http://127.0.0.1:${tg.port}/botTEST_TOKEN`,
+      path.join(tmpDir, 'runtime-state.json')
+    );
+
+    try {
+      const res = await postUpdate(botPort, { chat: { id: 777 }, text: '/test' });
+      expect(res.status).toBe(200);
+      await waitFor(() => tg.calls.some((c) =>
+        c.url.endsWith('/sendMessage')
+          && String(c.body.text || '').includes('Running provider/model availability checks...')
+      ), 8000, 100);
+      await waitFor(() => tg.calls.some((c) =>
+        c.url.endsWith('/sendMessage')
+          && String(c.body.text || '').includes('Availability report:')
+      ), 15000, 100);
+      const report = tg.calls
+        .filter((c) => c.url.endsWith('/sendMessage'))
+        .map((c) => String(c.body.text || ''))
+        .find((m) => m.includes('Availability report:')) || '';
+      expect(report).toContain('Availability report:');
+      expect(/\[(SKIP|OK|FAIL)\]/.test(report)).toBe(true);
+    } finally {
+      await bot.stop();
+      await tg.close();
+    }
+  }, 25000);
 
   it('accepts shortcut commands with @bot mention suffix', async () => {
     const tg = await startFakeTelegramServer();
@@ -671,6 +705,35 @@ describe('render webhook bot REST + telegram flow', () => {
         c.url.endsWith('/sendMessage') && String(c.body.text || '').includes('Access denied for this bot instance')
       );
       expect(denied).toBe(false);
+    } finally {
+      await bot.stop();
+      await tg.close();
+    }
+  }, 20000);
+
+  it('allows any chat when COMICBOT_ALLOWED_CHAT_IDS is set to all', async () => {
+    const tg = await startFakeTelegramServer();
+    const botPort = await getFreePort();
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'render-bot-allow-all-'));
+    const bot = await startBotProcess(
+      botPort,
+      `http://127.0.0.1:${tg.port}/botTEST_TOKEN`,
+      path.join(tmpDir, 'runtime-state.json'),
+      {
+        COMICBOT_ALLOWED_CHAT_IDS: 'all',
+        TELEGRAM_ADMIN_CHAT_IDS: '1796415913'
+      }
+    );
+
+    try {
+      const res = await postUpdate(botPort, { chat: { id: 424242 }, text: '/user' });
+      expect(res.status).toBe(200);
+      await waitFor(() => tg.calls.some((c) =>
+        c.url.endsWith('/sendMessage')
+          && String(c.body.text || '').includes('Your user id: 424242')
+      ), 8000, 100);
+      const texts = tg.calls.filter((c) => c.url.endsWith('/sendMessage')).map((c) => String(c.body.text || ''));
+      expect(texts.some((t) => t.includes('Access denied for this bot instance.'))).toBe(false);
     } finally {
       await bot.stop();
       await tg.close();
@@ -1150,7 +1213,7 @@ describe('render webhook bot REST + telegram flow', () => {
     }
   }, 30000);
 
-  it('for short protocol-less URL, falls back to invent-story flow when page load/extraction fails', async () => {
+  it('for short protocol-less URL, treats input as URL source even when page load fails', async () => {
     const tg = await startFakeTelegramServer();
     const botPort = await getFreePort();
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'render-bot-webhook-'));
@@ -1175,13 +1238,13 @@ describe('render webhook bot REST + telegram flow', () => {
         .slice(before)
         .filter((c) => c.url.endsWith('/sendMessage'))
         .map((c) => String(c.body.text || ''))
-        .some((m) => m.includes('Done: text -> comic panels') || m.includes('Generation failed:')), 12000, 100);
+        .some((m) => m.includes('Generation failed:')), 12000, 100);
 
       const chunk = tg.calls.slice(before);
       const texts = chunk.filter((c) => c.url.endsWith('/sendMessage')).map((c) => String(c.body.text || ''));
-      expect(texts.some((m) => m.includes("Can't extract from HTML, inventing a story from your input."))).toBe(true);
+      expect(texts.some((m) => m.includes('Detected link, parsing page: https://example.com'))).toBe(true);
+      expect(texts.some((m) => m.includes('Generation failed:'))).toBe(true);
       expect(texts.some((m) => m.includes('Invented story (expanded by AI):'))).toBe(true);
-      expect(texts.some((m) => m.includes('Done: text -> comic panels'))).toBe(true);
     } finally {
       await bot.stop();
       await tg.close();

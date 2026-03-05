@@ -32,8 +32,35 @@ async function fetchJson(url, init, timeoutMs, label) {
     json = text ? JSON.parse(text) : null;
   } catch (_) {}
   if (!response.ok) {
-    const message = (json && (json.error?.message || json.message || json.result?.error)) || text.slice(0, 600);
-    throw new Error(`${label || 'Request'} failed (${response.status}): ${message}`);
+    const baseMessage = (json && (json.error?.message || json.message || json.result?.error)) || text.slice(0, 600);
+    const extraParts = [];
+    const details = Array.isArray(json?.error?.details) ? json.error.details : [];
+    for (const detail of details) {
+      const type = String(detail?.['@type'] || detail?.type || '').toLowerCase();
+      if (type.includes('google.rpc.quotafailure')) {
+        const violations = Array.isArray(detail?.violations) ? detail.violations : [];
+        for (const v of violations) {
+          const metric = String(v?.quotaMetric || '').trim();
+          const id = String(v?.quotaId || '').trim();
+          if (metric) extraParts.push(`quotaMetric=${metric}`);
+          if (id) extraParts.push(`quotaId=${id}`);
+          const dims = v?.quotaDimensions && typeof v.quotaDimensions === 'object' ? v.quotaDimensions : null;
+          if (dims) {
+            const model = String(dims.model || dims.Model || '').trim();
+            if (model) extraParts.push(`quotaModel=${model}`);
+          }
+          if (v?.quotaValue != null && String(v.quotaValue).trim()) {
+            extraParts.push(`quotaValue=${String(v.quotaValue).trim()}`);
+          }
+        }
+      }
+      if (type.includes('google.rpc.retryinfo')) {
+        const retryDelay = String(detail?.retryDelay || '').trim();
+        if (retryDelay) extraParts.push(`retryDelay=${retryDelay}`);
+      }
+    }
+    const suffix = extraParts.length ? ` [${extraParts.join('; ')}]` : '';
+    throw new Error(`${label || 'Request'} failed (${response.status}): ${baseMessage}${suffix}`);
   }
   return { response, text, json };
 }
@@ -55,6 +82,12 @@ function resolveProviderValue(providerConfig, key, fallbackEnvKey) {
   return '';
 }
 
+function normalizeGeminiModel(model) {
+  const raw = String(model || '').trim();
+  if (!raw) return '';
+  return raw.replace(/^models\//i, '');
+}
+
 function getGeminiText(json) {
   const parts = json?.candidates?.[0]?.content?.parts || [];
   return parts.map((p) => p?.text || '').filter(Boolean).join(' ').trim();
@@ -74,6 +107,23 @@ function extractGeminiInlineImage(json) {
     }
   }
   return null;
+}
+
+function isGeminiDailyQuotaError(errorLike) {
+  const msg = String(errorLike?.message || errorLike || '').toLowerCase();
+  if (!msg.includes('failed (429)')) return false;
+  const hasPerDaySignal = msg.includes('request per day')
+    || msg.includes('perday')
+    || msg.includes('per_day')
+    || msg.includes('quotaid=')
+    || msg.includes('quotametric=');
+  if (hasPerDaySignal && msg.includes('perminute')) return false;
+  if (msg.includes('quotaid=') || msg.includes('quotametric=')) {
+    return msg.includes('perday') || msg.includes('per_day');
+  }
+  return msg.includes('request per day')
+    || msg.includes('rpd')
+    || msg.includes('please migrate to gemini 2.5 flash image');
 }
 
 function decodeDataUri(value) {
@@ -110,7 +160,9 @@ function rethrowCloudflareAuthError(error, kind) {
 
 async function generateTextWithProvider(providerConfig, prompt, runtimeConfig) {
   const provider = String(providerConfig.provider || '').toLowerCase();
-  const model = String(providerConfig.model || '').trim();
+  const model = provider === 'gemini'
+    ? normalizeGeminiModel(providerConfig.model)
+    : String(providerConfig.model || '').trim();
   const timeoutMs = Number(runtimeConfig.timeout_ms || DEFAULT_TIMEOUT_MS);
   const temperature = Number(runtimeConfig && runtimeConfig.text_temperature);
   const hasTemperature = Number.isFinite(temperature);
@@ -232,7 +284,9 @@ async function generateTextWithProvider(providerConfig, prompt, runtimeConfig) {
 
 async function generateImageWithProvider(providerConfig, prompt, runtimeConfig, options = {}) {
   const provider = String(providerConfig.provider || '').toLowerCase();
-  const model = String(providerConfig.model || '').trim();
+  const model = provider === 'gemini'
+    ? normalizeGeminiModel(providerConfig.model)
+    : String(providerConfig.model || '').trim();
   const timeoutMs = Number(runtimeConfig.timeout_ms || DEFAULT_TIMEOUT_MS);
   const referenceImage = options && options.referenceImage ? options.referenceImage : null;
   const safePrompt = enforceNoTextImagePrompt(prompt);
@@ -240,8 +294,8 @@ async function generateImageWithProvider(providerConfig, prompt, runtimeConfig, 
   if (provider === 'gemini') {
     const apiKey = resolveProviderValue(providerConfig, 'api_key', 'GEMINI_API_KEY');
     if (!apiKey) throw new Error('Missing GEMINI_API_KEY for Gemini image provider');
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
-    const requestOnce = async (responseModalities, promptText) => {
+    const requestOnce = async (modelId, responseModalities, promptText) => {
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${normalizeGeminiModel(modelId)}:generateContent?key=${apiKey}`;
       const requestParts = [];
       if (referenceImage && Buffer.isBuffer(referenceImage.buffer) && referenceImage.buffer.length) {
         requestParts.push({
@@ -274,15 +328,33 @@ async function generateImageWithProvider(providerConfig, prompt, runtimeConfig, 
       throw new Error(`Gemini image response did not include inline image bytes${finishHint}${hint}`);
     };
 
-    try {
-      return await requestOnce(['image', 'text'], safePrompt);
-    } catch (firstError) {
-      const fallbackPrompt = `${safePrompt}\nReturn image output only. Do not return any text.`.trim();
+    const tryModel = async (modelId) => {
       try {
-        return await requestOnce(['image'], fallbackPrompt);
-      } catch (_) {
-        throw firstError;
+        return await requestOnce(modelId, ['image', 'text'], safePrompt);
+      } catch (firstError) {
+        const fallbackPrompt = `${safePrompt}\nReturn image output only. Do not return any text.`.trim();
+        try {
+          return await requestOnce(modelId, ['image'], fallbackPrompt);
+        } catch (_) {
+          throw firstError;
+        }
       }
+    };
+
+    try {
+      return await tryModel(model);
+    } catch (firstError) {
+      const quotaFallbackModel = 'gemini-2.5-flash-image';
+      if (model !== quotaFallbackModel && isGeminiDailyQuotaError(firstError)) {
+        try {
+          return await tryModel(quotaFallbackModel);
+        } catch (fallbackError) {
+          throw new Error(
+            `${String(firstError?.message || firstError)}; fallback ${quotaFallbackModel} failed: ${String(fallbackError?.message || fallbackError)}`
+          );
+        }
+      }
+      throw firstError;
     }
   }
 
