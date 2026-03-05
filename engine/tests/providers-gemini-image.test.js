@@ -1,4 +1,4 @@
-const { generateImageWithProvider } = require('../src/providers');
+const { generateImageWithProvider, __resetProviderSessionStateForTests } = require('../src/providers');
 
 function mockJsonResponse(payload, status = 200) {
   return {
@@ -18,6 +18,7 @@ describe('gemini image provider resilience', () => {
     global.fetch = originalFetch;
     if (originalKey == null) delete process.env.GEMINI_API_KEY;
     else process.env.GEMINI_API_KEY = originalKey;
+    __resetProviderSessionStateForTests();
   });
 
   it('retries once with image-only modality when first response is text-only', async () => {
@@ -106,6 +107,55 @@ describe('gemini image provider resilience', () => {
     expect(calls.length).toBeGreaterThanOrEqual(3);
     expect(calls[0].url).toContain('/models/gemini-2.0-flash-exp-image-generation:generateContent');
     expect(calls.some((c) => c.url.includes('/models/gemini-2.5-flash-image:generateContent'))).toBe(true);
+  });
+
+  it('keeps using fallback model for the rest of current process after first RPD fallback', async () => {
+    process.env.GEMINI_API_KEY = 'TEST_KEY';
+    const calls = [];
+    global.fetch = async (url, init) => {
+      calls.push({ url: String(url), body: JSON.parse(String(init?.body || '{}')) });
+      if (calls.length <= 2) {
+        return mockJsonResponse({
+          error: {
+            message: 'Request per day (RPD) limit reached. Please migrate to Gemini 2.5 Flash Image.'
+          }
+        }, 429);
+      }
+      return mockJsonResponse({
+        candidates: [{
+          content: {
+            parts: [{
+              inlineData: {
+                mimeType: 'image/png',
+                data: Buffer.from('sticky-fallback-image').toString('base64')
+              }
+            }]
+          }
+        }]
+      });
+    };
+
+    // First call triggers RPD fallback and activates sticky model for this process.
+    const first = await generateImageWithProvider(
+      { provider: 'gemini', model: 'gemini-2.0-flash-exp-image-generation' },
+      'Draw a lighthouse on cliffs at dusk',
+      { timeout_ms: 5000 }
+    );
+    expect(Buffer.isBuffer(first.buffer)).toBe(true);
+    expect(calls.some((c) => c.url.includes('/models/gemini-2.5-flash-image:generateContent'))).toBe(true);
+
+    const beforeSecond = calls.length;
+    // Second call should start directly with sticky fallback model (no 2.0 pre-try).
+    const second = await generateImageWithProvider(
+      { provider: 'gemini', model: 'gemini-2.0-flash-exp-image-generation' },
+      'Draw a tiny village in winter',
+      { timeout_ms: 5000 }
+    );
+    expect(Buffer.isBuffer(second.buffer)).toBe(true);
+    const secondCallUrls = calls.slice(beforeSecond).map((c) => c.url);
+    expect(secondCallUrls.length).toBeGreaterThanOrEqual(1);
+    expect(secondCallUrls[0]).toContain('/models/gemini-2.5-flash-image:generateContent');
+    expect(secondCallUrls.some((u) => u.includes('/models/gemini-2.0-flash-exp-image-generation:generateContent'))).toBe(false);
   });
 
   it('does not switch model on per-minute quota 429 errors', async () => {

@@ -1,4 +1,5 @@
 const DEFAULT_TIMEOUT_MS = 120000;
+let geminiImageSessionFallbackModel = '';
 
 function withTimeout(promise, timeoutMs, label) {
   const ms = Math.max(1000, Number(timeoutMs || DEFAULT_TIMEOUT_MS));
@@ -86,6 +87,13 @@ function normalizeGeminiModel(model) {
   const raw = String(model || '').trim();
   if (!raw) return '';
   return raw.replace(/^models\//i, '');
+}
+
+function resolveGeminiImageModelForSession(requestedModel) {
+  const requested = normalizeGeminiModel(requestedModel);
+  const sticky = normalizeGeminiModel(geminiImageSessionFallbackModel);
+  if (sticky) return sticky;
+  return requested;
 }
 
 function getGeminiText(json) {
@@ -341,11 +349,13 @@ async function generateImageWithProvider(providerConfig, prompt, runtimeConfig, 
       }
     };
 
+    const initialModel = resolveGeminiImageModelForSession(model);
     try {
-      return await tryModel(model);
+      return await tryModel(initialModel);
     } catch (firstError) {
       const quotaFallbackModel = 'gemini-2.5-flash-image';
-      if (model !== quotaFallbackModel && isGeminiDailyQuotaError(firstError)) {
+      if (normalizeGeminiModel(initialModel) !== quotaFallbackModel && isGeminiDailyQuotaError(firstError)) {
+        geminiImageSessionFallbackModel = quotaFallbackModel;
         try {
           return await tryModel(quotaFallbackModel);
         } catch (fallbackError) {
@@ -482,5 +492,8 @@ module.exports = {
   generateImageWithProvider,
   supportsImageReferenceInput,
   enforceNoTextImagePrompt,
-  extractGeminiInlineImage
+  extractGeminiInlineImage,
+  __resetProviderSessionStateForTests: () => {
+    geminiImageSessionFallbackModel = '';
+  }
 };
