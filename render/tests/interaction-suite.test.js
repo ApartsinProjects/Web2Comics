@@ -3,6 +3,7 @@ const path = require('path');
 const os = require('os');
 const fs = require('fs');
 const { spawn } = require('child_process');
+let updateSeq = 1;
 
 function getFreePort() {
   return new Promise((resolve, reject) => {
@@ -94,6 +95,7 @@ async function startBotProcess(botPort, telegramBaseUrl, statePath) {
 }
 
 async function postUpdate(botPort, message, secret = 'TEST_SECRET') {
+  const updateId = Date.now() * 1000 + (updateSeq++);
   return fetch(`http://127.0.0.1:${botPort}/telegram/webhook/TEST_SECRET`, {
     method: 'POST',
     headers: {
@@ -101,7 +103,7 @@ async function postUpdate(botPort, message, secret = 'TEST_SECRET') {
       'x-telegram-bot-api-secret-token': secret
     },
     body: JSON.stringify({
-      update_id: Date.now(),
+      update_id: updateId,
       message
     })
   });

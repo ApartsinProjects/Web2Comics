@@ -41,6 +41,8 @@ const api = new TelegramApi(token, process.env.TELEGRAM_API_BASE_URL || '');
 let configStore = null;
 const rawSendMessage = api.sendMessage.bind(api);
 const jobTimeoutMs = Math.max(15000, Number(process.env.RENDER_BOT_JOB_TIMEOUT_MS || 300000));
+const processedUpdates = new Map();
+const processedUpdatesTtlMs = Math.max(60000, Number(process.env.RENDER_BOT_UPDATE_TTL_MS || 900000));
 
 function collectSensitiveValues(chatId) {
   const keys = new Set([
@@ -748,6 +750,23 @@ function sendJson(res, code, payload) {
   res.end(JSON.stringify(payload));
 }
 
+function cleanupProcessedUpdates(nowMs) {
+  const now = Number(nowMs || Date.now());
+  for (const [id, ts] of processedUpdates.entries()) {
+    if ((now - ts) > processedUpdatesTtlMs) processedUpdates.delete(id);
+  }
+}
+
+function markOrRejectDuplicate(update) {
+  const id = Number(update?.update_id);
+  if (!Number.isFinite(id)) return false;
+  const now = Date.now();
+  cleanupProcessedUpdates(now);
+  if (processedUpdates.has(id)) return true;
+  processedUpdates.set(id, now);
+  return false;
+}
+
 const webhookPath = `/telegram/webhook/${webhookSecret}`;
 
 async function startServer() {
@@ -782,6 +801,10 @@ async function startServer() {
           update = JSON.parse(raw || '{}');
         } catch (_) {
           return sendJson(res, 400, { ok: false, error: 'invalid json' });
+        }
+
+        if (markOrRejectDuplicate(update)) {
+          return sendJson(res, 200, { ok: true, duplicate: true });
         }
 
         enqueueUpdate(update);

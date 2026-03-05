@@ -3,6 +3,7 @@ const path = require('path');
 const os = require('os');
 const fs = require('fs');
 const { spawn } = require('child_process');
+let updateSeq = 1;
 
 function getFreePort() {
   return new Promise((resolve, reject) => {
@@ -104,6 +105,7 @@ async function startBotProcess(botPort, telegramBaseUrl, statePath, extraEnv = {
 }
 
 async function postUpdate(botPort, message, secret = 'TEST_SECRET') {
+  const updateId = Date.now() * 1000 + (updateSeq++);
   return fetch(`http://127.0.0.1:${botPort}/telegram/webhook/TEST_SECRET`, {
     method: 'POST',
     headers: {
@@ -111,9 +113,20 @@ async function postUpdate(botPort, message, secret = 'TEST_SECRET') {
       'x-telegram-bot-api-secret-token': secret
     },
     body: JSON.stringify({
-      update_id: Date.now(),
+      update_id: updateId,
       message
     })
+  });
+}
+
+async function postRawUpdate(botPort, updatePayload, secret = 'TEST_SECRET') {
+  return fetch(`http://127.0.0.1:${botPort}/telegram/webhook/TEST_SECRET`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-telegram-bot-api-secret-token': secret
+    },
+    body: JSON.stringify(updatePayload || {})
   });
 }
 
@@ -182,6 +195,46 @@ describe('render webhook bot REST + telegram flow', () => {
       const body = await res.json();
       expect(body.ok).toBe(false);
       expect(body.error).toBe('invalid secret token');
+    } finally {
+      await bot.stop();
+      await tg.close();
+    }
+  }, 20000);
+
+  it('deduplicates repeated update_id payloads', async () => {
+    const tg = await startFakeTelegramServer();
+    const botPort = await getFreePort();
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'render-bot-webhook-'));
+    const bot = await startBotProcess(
+      botPort,
+      `http://127.0.0.1:${tg.port}/botTEST_TOKEN`,
+      path.join(tmpDir, 'runtime-state.json')
+    );
+
+    try {
+      const update = {
+        update_id: 42424242,
+        message: { chat: { id: 777 }, text: '/user' }
+      };
+      const r1 = await postRawUpdate(botPort, update);
+      expect(r1.status).toBe(200);
+      const b1 = await r1.json();
+      expect(b1.ok).toBe(true);
+      expect(b1.queued).toBe(true);
+      await waitFor(() => tg.calls.some((c) =>
+        c.url.endsWith('/sendMessage')
+          && String(c.body.text || '').includes('Your user id: 777')
+      ), 8000, 100);
+
+      const before = tg.calls.filter((c) => c.url.endsWith('/sendMessage')).length;
+      const r2 = await postRawUpdate(botPort, update);
+      expect(r2.status).toBe(200);
+      const b2 = await r2.json();
+      expect(b2.ok).toBe(true);
+      expect(b2.duplicate).toBe(true);
+      await new Promise((r) => setTimeout(r, 600));
+      const after = tg.calls.filter((c) => c.url.endsWith('/sendMessage')).length;
+      expect(after).toBe(before);
     } finally {
       await bot.stop();
       await tg.close();
