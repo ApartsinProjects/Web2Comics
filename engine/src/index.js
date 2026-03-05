@@ -134,8 +134,78 @@ async function runComicEngine(options) {
   return result;
 }
 
+async function runComicEnginePanels(options) {
+  const startedAt = Date.now();
+  const rootDir = options.rootDir || process.cwd();
+  loadLocalEnvFiles(rootDir);
+
+  const loaded = loadConfig(options.configPath);
+  const config = loaded.config;
+  const source = loadSource(options.inputPath, config.input);
+
+  const effectiveTitle = String(options.titleOverride || source.title || 'Comic Summary');
+  const storyboardPrompt = buildStoryboardPrompt({
+    sourceTitle: effectiveTitle,
+    sourceLabel: source.sourceLabel,
+    sourceText: source.text,
+    panelCount: config.generation.panel_count,
+    objective: config.generation.objective,
+    stylePrompt: config.generation.style_prompt,
+    outputLanguage: config.generation.output_language
+  });
+
+  const storyboardRawText = await withRetries(
+    () => generateTextWithProvider(config.providers.text, storyboardPrompt, config.runtime),
+    config.runtime.retries,
+    'Storyboard generation'
+  );
+
+  const storyboard = parseStoryboardResponse(storyboardRawText, config.generation.panel_count);
+  if (effectiveTitle) storyboard.title = effectiveTitle;
+
+  const panelImages = await mapWithConcurrency(
+    storyboard.panels,
+    config.runtime.image_concurrency,
+    async (panel, index) => withRetries(
+      () => generateImageWithProvider(
+        config.providers.image,
+        buildPanelImagePrompt(panel, index, storyboard.panels.length, config.generation),
+        config.runtime
+      ),
+      config.runtime.retries,
+      `Panel image ${index + 1}`
+    )
+  );
+
+  const result = {
+    configPath: loaded.path,
+    inputPath: source.inputPath,
+    storyboardTitle: storyboard.title,
+    panelCount: storyboard.panels.length,
+    elapsedMs: Date.now() - startedAt,
+    storyboard,
+    panelImages
+  };
+
+  if (options.debugDir) {
+    const debugDir = path.resolve(options.debugDir);
+    fs.mkdirSync(debugDir, { recursive: true });
+    fs.writeFileSync(path.join(debugDir, 'storyboard.raw.txt'), storyboardRawText, 'utf8');
+    fs.writeFileSync(path.join(debugDir, 'storyboard.json'), JSON.stringify(storyboard, null, 2), 'utf8');
+    fs.writeFileSync(path.join(debugDir, 'result.panels.json'), JSON.stringify({
+      configPath: result.configPath,
+      inputPath: result.inputPath,
+      panelCount: result.panelCount,
+      elapsedMs: result.elapsedMs
+    }, null, 2), 'utf8');
+  }
+
+  return result;
+}
+
 module.exports = {
   runComicEngine,
+  runComicEnginePanels,
   mapWithConcurrency,
   withRetries
 };

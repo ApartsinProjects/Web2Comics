@@ -4,7 +4,7 @@ const { loadEnvFiles } = require('./env');
 const { TelegramApi } = require('./telegram-api');
 const { RuntimeConfigStore } = require('./config-store');
 const { allOptionPaths, getOptions, parseUserValue, formatOptionsMessage, SECRET_KEYS } = require('./options');
-const { generateWithRuntimeConfig, inventStoryText } = require('./generate');
+const { generatePanelsWithRuntimeConfig, inventStoryText } = require('./generate');
 const { createPersistence } = require('./persistence');
 const { redactSensitiveText } = require('./redact');
 
@@ -94,7 +94,7 @@ async function notifyDeploymentReady() {
   await safeNotifyUser(notifyChatId, lines.join('\n'));
 }
 
-let jobQueue = Promise.resolve();
+const chatQueues = new Map();
 
 const STYLE_PRESETS = {
   classic: 'clean comic panel art, readable characters, coherent scene progression',
@@ -281,6 +281,19 @@ function summarizeConfig(cfg) {
     `image=${cfg?.providers?.image?.provider}/${cfg?.providers?.image?.model}`
   ];
   return parts.join(', ');
+}
+
+async function sendPanelSequence(chatId, panelResult, modeLabel) {
+  const mode = String(modeLabel || 'text').toLowerCase();
+  const panels = Array.isArray(panelResult?.panelMessages) ? panelResult.panelMessages.slice() : [];
+  for (const panel of panels) {
+    await api.sendPhoto(chatId, panel.imagePath, panel.caption || '');
+  }
+  await api.sendMessage(chatId, [
+    `Done: ${mode} -> comic panels`,
+    `Panels: ${panelResult.panelCount}`,
+    `Time: ${(Number(panelResult.elapsedMs || 0) / 1000).toFixed(1)}s`
+  ].join('\n'));
 }
 
 function formatPeekMessage(history) {
@@ -615,13 +628,8 @@ async function processMessage(message) {
       const inventedStory = await inventStoryText(seed, effectiveConfigPath);
       await api.sendMessage(chatId, 'Invented story ready. Generating your comic...');
 
-      const result = await generateWithRuntimeConfig(inventedStory, runtime, effectiveConfigPath);
-      const caption = [
-        'Done: invent -> comic',
-        `Panels: ${result.panelCount}`,
-        `Time: ${(Number(result.elapsedMs || 0) / 1000).toFixed(1)}s`
-      ].join('\n');
-      await api.sendPhoto(chatId, result.outputPath, caption);
+      const result = await generatePanelsWithRuntimeConfig(inventedStory, runtime, effectiveConfigPath);
+      await sendPanelSequence(chatId, result, 'invent');
       await configStore.recordInteraction(chatId, {
         kind: incoming.kind,
         command: incoming.command,
@@ -629,7 +637,7 @@ async function processMessage(message) {
         result: {
           ok: true,
           type: 'invent',
-          outputPath: result.outputPath,
+          outputPath: (result.panelMessages && result.panelMessages[0] && result.panelMessages[0].imagePath) || '',
           panelCount: result.panelCount,
           elapsedMs: result.elapsedMs
         },
@@ -655,13 +663,8 @@ async function processMessage(message) {
 
     const effectiveConfigPath = configStore.writeEffectiveConfigFile(chatId, path.join(runtime.outDir, 'effective-config.yml'));
     configStore.applySecretsToEnv(chatId);
-    const result = await generateWithRuntimeConfig(text, runtime, effectiveConfigPath);
-    const caption = [
-      `Done: ${result.kind === 'url' ? 'URL' : 'text'} -> comic`,
-      `Panels: ${result.panelCount}`,
-      `Time: ${(Number(result.elapsedMs || 0) / 1000).toFixed(1)}s`
-    ].join('\n');
-    await api.sendPhoto(chatId, result.outputPath, caption);
+    const result = await generatePanelsWithRuntimeConfig(text, runtime, effectiveConfigPath);
+    await sendPanelSequence(chatId, result, result.kind === 'url' ? 'url' : 'text');
     await configStore.recordInteraction(chatId, {
       kind: incoming.kind,
       command: incoming.command,
@@ -669,7 +672,7 @@ async function processMessage(message) {
       result: {
         ok: true,
         type: 'generation',
-        outputPath: result.outputPath,
+        outputPath: (result.panelMessages && result.panelMessages[0] && result.panelMessages[0].imagePath) || '',
         panelCount: result.panelCount,
         elapsedMs: result.elapsedMs
       },
@@ -688,16 +691,22 @@ async function processMessage(message) {
 }
 
 function enqueueUpdate(update) {
-  jobQueue = jobQueue
+  const chatId = Number(update?.message?.chat?.id || 0);
+  const key = chatId > 0 ? String(chatId) : 'global';
+  const current = chatQueues.get(key) || Promise.resolve();
+  const next = current
     .then(async () => {
       if (!update?.message) return;
       await processMessage(update.message);
     })
     .catch(async (error) => {
-      const chatId = Number(update?.message?.chat?.id || 0);
-      await safeNotifyUser(chatId, `Unexpected bot error: ${String(error?.message || error)}`);
+      const targetChatId = Number(update?.message?.chat?.id || 0);
+      await safeNotifyUser(targetChatId, `Unexpected bot error: ${String(error?.message || error)}`);
       console.error('[render-bot] job failed:', error && error.message ? error.message : String(error));
     });
+  chatQueues.set(key, next.finally(() => {
+    if (chatQueues.get(key) === next) chatQueues.delete(key);
+  }));
 }
 
 function readBody(req) {

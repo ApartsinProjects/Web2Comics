@@ -111,6 +111,18 @@ function sentMessages(calls) {
   return calls.filter((c) => c.url.endsWith('/sendMessage'));
 }
 
+function extractMultipartField(raw, fieldName) {
+  const text = String(raw || '');
+  const marker = `name="${fieldName}"`;
+  const pos = text.indexOf(marker);
+  if (pos < 0) return '';
+  const start = text.indexOf('\r\n\r\n', pos);
+  if (start < 0) return '';
+  const end = text.indexOf('\r\n--', start + 4);
+  if (end < 0) return '';
+  return text.slice(start + 4, end).trim();
+}
+
 describe('render bot comprehensive interaction suite', () => {
   it('handles text and URL telegram messages and sends comic images', async () => {
     const tg = await startFakeTelegramServer();
@@ -397,6 +409,47 @@ describe('render bot comprehensive interaction suite', () => {
       expect(creds.some((m) => m.includes('GEMINI_API_KEY: set (env)'))).toBe(true);
       const cfg = await command('/config');
       expect(cfg.some((m) => m.includes('generation.panel_count: 3'))).toBe(true);
+    } finally {
+      await bot.stop();
+      await tg.close();
+    }
+  }, 50000);
+
+  it('processes multiple users concurrently while preserving per-user panel order', async () => {
+    const tg = await startFakeTelegramServer();
+    const botPort = await getFreePort();
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'render-bot-concurrency-'));
+    const bot = await startBotProcess(botPort, `http://127.0.0.1:${tg.port}/botTEST_TOKEN`, path.join(tmpDir, 'state.json'));
+
+    try {
+      const before = tg.calls.length;
+      const [r1, r2] = await Promise.all([
+        postUpdate(botPort, { chat: { id: 777 }, text: 'Story A for user 777' }),
+        postUpdate(botPort, { chat: { id: 888 }, text: 'Story B for user 888' })
+      ]);
+      expect(r1.status).toBe(200);
+      expect(r2.status).toBe(200);
+
+      await waitFor(() => tg.calls.filter((c) => c.url.endsWith('/sendPhoto')).length >= 6, 12000, 100);
+      const chunk = tg.calls.slice(before).filter((c) => c.url.endsWith('/sendPhoto'));
+      const byChat = new Map();
+      chunk.forEach((c) => {
+        const chatId = String(extractMultipartField(c.raw, 'chat_id'));
+        const caption = extractMultipartField(c.raw, 'caption');
+        if (!byChat.has(chatId)) byChat.set(chatId, []);
+        byChat.get(chatId).push(caption);
+      });
+
+      const c777 = byChat.get('777') || [];
+      const c888 = byChat.get('888') || [];
+      expect(c777.length).toBeGreaterThanOrEqual(3);
+      expect(c888.length).toBeGreaterThanOrEqual(3);
+      expect(c777[0]).toContain('1.');
+      expect(c777[1]).toContain('2.');
+      expect(c777[2]).toContain('3.');
+      expect(c888[0]).toContain('1.');
+      expect(c888[1]).toContain('2.');
+      expect(c888[2]).toContain('3.');
     } finally {
       await bot.stop();
       await tg.close();

@@ -38,7 +38,7 @@ async function main() {
       url: webhookUrl,
       secret_token: secret,
       allowed_updates: ['message'],
-      drop_pending_updates: false
+      drop_pending_updates: true
     })
   });
   const json = await res.json();

@@ -39,7 +39,7 @@ async function startFakeTelegramServer() {
       const raw = Buffer.concat(chunks).toString('utf8');
       let body = {};
       try { body = raw ? JSON.parse(raw) : {}; } catch (_) {}
-      calls.push({ method: req.method, url: req.url, body });
+      calls.push({ method: req.method, url: req.url, body, raw });
       res.statusCode = 200;
       res.setHeader('Content-Type', 'application/json');
       res.end(JSON.stringify({ ok: true, result: { ok: true } }));
@@ -115,6 +115,18 @@ async function postUpdate(botPort, message, secret = 'TEST_SECRET') {
       message
     })
   });
+}
+
+function extractMultipartField(raw, fieldName) {
+  const text = String(raw || '');
+  const marker = `name="${fieldName}"`;
+  const pos = text.indexOf(marker);
+  if (pos < 0) return '';
+  const start = text.indexOf('\r\n\r\n', pos);
+  if (start < 0) return '';
+  const end = text.indexOf('\r\n--', start + 4);
+  if (end < 0) return '';
+  return text.slice(start + 4, end).trim();
 }
 
 describe('render webhook bot REST + telegram flow', () => {
@@ -271,7 +283,7 @@ describe('render webhook bot REST + telegram flow', () => {
     }
   }, 20000);
 
-  it('handles URL message and sends comic photo response', async () => {
+  it('handles URL message and sends ordered panel photo responses', async () => {
     const tg = await startFakeTelegramServer();
     const botPort = await getFreePort();
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'render-bot-webhook-'));
@@ -282,6 +294,7 @@ describe('render webhook bot REST + telegram flow', () => {
     );
 
     try {
+      const before = tg.calls.length;
       const res = await postUpdate(botPort, {
         chat: { id: 777 },
         from: { id: 777, username: 'url_user', first_name: 'Url' },
@@ -289,9 +302,17 @@ describe('render webhook bot REST + telegram flow', () => {
         entities: [{ offset: 0, length: 19, type: 'url' }]
       });
       expect(res.status).toBe(200);
-      await waitFor(() => tg.calls.some((c) => c.url.endsWith('/sendPhoto')), 10000, 100);
-      const msgTexts = tg.calls.filter((c) => c.url.endsWith('/sendMessage')).map((c) => String(c.body.text || ''));
+      await waitFor(() => tg.calls.filter((c) => c.url.endsWith('/sendPhoto')).length >= 3, 10000, 100);
+      const chunk = tg.calls.slice(before);
+      const photos = chunk.filter((c) => c.url.endsWith('/sendPhoto'));
+      expect(photos.length).toBeGreaterThanOrEqual(3);
+      const captions = photos.slice(0, 3).map((c) => extractMultipartField(c.raw, 'caption'));
+      expect(captions[0]).toContain('1. Fake panel 1');
+      expect(captions[1]).toContain('2. Fake panel 2');
+      expect(captions[2]).toContain('3. Fake panel 3');
+      const msgTexts = chunk.filter((c) => c.url.endsWith('/sendMessage')).map((c) => String(c.body.text || ''));
       expect(msgTexts.some((m) => m.includes('Generating your comic'))).toBe(true);
+      expect(msgTexts.some((m) => m.includes('Done: url -> comic panels'))).toBe(true);
     } finally {
       await bot.stop();
       await tg.close();
@@ -324,7 +345,7 @@ describe('render webhook bot REST + telegram flow', () => {
     }
   }, 30000);
 
-  it('supports /invent flow and produces comic photo from expanded story', async () => {
+  it('supports /invent flow and produces ordered panel photo responses', async () => {
     const tg = await startFakeTelegramServer();
     const botPort = await getFreePort();
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'render-bot-webhook-'));
@@ -335,15 +356,24 @@ describe('render webhook bot REST + telegram flow', () => {
     );
 
     try {
+      const before = tg.calls.length;
       const res = await postUpdate(botPort, {
         chat: { id: 777 },
         text: '/invent A shy inventor tries to impress the town.'
       });
       expect(res.status).toBe(200);
-      await waitFor(() => tg.calls.some((c) => c.url.endsWith('/sendPhoto')), 12000, 100);
-      const texts = tg.calls.filter((c) => c.url.endsWith('/sendMessage')).map((c) => String(c.body.text || ''));
+      await waitFor(() => tg.calls.filter((c) => c.url.endsWith('/sendPhoto')).length >= 3, 12000, 100);
+      const chunk = tg.calls.slice(before);
+      const photos = chunk.filter((c) => c.url.endsWith('/sendPhoto'));
+      expect(photos.length).toBeGreaterThanOrEqual(3);
+      const captions = photos.slice(0, 3).map((c) => extractMultipartField(c.raw, 'caption'));
+      expect(captions[0]).toContain('1. Fake panel 1');
+      expect(captions[1]).toContain('2. Fake panel 2');
+      expect(captions[2]).toContain('3. Fake panel 3');
+      const texts = chunk.filter((c) => c.url.endsWith('/sendMessage')).map((c) => String(c.body.text || ''));
       expect(texts.some((m) => m.includes('Inventing an expanded story'))).toBe(true);
       expect(texts.some((m) => m.includes('Invented story ready'))).toBe(true);
+      expect(texts.some((m) => m.includes('Done: invent -> comic panels'))).toBe(true);
     } finally {
       await bot.stop();
       await tg.close();

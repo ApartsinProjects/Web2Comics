@@ -1,7 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
-const { runComicEngine, withRetries } = require('../../engine/src');
+const { runComicEngine, runComicEnginePanels, withRetries } = require('../../engine/src');
 const { loadConfig } = require('../../engine/src/config');
 const { generateTextWithProvider } = require('../../engine/src/providers');
 const { fetchUrlToHtmlSnapshot, buildSnapshotPath } = require('../../engine/src/url-fetch');
@@ -124,6 +124,73 @@ async function generateWithRuntimeConfig(text, runtime, effectiveConfigPath) {
   };
 }
 
+async function generatePanelsWithRuntimeConfig(text, runtime, effectiveConfigPath) {
+  if (isFakeGeneratorEnabled()) {
+    const parsed = classifyMessageInput(text);
+    if (parsed.kind === 'empty') throw new Error('Empty message. Send plain text or full URL.');
+    const ts = new Date().toISOString().replace(/[:.]/g, '-');
+    const panelCount = 3;
+    const panelMessages = [];
+    for (let i = 0; i < panelCount; i += 1) {
+      const imagePath = path.join(runtime.outDir, `render-fake-${ts}-panel-${i + 1}.png`);
+      writeTinyPng(imagePath);
+      panelMessages.push({
+        index: i + 1,
+        caption: `${i + 1}. Fake panel ${i + 1}`,
+        imagePath
+      });
+    }
+    return {
+      panelCount,
+      elapsedMs: 5,
+      kind: parsed.kind,
+      summary: parsed.kind === 'url' ? parsed.value : `text (${parsed.value.length} chars)`,
+      panelMessages
+    };
+  }
+
+  const prep = await prepareInput(text, runtime);
+  const debugDir = runtime.debugArtifacts
+    ? path.join(runtime.outDir, path.basename(prep.outputPath, '.png') + '-debug')
+    : '';
+
+  const detailed = await runComicEnginePanels({
+    rootDir: runtime.repoRoot,
+    inputPath: prep.inputPath,
+    configPath: effectiveConfigPath,
+    debugDir,
+    titleOverride: prep.titleOverride
+  });
+
+  const panelMessages = [];
+  const ts = new Date().toISOString().replace(/[:.]/g, '-');
+  fs.mkdirSync(runtime.outDir, { recursive: true });
+  for (let i = 0; i < detailed.panelImages.length; i += 1) {
+    const panel = detailed.storyboard.panels[i] || {};
+    const image = detailed.panelImages[i];
+    const imagePath = path.join(runtime.outDir, `render-${prep.kind}-${ts}-panel-${i + 1}.png`);
+    fs.writeFileSync(imagePath, image.buffer);
+    const captionText = String(panel.caption || '').trim();
+    const beatText = String(panel.beat || '').trim();
+    const caption = beatText
+      ? `${i + 1}. ${captionText}\n${beatText}`
+      : `${i + 1}. ${captionText}`;
+    panelMessages.push({
+      index: i + 1,
+      caption: caption.slice(0, 1000),
+      imagePath
+    });
+  }
+
+  return {
+    panelCount: panelMessages.length,
+    elapsedMs: detailed.elapsedMs,
+    kind: prep.kind,
+    summary: prep.summary,
+    panelMessages
+  };
+}
+
 async function inventStoryText(seedText, effectiveConfigPath) {
   const seed = String(seedText || '').trim();
   if (!seed) throw new Error('Usage: /invent <story seed>');
@@ -167,6 +234,7 @@ async function inventStoryText(seedText, effectiveConfigPath) {
 
 module.exports = {
   generateWithRuntimeConfig,
+  generatePanelsWithRuntimeConfig,
   shouldInstallPlaywrightBrowser,
   inventStoryText
 };
