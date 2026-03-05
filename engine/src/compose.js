@@ -57,21 +57,51 @@ async function ensurePanelImage(buffer, panelWidth, panelHeight) {
     .toBuffer();
 }
 
+function resolveGridColumns(panelCount, explicitColumns = 0) {
+  const count = Math.max(1, Number(panelCount || 0));
+  const requested = Math.max(0, Number(explicitColumns || 0));
+  if (requested >= 1) return Math.min(count, Math.floor(requested));
+  return Math.max(1, Math.ceil(Math.sqrt(count)));
+}
+
 async function composeComicSheet({ storyboard, panelImages, source, outputConfig, outputPath }) {
   const cfg = outputConfig;
   const panelCount = storyboard.panels.length;
+  const layout = String(cfg.layout || 'column').trim().toLowerCase();
   const width = cfg.width;
   const panelWidth = width - (cfg.padding * 2);
   const panelHeight = cfg.panel_height;
   const captionHeight = cfg.caption_height;
+  const headerHeight = Number(cfg.header_height || 0);
+  const footerHeight = Number(cfg.footer_height || 0);
+  const gap = Number(cfg.gap || 0);
+  const padding = Number(cfg.padding || 0);
+  const useGrid = layout === 'grid';
+  const columns = useGrid ? resolveGridColumns(panelCount, cfg.grid_columns) : 1;
+  const rows = useGrid ? Math.ceil(panelCount / columns) : panelCount;
+  const imagePanelWidth = useGrid
+    ? Math.floor((width - (padding * 2) - ((columns - 1) * gap)) / columns)
+    : panelWidth;
 
-  const totalHeight =
-    cfg.padding +
-    cfg.header_height +
-    cfg.gap +
-    (panelCount * (panelHeight + captionHeight + cfg.gap)) +
-    cfg.footer_height +
-    cfg.padding;
+  const totalHeight = useGrid
+    ? (
+        padding +
+        headerHeight +
+        (headerHeight > 0 ? gap : 0) +
+        (rows * panelHeight) +
+        ((rows - 1) * gap) +
+        (footerHeight > 0 ? gap : 0) +
+        footerHeight +
+        padding
+      )
+    : (
+        padding +
+        headerHeight +
+        gap +
+        (panelCount * (panelHeight + captionHeight + gap)) +
+        footerHeight +
+        padding
+      );
 
   const base = sharp({
     create: {
@@ -88,22 +118,30 @@ async function composeComicSheet({ storyboard, panelImages, source, outputConfig
   composites.push({
     input: buildTextBlockSvg({
       width: panelWidth,
-      height: cfg.header_height,
+      height: headerHeight,
       title: storyboard.title || 'Comic Summary',
       subtitle: source,
       lines: headerLines,
       background: '#ffffff'
     }),
-    left: cfg.padding,
-    top: cfg.padding
+    left: padding,
+    top: padding
   });
 
-  let cursorY = cfg.padding + cfg.header_height + cfg.gap;
+  let cursorY = padding + headerHeight + (headerHeight > 0 ? gap : 0);
 
   for (let i = 0; i < panelCount; i += 1) {
     const panel = storyboard.panels[i];
-    const imageBuffer = await ensurePanelImage(panelImages[i].buffer, panelWidth, panelHeight);
-    composites.push({ input: imageBuffer, left: cfg.padding, top: cursorY });
+    const imageBuffer = await ensurePanelImage(panelImages[i].buffer, imagePanelWidth, panelHeight);
+    if (useGrid) {
+      const col = i % columns;
+      const row = Math.floor(i / columns);
+      const left = padding + (col * (imagePanelWidth + gap));
+      const top = cursorY + (row * (panelHeight + gap));
+      composites.push({ input: imageBuffer, left, top });
+      continue;
+    }
+    composites.push({ input: imageBuffer, left: padding, top: cursorY });
 
     const panelLabel = `${i + 1}.`;
     const captionLines = wrapText(panel.caption || panelLabel, Math.max(24, Math.floor(panelWidth / 18)), 3);
@@ -116,25 +154,25 @@ async function composeComicSheet({ storyboard, panelImages, source, outputConfig
         lines: captionLines,
         background: '#ffffff'
       }),
-      left: cfg.padding,
+      left: padding,
       top: cursorY + panelHeight
     });
 
-    cursorY += panelHeight + captionHeight + cfg.gap;
+    cursorY += panelHeight + captionHeight + gap;
   }
 
-  if (cfg.footer_height > 0) {
+  if (footerHeight > 0) {
     composites.push({
       input: buildTextBlockSvg({
         width: panelWidth,
-        height: cfg.footer_height,
+        height: footerHeight,
         title: '',
         subtitle: '',
         lines: [cfg.brand || 'Made with Web2Comics Engine'],
         background: '#f1f5f9'
       }),
-      left: cfg.padding,
-      top: totalHeight - cfg.padding - cfg.footer_height
+      left: padding,
+      top: totalHeight - padding - footerHeight
     });
   }
 

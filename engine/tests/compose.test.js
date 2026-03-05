@@ -51,4 +51,50 @@ describe('engine compose', () => {
     expect(meta.width).toBe(900);
     expect(meta.height).toBeGreaterThan(500);
   });
+
+  it('renders single-image grid layout when layout=grid', async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'w2c-engine-grid-'));
+    const outputPath = path.join(tmpDir, 'comic-grid.png');
+    const storyboard = {
+      title: 'Grid Story',
+      description: 'desc',
+      panels: [
+        { caption: 'Panel 1' },
+        { caption: 'Panel 2' },
+        { caption: 'Panel 3' },
+        { caption: 'Panel 4' }
+      ]
+    };
+    const panelImages = [
+      { buffer: await solid('#ef4444') },
+      { buffer: await solid('#22c55e') },
+      { buffer: await solid('#3b82f6') },
+      { buffer: await solid('#f59e0b') }
+    ];
+
+    const result = await composeComicSheet({
+      storyboard,
+      panelImages,
+      source: 'text',
+      outputConfig: {
+        layout: 'grid',
+        grid_columns: 2,
+        width: 1000,
+        panel_height: 200,
+        caption_height: 80,
+        padding: 16,
+        gap: 10,
+        header_height: 60,
+        footer_height: 20,
+        background: '#ffffff',
+        brand: 'test'
+      },
+      outputPath
+    });
+
+    expect(fs.existsSync(result.outputPath)).toBe(true);
+    const meta = await sharp(result.outputPath).metadata();
+    expect(meta.width).toBe(1000);
+    expect(meta.height).toBe(542);
+  });
 });

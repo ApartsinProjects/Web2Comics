@@ -182,13 +182,36 @@ function pickCloudflareApiToken(cfYaml) {
   );
 }
 
-function pickCloudflareAccountToken(cfYaml) {
+function pickCloudflareAccountTokenCandidates(cfYaml) {
   const tokens = (cfYaml && cfYaml.api_tokens) || {};
-  return firstNonEmpty(
+  const direct = [
     tokens.account_api_token,
     tokens.r2_account_token,
+    tokens.account_token,
+    tokens.r2_token,
+    tokens.env_e2e_token,
+    tokens.additional_token_1,
+    tokens.additional_token_2,
     process.env.CLOUDFLARE_ACCOUNT_API_TOKEN
-  );
+  ].map((v) => String(v || '').trim()).filter(Boolean);
+  const reservedAiValues = new Set([
+    String(tokens.workers_ai_token || '').trim(),
+    String(tokens.cloudflare_ai_token || '').trim(),
+    String(tokens.ai_token || '').trim(),
+    String(process.env.CLOUDFLARE_WORKERS_AI_TOKEN || '').trim()
+  ].filter(Boolean));
+  const fromMap = Object.values(tokens)
+    .map((v) => String(v || '').trim())
+    .filter(Boolean)
+    .filter((v) => !reservedAiValues.has(v));
+  const out = [];
+  const seen = new Set();
+  [...direct, ...fromMap].forEach((v) => {
+    if (seen.has(v)) return;
+    seen.add(v);
+    out.push(v);
+  });
+  return out;
 }
 
 function resolveR2Config(args, cfYaml, awsYaml) {
@@ -468,7 +491,7 @@ async function main() {
   }
   const cloudflareAccountTokenCandidates = [
     args['cloudflare-account-api-token'],
-    pickCloudflareAccountToken(cfYaml)
+    ...pickCloudflareAccountTokenCandidates(cfYaml)
   ];
   const cloudflareAccountApiToken = cloudflareAccountId
     ? await resolveWorkingCloudflareToken(cloudflareAccountId, cloudflareAccountTokenCandidates)
@@ -659,8 +682,8 @@ async function main() {
     TELEGRAM_TEST_CHAT_ID: telegramTestChatId,
     TELEGRAM_ADMIN_CHAT_IDS: adminChatIds,
     COMICBOT_ALLOWED_CHAT_IDS: allowedChatIds,
-    CLOUDFLARE_WORKERS_AI_TOKEN: cloudflareAiToken,
-    CLOUDFLARE_ACCOUNT_API_TOKEN: cloudflareAccountApiToken,
+    ...(cloudflareAiToken ? { CLOUDFLARE_WORKERS_AI_TOKEN: cloudflareAiToken } : {}),
+    ...(cloudflareAccountApiToken ? { CLOUDFLARE_ACCOUNT_API_TOKEN: cloudflareAccountApiToken } : {}),
     ...providerEnv,
     ...r2Env,
     ...r2BudgetEnv

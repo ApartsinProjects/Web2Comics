@@ -363,6 +363,7 @@ describe('render bot comprehensive interaction suite', () => {
       await runCommandAndExpect('/new_style my-style bold inks, dramatic shadows', "Saved style 'my-style'");
       await runCommandAndExpect('/style my-style', 'Updated style preset = my-style');
       await runCommandAndExpect('/noir', 'Updated style preset = noir (via /noir)');
+      await runCommandAndExpect('/cyberpunk', 'Updated style preset = cyberpunk (via /cyberpunk)');
       await runCommandAndExpect('/style cinematic hand-drawn frames', 'Updated generation.style_prompt');
       await runCommandAndExpect('/set_prompt story Focus on cause and effect', 'Updated generation.custom_story_prompt');
       await runCommandAndExpect('/set_prompt panel Keep faces expressive', 'Updated generation.custom_panel_prompt');
@@ -1025,6 +1026,7 @@ describe('render bot comprehensive interaction suite', () => {
       await waitDoneOrFail(beforeSingleMsgs);
       await waitFor(() => tg.calls.slice(beforeSingle).filter((c) => c.url.endsWith('/sendPhoto')).length >= 1, 20000, 100);
       expect(tg.calls.slice(beforeSingle).some((c) => c.url.endsWith('/sendMediaGroup'))).toBe(false);
+      expect(tg.calls.slice(beforeSingle).filter((c) => c.url.endsWith('/sendPhoto')).length).toBe(1);
       const singlePhoto = tg.calls.slice(beforeSingle).find((c) => c.url.endsWith('/sendPhoto'));
       const cap = extractMultipartField(singlePhoto && singlePhoto.raw, 'caption');
       expect(cap).toContain('Panels:');

@@ -27,7 +27,45 @@ function loadEnvFiles(paths) {
   });
 }
 
+function readSecretFile(secretPath) {
+  const resolved = path.resolve(String(secretPath || '').trim());
+  if (!resolved || !fs.existsSync(resolved)) return '';
+  try {
+    return String(fs.readFileSync(resolved, 'utf8') || '').trim();
+  } catch (_) {
+    return '';
+  }
+}
+
+function secretFileCandidatesForKey(key, options = {}) {
+  const k = String(key || '').trim();
+  if (!k) return [];
+  const fileVar = String(process.env[`${k}_FILE`] || '').trim();
+  const baseDir = String(options.baseDir || '/run/secrets').trim();
+  const normalized = k.toLowerCase();
+  const dashed = normalized.replace(/_/g, '-');
+  return [fileVar, path.join(baseDir, k), path.join(baseDir, normalized), path.join(baseDir, dashed)]
+    .map((v) => String(v || '').trim())
+    .filter(Boolean);
+}
+
+function loadSecretValues(secretKeys, options = {}) {
+  const keys = Array.isArray(secretKeys) ? secretKeys : [];
+  keys.forEach((key) => {
+    const envValue = String(process.env[key] || '').trim();
+    if (envValue) return;
+    const candidates = secretFileCandidatesForKey(key, options);
+    for (const file of candidates) {
+      const value = readSecretFile(file);
+      if (!value) continue;
+      process.env[key] = value;
+      break;
+    }
+  });
+}
+
 module.exports = {
   parseEnvFile,
-  loadEnvFiles
+  loadEnvFiles,
+  loadSecretValues
 };

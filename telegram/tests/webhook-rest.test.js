@@ -588,6 +588,9 @@ describe('render webhook bot REST + telegram flow', () => {
       expect(texts.some((t) => t.includes('Updated generation.objective = fun'))).toBe(true);
       expect(texts.some((t) => t.includes('Confirmed changes'))).toBe(true);
       expect(texts.some((t) => t.includes('generation.objective') && t.includes('-> fun'))).toBe(true);
+      const confirmation = texts.find((t) => t.includes('Confirmed changes')) || '';
+      expect(confirmation.includes('knownUsers.')).toBe(false);
+      expect(confirmation.includes('lastSeenAt')).toBe(false);
     } finally {
       await bot.stop();
       await tg.close();

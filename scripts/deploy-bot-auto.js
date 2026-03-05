@@ -72,7 +72,6 @@ function buildRenderDeployArgs(args) {
     'allowed-chat-ids',
     'admin-chat-ids',
     'cloudflare-account-id',
-    'cloudflare-api-token',
     'cloudflare-ai-token',
     'cloudflare-account-api-token',
     'r2-endpoint',
@@ -154,6 +153,9 @@ function printSummary(args, targets) {
 
 function main() {
   const args = parseArgs(process.argv.slice(2));
+  if (Object.prototype.hasOwnProperty.call(args, 'cloudflare-api-token')) {
+    throw new Error('Deprecated --cloudflare-api-token is not supported. Use --cloudflare-ai-token and --cloudflare-account-api-token.');
+  }
   const targets = targetList(args.target);
   printSummary(args, targets);
 

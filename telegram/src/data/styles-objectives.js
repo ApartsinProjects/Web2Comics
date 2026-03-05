@@ -73,6 +73,46 @@ const STYLE_DEFINITIONS = {
   newspaper: {
     name: 'Newspaper',
     description: 'newspaper comic strip style, clean ink lines, expressive cartooning'
+  },
+  cinematic: {
+    name: 'Cinematic',
+    description: 'cinematic concept-art look, dramatic composition, volumetric lighting, rich depth'
+  },
+  anime: {
+    name: 'Anime',
+    description: 'anime-inspired style, clean cel shading, expressive faces, dynamic action framing'
+  },
+  cyberpunk: {
+    name: 'Cyberpunk',
+    description: 'neon cyberpunk mood, high-tech cityscapes, reflective surfaces, electric color glow'
+  },
+  'pixel-art': {
+    name: 'Pixel Art',
+    description: 'retro pixel-art aesthetic, chunky pixels, limited palette, crisp 2D game vibe'
+  },
+  'retro-pop': {
+    name: 'Retro Pop',
+    description: 'retro pop-art comic style, halftone texture, bold contour lines, vibrant flat colors'
+  },
+  minimalist: {
+    name: 'Minimalist',
+    description: 'minimalist visual language, simple geometry, clean negative space, restrained palette'
+  },
+  storybook: {
+    name: 'Storybook',
+    description: 'illustrated storybook look, warm textures, whimsical details, soft narrative atmosphere'
+  },
+  'ink-wash': {
+    name: 'Ink Wash',
+    description: 'ink wash illustration style, flowing brush strokes, subtle gradients, poetic contrast'
+  },
+  'line-art': {
+    name: 'Line Art',
+    description: 'clean line-art rendering, precise contours, light shading, high visual clarity'
+  },
+  'clay-3d': {
+    name: 'Clay 3D',
+    description: 'stylized clay-like 3D render, tactile materials, soft global illumination, playful forms'
   }
 };
 

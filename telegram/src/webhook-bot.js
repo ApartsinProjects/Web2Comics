@@ -1,7 +1,7 @@
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
-const { loadEnvFiles } = require('./env');
+const { loadEnvFiles, loadSecretValues } = require('./env');
 const { TelegramApi } = require('./telegram-api');
 const { RuntimeConfigStore } = require('./config-store');
 const { allOptionPaths, getOptions, parseUserValue, formatOptionsMessage, SECRET_KEYS } = require('./options');
@@ -56,6 +56,19 @@ loadEnvFiles([
   path.join(repoRoot, '.env.local'),
   path.join(repoRoot, 'comicbot/.env'),
   path.join(repoRoot, 'telegram/.env')
+]);
+loadSecretValues([
+  'TELEGRAM_BOT_TOKEN',
+  'TELEGRAM_WEBHOOK_SECRET',
+  'GEMINI_API_KEY',
+  'OPENAI_API_KEY',
+  'OPENROUTER_API_KEY',
+  'HUGGINGFACE_INFERENCE_API_TOKEN',
+  'CLOUDFLARE_WORKERS_AI_TOKEN',
+  'CLOUDFLARE_ACCOUNT_API_TOKEN',
+  'CLOUDFLARE_API_TOKEN',
+  'R2_ACCESS_KEY_ID',
+  'R2_SECRET_ACCESS_KEY'
 ]);
 
 process.env.R2_S3_ENDPOINT = normalizeCloudflareR2Endpoint(
@@ -451,13 +464,31 @@ function formatDiffValue(pathKey, value) {
   return String(value);
 }
 
-function summarizeStateChanges(beforeState, afterState, limit = 8) {
+function summarizeStateChanges(beforeState, afterState, limit = 8, options = {}) {
   if (!beforeState || !afterState) return { total: 0, lines: [] };
+  const scopePrefixes = Array.isArray(options.scopePrefixes)
+    ? options.scopePrefixes.map((p) => String(p || '').trim()).filter(Boolean)
+    : [];
+  const ignoreMatchers = Array.isArray(options.ignoreMatchers)
+    ? options.ignoreMatchers.filter(Boolean)
+    : [];
+  const isIgnored = (pathKey) => ignoreMatchers.some((m) => {
+    if (!m) return false;
+    if (typeof m === 'function') return Boolean(m(pathKey));
+    if (m instanceof RegExp) return m.test(pathKey);
+    return false;
+  });
+  const isInScope = (pathKey) => {
+    if (!scopePrefixes.length) return true;
+    return scopePrefixes.some((prefix) => pathKey === prefix || pathKey.startsWith(`${prefix}.`) || pathKey.startsWith(`${prefix}[`));
+  };
   const before = flattenObjectForDiff(beforeState);
   const after = flattenObjectForDiff(afterState);
   const keys = new Set([...before.keys(), ...after.keys()]);
   const changed = [];
   keys.forEach((k) => {
+    if (!isInScope(k)) return;
+    if (isIgnored(k)) return;
     const a = before.get(k);
     const b = after.get(k);
     if (JSON.stringify(a) !== JSON.stringify(b)) changed.push(k);
@@ -475,7 +506,14 @@ function summarizeStateChanges(beforeState, afterState, limit = 8) {
 async function sendCommandChangeConfirmation(chatId, beforeState) {
   try {
     const afterState = snapshotConfigStoreState();
-    const diff = summarizeStateChanges(beforeState, afterState, 8);
+    const numericChatId = Number(chatId || 0);
+    const scopePrefixes = isAdminChat(numericChatId) ? [] : [`users.${numericChatId}.overrides`];
+    const ignoreMatchers = [
+      /^knownUsers\./i,
+      /^meta\./i,
+      /\.(firstSeenAt|lastSeenAt|updatedAt)$/i
+    ];
+    const diff = summarizeStateChanges(beforeState, afterState, 8, { scopePrefixes, ignoreMatchers });
     if (!diff.total) {
       await api.sendMessage(chatId, 'Confirmed changes: none.');
       return;
@@ -1071,7 +1109,10 @@ async function sendSingleFormattedComic(chatId, panelResult, sourceMode, cfg, de
       storyboard,
       panelImages,
       source: String(sourceMode || 'text'),
-      outputConfig: cfg?.output || {},
+      outputConfig: {
+        ...(cfg?.output || {}),
+        layout: 'grid'
+      },
       outputPath: outPath
     });
     await sendPanelWithRetry(chatId, { imagePath: outPath, caption: caption.slice(0, 1000) }, 0, false);
@@ -2465,6 +2506,24 @@ function markOrRejectDuplicate(update) {
 
 const webhookPath = `/telegram/webhook/${webhookSecret}`;
 
+function resolveBaseConfigPath() {
+  const configured = String(process.env.RENDER_BOT_BASE_CONFIG || '').trim();
+  const configuredResolved = configured ? path.resolve(configured) : '';
+  const canonical = path.join(repoRoot, 'telegram/config/default.render.yml');
+  const legacy = path.join(repoRoot, 'render/config/default.render.yml');
+  if (configuredResolved && fs.existsSync(configuredResolved)) return configuredResolved;
+  if (fs.existsSync(canonical)) {
+    process.env.RENDER_BOT_BASE_CONFIG = canonical;
+    return canonical;
+  }
+  if (fs.existsSync(legacy)) {
+    process.env.RENDER_BOT_BASE_CONFIG = legacy;
+    return legacy;
+  }
+  const attempted = [configuredResolved, canonical, legacy].filter(Boolean).join(', ');
+  throw new Error(`Config file not found: ${attempted}`);
+}
+
 async function startServer() {
   if (!token) throw new Error('Missing TELEGRAM_BOT_TOKEN');
   if (!webhookSecret) throw new Error('Missing TELEGRAM_WEBHOOK_SECRET');
@@ -2486,7 +2545,7 @@ async function startServer() {
   const knownUsersStore = createKnownUsersStoreFromEnv();
   knownUsersStoreMode = knownUsersStore.mode;
   configStore = new RuntimeConfigStore(
-    path.resolve(process.env.RENDER_BOT_BASE_CONFIG || path.join(repoRoot, 'telegram/config/default.render.yml')),
+    resolveBaseConfigPath(),
     persistenceMode.impl,
     {
       cfgRootDir: path.resolve(process.env.RENDER_BOT_CFGS_DIR || path.join(repoRoot, 'telegram/cfgs')),
