@@ -345,6 +345,32 @@ describe('render webhook bot REST + telegram flow', () => {
     }
   }, 30000);
 
+  it('responds with explicit message for unsupported non-text updates', async () => {
+    const tg = await startFakeTelegramServer();
+    const botPort = await getFreePort();
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'render-bot-webhook-'));
+    const bot = await startBotProcess(
+      botPort,
+      `http://127.0.0.1:${tg.port}/botTEST_TOKEN`,
+      path.join(tmpDir, 'runtime-state.json')
+    );
+
+    try {
+      const res = await postUpdate(botPort, {
+        chat: { id: 777 },
+        photo: [{ file_id: 'x' }]
+      });
+      expect(res.status).toBe(200);
+      await waitFor(() => tg.calls.some((c) =>
+        c.url.endsWith('/sendMessage')
+          && String(c.body.text || '').includes('Unsupported message format')
+      ), 8000, 100);
+    } finally {
+      await bot.stop();
+      await tg.close();
+    }
+  }, 30000);
+
   it('supports /invent flow and produces ordered panel photo responses', async () => {
     const tg = await startFakeTelegramServer();
     const botPort = await getFreePort();

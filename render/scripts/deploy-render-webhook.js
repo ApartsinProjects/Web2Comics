@@ -24,6 +24,17 @@ async function setTelegramWebhook(token, secret, publicBaseUrl) {
   return url;
 }
 
+async function getExistingWebhookSecret(token) {
+  const apiUrl = `https://api.telegram.org/bot${token}/getWebhookInfo`;
+  const res = await fetch(apiUrl, { method: 'GET' });
+  const json = await res.json();
+  if (!res.ok || !json?.ok) return '';
+  const url = String(json?.result?.url || '').trim();
+  if (!url) return '';
+  const parts = url.split('/').filter(Boolean);
+  return String(parts[parts.length - 1] || '').trim();
+}
+
 async function waitForPostgresConnectionString(render, postgresId, timeoutMs = 240000) {
   const start = Date.now();
   let lastError = '';
@@ -141,11 +152,6 @@ async function main() {
   const plan = firstNonEmpty(args.plan, process.env.RENDER_PLAN, 'free');
 
   const telegramToken = firstNonEmpty(args['telegram-token'], process.env.TELEGRAM_BOT_TOKEN, tgYaml.bot_token);
-  const webhookSecret = firstNonEmpty(
-    args['webhook-secret'],
-    process.env.TELEGRAM_WEBHOOK_SECRET,
-    'web2comics-render-webhook-secret-v1'
-  );
 
   const providerEnv = {
     GEMINI_API_KEY: firstNonEmpty(args['gemini-key'], process.env.GEMINI_API_KEY),
@@ -189,6 +195,13 @@ async function main() {
   if (!telegramToken) {
     throw new Error('Missing Telegram bot token. Put it in .telegram.yaml or TELEGRAM_BOT_TOKEN or --telegram-token');
   }
+  const existingWebhookSecret = await getExistingWebhookSecret(telegramToken);
+  const webhookSecret = firstNonEmpty(
+    args['webhook-secret'],
+    process.env.TELEGRAM_WEBHOOK_SECRET,
+    existingWebhookSecret,
+    'web2comics-render-webhook-secret-v1'
+  );
   const keyCheck = validateProviderEnv(providerEnv, requireAllKeys);
   if (!keyCheck.ok) {
     if (requireAllKeys) {

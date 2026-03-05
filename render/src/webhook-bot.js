@@ -40,6 +40,7 @@ if (!webhookSecret) throw new Error('Missing TELEGRAM_WEBHOOK_SECRET');
 const api = new TelegramApi(token, process.env.TELEGRAM_API_BASE_URL || '');
 let configStore = null;
 const rawSendMessage = api.sendMessage.bind(api);
+const jobTimeoutMs = Math.max(15000, Number(process.env.RENDER_BOT_JOB_TIMEOUT_MS || 300000));
 
 function collectSensitiveValues(chatId) {
   const keys = new Set([
@@ -76,8 +77,16 @@ async function safeNotifyUser(chatId, text) {
   if (!chatId || !text) return;
   try {
     await api.sendMessage(chatId, text);
-  } catch (_) {
-    // Do not throw from fallback notifications.
+  } catch (error) {
+    console.error('[render-bot] failed to notify user:', error && error.message ? error.message : String(error));
+  }
+}
+
+async function safeRecordInteraction(chatId, payload) {
+  try {
+    await configStore.recordInteraction(chatId, payload);
+  } catch (error) {
+    console.error('[render-bot] recordInteraction failed:', error && error.message ? error.message : String(error));
   }
 }
 
@@ -566,14 +575,26 @@ async function handleCommand(chatId, text) {
 
 async function processMessage(message) {
   const chatId = Number(message?.chat?.id || 0);
-  const text = String(message?.text || '').trim();
-  if (!chatId || !text) return;
+  const text = String(message?.text || message?.caption || '').trim();
+  if (!chatId) return;
   const incoming = classifyIncoming(text);
   try {
+    if (!text) {
+      await api.sendMessage(chatId, 'Unsupported message format. Send plain text or URL.');
+      await safeRecordInteraction(chatId, {
+        kind: 'empty',
+        command: '',
+        requestText: '',
+        result: { ok: false, type: 'unsupported', error: 'empty_message' },
+        config: configStore.getEffectiveConfig(chatId)
+      });
+      return;
+    }
+
     if (!isAllowedChat(chatId)) {
       console.warn(`[render-bot] denied chat ${chatId}; allowlist=${runtime.allowedChatIds.join(',') || '(none)'} admins=${adminChatIds.join(',') || '(none)'}`);
       await api.sendMessage(chatId, 'Access denied for this bot instance.');
-      await configStore.recordInteraction(chatId, {
+      await safeRecordInteraction(chatId, {
         kind: incoming.kind,
         command: incoming.command,
         requestText: text,
@@ -610,7 +631,7 @@ async function processMessage(message) {
       const seed = text.replace(/^\/invent\b/i, '').trim();
       if (!seed) {
         await api.sendMessage(chatId, 'Usage: /invent <story seed>');
-        await configStore.recordInteraction(chatId, {
+        await safeRecordInteraction(chatId, {
           kind: incoming.kind,
           command: incoming.command,
           requestText: text,
@@ -630,7 +651,7 @@ async function processMessage(message) {
 
       const result = await generatePanelsWithRuntimeConfig(inventedStory, runtime, effectiveConfigPath);
       await sendPanelSequence(chatId, result, 'invent');
-      await configStore.recordInteraction(chatId, {
+      await safeRecordInteraction(chatId, {
         kind: incoming.kind,
         command: incoming.command,
         requestText: text,
@@ -648,7 +669,7 @@ async function processMessage(message) {
 
     const handled = await handleCommand(chatId, text);
     if (handled) {
-      await configStore.recordInteraction(chatId, {
+      await safeRecordInteraction(chatId, {
         kind: incoming.kind,
         command: incoming.command,
         requestText: text,
@@ -665,7 +686,7 @@ async function processMessage(message) {
     configStore.applySecretsToEnv(chatId);
     const result = await generatePanelsWithRuntimeConfig(text, runtime, effectiveConfigPath);
     await sendPanelSequence(chatId, result, result.kind === 'url' ? 'url' : 'text');
-    await configStore.recordInteraction(chatId, {
+    await safeRecordInteraction(chatId, {
       kind: incoming.kind,
       command: incoming.command,
       requestText: text,
@@ -680,7 +701,7 @@ async function processMessage(message) {
     });
   } catch (error) {
     await safeNotifyUser(chatId, `Generation failed: ${String(error?.message || error)}`);
-    await configStore.recordInteraction(chatId, {
+    await safeRecordInteraction(chatId, {
       kind: incoming.kind,
       command: incoming.command,
       requestText: text,
@@ -697,7 +718,10 @@ function enqueueUpdate(update) {
   const next = current
     .then(async () => {
       if (!update?.message) return;
-      await processMessage(update.message);
+      await Promise.race([
+        processMessage(update.message),
+        new Promise((_, reject) => setTimeout(() => reject(new Error(`Request timed out after ${jobTimeoutMs}ms`)), jobTimeoutMs))
+      ]);
     })
     .catch(async (error) => {
       const targetChatId = Number(update?.message?.chat?.id || 0);

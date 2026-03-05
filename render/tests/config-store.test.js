@@ -92,4 +92,25 @@ describe('render config store', () => {
       else process.env.GEMINI_API_KEY = previous;
     }
   });
+
+  it('serializes concurrent saves without dropping state updates', async () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'render-bot-'));
+    const baseConfig = path.resolve(__dirname, '../config/default.render.yml');
+    const statePath = path.join(tmp, 'state.json');
+    const store = new RuntimeConfigStore(baseConfig, new FilePersistence(statePath));
+    await store.load();
+
+    await Promise.all([
+      store.setConfigValue('u1', 'generation.panel_count', 4),
+      store.setConfigValue('u2', 'generation.panel_count', 5),
+      store.setSecret('u1', 'GEMINI_API_KEY', 'KEY1'),
+      store.setSecret('u2', 'GEMINI_API_KEY', 'KEY2')
+    ]);
+
+    const raw = JSON.parse(fs.readFileSync(statePath, 'utf8'));
+    expect(raw.users.u1.overrides.generation.panel_count).toBe(4);
+    expect(raw.users.u2.overrides.generation.panel_count).toBe(5);
+    expect(raw.users.u1.secrets.GEMINI_API_KEY).toBe('KEY1');
+    expect(raw.users.u2.secrets.GEMINI_API_KEY).toBe('KEY2');
+  });
 });

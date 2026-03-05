@@ -23,7 +23,9 @@ class FilePersistence {
 
   async save(state) {
     fs.mkdirSync(path.dirname(this.filePath), { recursive: true });
-    fs.writeFileSync(this.filePath, JSON.stringify(state || {}, null, 2), 'utf8');
+    const tmpPath = `${this.filePath}.tmp`;
+    fs.writeFileSync(tmpPath, JSON.stringify(state || {}, null, 2), 'utf8');
+    fs.renameSync(tmpPath, this.filePath);
   }
 }
 

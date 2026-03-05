@@ -33,6 +33,7 @@ class RuntimeConfigStore {
     this.baseConfig = loadConfig(this.baseConfigPath).config;
     this.state = { users: {}, history: [] };
     this.baseSecrets = {};
+    this.saveQueue = Promise.resolve();
     SECRET_KEYS.forEach((key) => {
       const value = String(process.env[key] || '').trim();
       if (value) this.baseSecrets[key] = value;
@@ -71,7 +72,9 @@ class RuntimeConfigStore {
 
   async save() {
     if (!this.persistence) return;
-    await this.persistence.save(this.state);
+    const snapshot = JSON.parse(JSON.stringify(this.state || {}));
+    this.saveQueue = this.saveQueue.then(() => this.persistence.save(snapshot));
+    await this.saveQueue;
   }
 
   normalizeUserKey(chatId) {
