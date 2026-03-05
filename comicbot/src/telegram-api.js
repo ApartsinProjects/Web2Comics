@@ -1,10 +1,10 @@
 const fs = require('fs');
 
 class TelegramApi {
-  constructor(botToken, baseUrl) {
+  constructor(botToken) {
     if (!botToken) throw new Error('Missing Telegram bot token');
     this.botToken = String(botToken);
-    this.baseUrl = String(baseUrl || `https://api.telegram.org/bot${this.botToken}`).replace(/\/+$/, '');
+    this.baseUrl = `https://api.telegram.org/bot${this.botToken}`;
   }
 
   async call(method, payload, asFormData) {
@@ -33,13 +33,20 @@ class TelegramApi {
     return json.result;
   }
 
+  async getUpdates(offset, timeoutSec) {
+    return this.call('getUpdates', {
+      offset: Number(offset || 0),
+      timeout: Number(timeoutSec || 25),
+      allowed_updates: ['message']
+    });
+  }
+
   async sendMessage(chatId, text, extra) {
     return this.call('sendMessage', {
       chat_id: chatId,
       text: String(text || ''),
       disable_web_page_preview: true,
-      ...(extra || {}),
-      protect_content: false
+      ...(extra || {})
     });
   }
 
@@ -55,36 +62,8 @@ class TelegramApi {
     const form = new FormData();
     form.append('chat_id', String(chatId));
     form.append('caption', String(caption || ''));
-    form.append('protect_content', 'false');
     form.append('photo', new Blob([fileBuffer], { type: 'image/png' }), 'comic.png');
     return this.call('sendPhoto', form, true);
-  }
-
-  async sendMediaGroup(chatId, items) {
-    const list = Array.isArray(items) ? items : [];
-    if (!list.length) return [];
-    const form = new FormData();
-    form.append('chat_id', String(chatId));
-    form.append('protect_content', 'false');
-
-    const media = list.map((item, idx) => {
-      const attachName = `photo${idx}`;
-      const out = {
-        type: 'photo',
-        media: `attach://${attachName}`
-      };
-      const caption = String(item?.caption || '').trim();
-      if (caption) out.caption = caption.slice(0, 1024);
-      return out;
-    });
-    form.append('media', JSON.stringify(media));
-
-    list.forEach((item, idx) => {
-      const fileBuffer = fs.readFileSync(String(item?.imagePath || ''));
-      form.append(`photo${idx}`, new Blob([fileBuffer], { type: 'image/png' }), `panel-${idx + 1}.png`);
-    });
-
-    return this.call('sendMediaGroup', form, true);
   }
 }
 

@@ -1,7 +1,7 @@
 # Web2Comic Bot Deployment Runbook
 
 ## Scope
-This runbook covers deployment of the Telegram webhook bot in `render/src/webhook-bot.js` with persistent storage in Postgres + Cloudflare R2.
+This runbook covers deployment of the Telegram webhook bot in `render/src/webhook-bot.js` with persistent storage in Cloudflare R2.
 
 ## 1) Prerequisites
 - Node 20+
@@ -36,7 +36,6 @@ Set these in GitHub Secrets (recommended) or local env for manual deployment.
   - `R2_BUCKET`
   - `R2_ACCESS_KEY_ID`
   - `R2_SECRET_ACCESS_KEY`
-  - `DATABASE_URL`
 
 ## 3) Secret Validation
 Validate mapping and required env values before deploy:
@@ -74,7 +73,6 @@ npm run bot:deploy:auto -- --target render --branch engine --env-only --skip-san
 
 ## 5) What Automation Performs
 - Creates/reuses Render service
-- Creates/reuses Render Postgres
 - Creates/reuses R2 bucket (if API token/account provided)
 - Verifies R2 read/write/delete
 - Syncs service environment variables
@@ -86,8 +84,11 @@ npm run bot:deploy:auto -- --target render --branch engine --env-only --skip-san
 - Send `/help` and `/about` in Telegram
 - Send short text and verify:
   - prompt expansion notice for very short prompts
+  - `/crazyness` value affects story invention intensity
   - panel delivery starts as soon as panels are generated
   - captions use `X(Y)` prefix format
+  - panel image watermark appears bottom-right (`made with Web2Comics`)
+  - messages/photos are forwardable (not content-protected)
 - Send URL and verify URL rendering flow works
 - Sanity script (automatic in deploy wrapper):
   - health endpoint check

@@ -10,6 +10,17 @@ function safeNumber(value, fallback) {
   return Number.isFinite(n) ? n : fallback;
 }
 
+function deriveHierarchicalImageKey(prefix, filePath) {
+  const normalized = String(filePath || '').replace(/\\/g, '/');
+  const m = normalized.match(/\/users\/([^/]+)\/generations\/([^/]+)\/([^/]+)$/i);
+  if (!m) return '';
+  const userPart = String(m[1] || '').trim();
+  const generationPart = String(m[2] || '').trim();
+  const fileName = String(m[3] || '').trim();
+  if (!userPart || !generationPart || !fileName) return '';
+  return `${prefix}/users/${userPart}/generations/${generationPart}/${fileName}`;
+}
+
 class ImageStorageManager {
   constructor(options = {}) {
     this.statusFilePath = path.resolve(String(options.statusFilePath || 'render/out/image-storage-status.json'));
@@ -351,7 +362,8 @@ class R2ImageStorageManager {
       if (!fs.existsSync(p)) continue;
       const bytes = fs.readFileSync(p);
       const sizeBytes = Math.max(0, Number(bytes.length || 0));
-      const key = `${this.prefix}/${now.replace(/[:.]/g, '-')}-${Math.random().toString(36).slice(2, 8)}-${path.basename(p)}`;
+      const key = deriveHierarchicalImageKey(this.prefix, p)
+        || `${this.prefix}/${now.replace(/[:.]/g, '-')}-${Math.random().toString(36).slice(2, 8)}-${path.basename(p)}`;
       await this.adapter.putBinary(this.bucket, key, bytes, 'image/png');
       newEntries.push({
         path: p,
@@ -416,6 +428,7 @@ module.exports = {
   R2ImageStorageManager,
   R2ImageStorageAdapter,
   createImageStorageManagerFromEnv,
+  deriveHierarchicalImageKey,
   HARD_MAX_CAPACITY_BYTES,
   DEFAULT_CAPACITY_BYTES,
   DEFAULT_THRESHOLD_RATIO

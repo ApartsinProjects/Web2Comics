@@ -25,19 +25,22 @@ URL flow snapshots rendered page HTML before generation.
 1. Resolve effective per-user config
 2. Apply secrets (runtime/shared/env)
 3. Build storyboard with text provider
-4. Generate panel images
+4. Generate panel images (each prompt includes story title + short story summary + panel visual brief)
 5. Stream panel sends to Telegram as each panel becomes ready
 6. Send final completion summary
 
 Important behavior:
 - Panel captions in chat use `X(Y)` prefix
 - Image prompt explicitly forbids rendering caption text inside artwork
+- Every panel image gets a subtle bottom-right watermark (`made with Web2Comics`)
+- Telegram sends use `protect_content=false` to keep forwarding enabled
 
 ## Command System
 Primary command handling is in `handleCommand`.
 
 Notable UX behavior:
 - `/objective` without args lists all objectives
+- `/crazyness <0..2>` controls story invention temperature
 - `/options` and `/choose` without args explain valid paths/options
 - `/keys` and `/credentials` are aliases
 
@@ -61,7 +64,7 @@ Ban checks run before allowlist checks during message processing.
 - Provider switching checks required keys and blocks missing-key changes
 
 ## Storage
-- Postgres: user runtime config/secrets/profile + history
+- R2 state object: user runtime config/secrets/profile + history
 - R2: images, request logs, crash logs, status markers
 - Capacity/retention cleanup is enforced by runtime/storage managers
 
@@ -86,4 +89,3 @@ npm run bot:deploy:auto -- --target render --branch engine --env-only
 See:
 - `render/docs/deployment-runbook.md`
 - `render/docs/testing.md`
-

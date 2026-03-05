@@ -4,7 +4,7 @@ export default defineConfig({
   test: {
     environment: 'jsdom',
     globals: true,
-    include: ['tests/unit/**/*.test.js', 'tests/integration/**/*.test.js'],
+    include: ['tests/unit/**/*.test.js', 'tests/integration/**/*.test.js', 'engine/tests/**/*.test.js'],
     exclude: ['tests/e2e/**'],
     coverage: {
       reporter: ['text', 'json', 'html'],

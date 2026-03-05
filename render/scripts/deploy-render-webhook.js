@@ -191,22 +191,6 @@ async function getExistingWebhookSecret(token) {
   return String(parts[parts.length - 1] || '').trim();
 }
 
-async function waitForPostgresConnectionString(render, postgresId, timeoutMs = 240000) {
-  const start = Date.now();
-  let lastError = '';
-  while (Date.now() - start < timeoutMs) {
-    try {
-      const info = await render.getPostgresConnectionInfo(postgresId);
-      const conn = String(info?.internalConnectionString || '').trim();
-      if (conn) return conn;
-    } catch (error) {
-      lastError = String(error?.message || error);
-    }
-    await new Promise((r) => setTimeout(r, 5000));
-  }
-  throw new Error(`Timed out waiting for Postgres connection string. ${lastError}`);
-}
-
 function extractDeployId(deployResponse) {
   return String(
     (deployResponse && deployResponse.id)
@@ -380,21 +364,6 @@ async function main() {
     firstNonEmpty(args['admin-chat-ids'], process.env.TELEGRAM_ADMIN_CHAT_IDS, '1796415913'),
     notifyChatId
   );
-  let databaseUrl = firstNonEmpty(
-    args['database-url'],
-    args['pg-url'],
-    process.env.RENDER_BOT_PG_URL,
-    process.env.DATABASE_URL
-  );
-  const pgTable = firstNonEmpty(args['pg-table'], process.env.RENDER_BOT_PG_TABLE, 'render_bot_state');
-  const pgStateKey = firstNonEmpty(args['pg-state-key'], process.env.RENDER_BOT_PG_STATE_KEY, 'runtime_config');
-  const postgresIdArg = firstNonEmpty(args['postgres-id'], process.env.RENDER_POSTGRES_ID);
-  const defaultPostgresName = `${serviceName}-db`;
-  const postgresName = firstNonEmpty(args['postgres-name'], process.env.RENDER_POSTGRES_NAME, defaultPostgresName);
-  const postgresPlan = firstNonEmpty(args['postgres-plan'], process.env.RENDER_POSTGRES_PLAN, 'free');
-  const postgresVersion = firstNonEmpty(args['postgres-version'], process.env.RENDER_POSTGRES_VERSION, '16');
-  const postgresRegion = firstNonEmpty(args['postgres-region'], process.env.RENDER_POSTGRES_REGION, region);
-
   globalStage = 'validate-input';
   if (!renderApiKey) {
     throw new Error('Missing Render API key. Set RENDER_API_KEY or pass --render-api-key');
@@ -459,51 +428,6 @@ async function main() {
 
   globalOwnerId = ownerId;
 
-  globalStage = 'provision-postgres';
-  let postgresId = postgresIdArg;
-  if (!databaseUrl) {
-    if (!postgresId) {
-      const existingPg = await render.listPostgresByName(postgresName, ownerId);
-      const pgRecord = existingPg.find((row) => String(row?.postgres?.name || row?.name || '') === postgresName);
-      if (pgRecord) {
-        postgresId = String((pgRecord.postgres && pgRecord.postgres.id) || pgRecord.id || '');
-        console.log(`[deploy] postgres exists: ${postgresName}`);
-      } else {
-        try {
-          const createPgPayload = {
-            name: postgresName,
-            ownerId,
-            plan: postgresPlan,
-            version: postgresVersion,
-            region: postgresRegion
-          };
-          const createdPg = await render.createPostgres(createPgPayload);
-          postgresId = String((createdPg.postgres && createdPg.postgres.id) || createdPg.id || '');
-          console.log(`[deploy] created postgres: ${postgresName}`);
-        } catch (error) {
-          const msg = String(error?.message || error);
-          const freeTierLimit = msg.toLowerCase().includes('more than one active free tier database');
-          if (!freeTierLimit) throw error;
-          const existingAny = await render.listPostgresByName('', ownerId);
-          const fallback = (Array.isArray(existingAny) ? existingAny : [])[0];
-          const fallbackId = String((fallback?.postgres && fallback.postgres.id) || fallback?.id || '').trim();
-          const fallbackName = String((fallback?.postgres && fallback.postgres.name) || fallback?.name || '').trim();
-          if (!fallbackId) throw error;
-          postgresId = fallbackId;
-          console.log(`[deploy] free postgres limit hit; reusing existing postgres: ${fallbackName || fallbackId}`);
-        }
-      }
-    }
-
-    if (!postgresId) {
-      throw new Error('Unable to resolve Postgres ID. Pass --postgres-id or --database-url.');
-    }
-    databaseUrl = await waitForPostgresConnectionString(render, postgresId);
-    console.log('[deploy] postgres connection resolved');
-  } else {
-    console.log('[deploy] using provided postgres url');
-  }
-
   globalStage = 'provision-service';
   const existing = await render.listServicesByName(serviceName, ownerId);
   let serviceRecord = existing.find((row) => String(row?.service?.name || '') === serviceName);
@@ -558,12 +482,10 @@ async function main() {
   const envVars = {
     TELEGRAM_BOT_TOKEN: telegramToken,
     TELEGRAM_WEBHOOK_SECRET: webhookSecret,
+    RENDER_BOT_PERSISTENCE_MODE: 'r2',
     RENDER_BOT_BASE_CONFIG: 'render/config/default.render.yml',
     RENDER_BOT_STATE_FILE: 'render/data/runtime-state.json',
-    DATABASE_URL: databaseUrl,
-    RENDER_BOT_PG_URL: databaseUrl,
-    RENDER_BOT_PG_TABLE: pgTable,
-    RENDER_BOT_PG_STATE_KEY: pgStateKey,
+    R2_STATE_KEY: firstNonEmpty(args['r2-state-key'], process.env.R2_STATE_KEY, 'state/runtime-config.json'),
     RENDER_BOT_OUT_DIR: 'render/out',
     RENDER_BOT_FETCH_TIMEOUT_MS: '45000',
     RENDER_BOT_DEBUG_ARTIFACTS: 'false',

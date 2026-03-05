@@ -29,6 +29,28 @@ function readTelegramYaml(repoRoot) {
   }
 }
 
+function readCloudflareYaml(repoRoot) {
+  const p = path.resolve(repoRoot, '.cloudflare.yaml');
+  if (!fs.existsSync(p)) return {};
+  try {
+    const parsed = yaml.load(fs.readFileSync(p, 'utf8')) || {};
+    return parsed && parsed.cloudflare ? parsed.cloudflare : {};
+  } catch (_) {
+    return {};
+  }
+}
+
+function readAwsYaml(repoRoot) {
+  const p = path.resolve(repoRoot, '.aws.yaml');
+  if (!fs.existsSync(p)) return {};
+  try {
+    const parsed = yaml.load(fs.readFileSync(p, 'utf8')) || {};
+    return parsed || {};
+  } catch (_) {
+    return {};
+  }
+}
+
 function randomSecret(len = 36) {
   const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
   let out = '';
@@ -82,6 +104,8 @@ function validateProviderEnv(providerEnv, strictAll) {
 module.exports = {
   parseArgs,
   readTelegramYaml,
+  readCloudflareYaml,
+  readAwsYaml,
   randomSecret,
   resolveLatestDeployId,
   validateProviderEnv

@@ -240,6 +240,42 @@ class ComicViewer {
     };
   }
 
+  getManualSourceInfo(source) {
+    const info = source && typeof source === 'object' ? source : {};
+    const sourceType = String(info.source_type || '').toLowerCase();
+    const manualStoryText = String(info.manual_story_text || '').trim();
+    const isManual = sourceType === 'manual_text' || !!manualStoryText;
+    if (!isManual) return null;
+    const title = String(info.manual_story_title || info.title || 'Custom Story').trim() || 'Custom Story';
+    return { title, text: manualStoryText };
+  }
+
+  openManualSourceWindow(sourceInfo) {
+    const info = sourceInfo && typeof sourceInfo === 'object' ? sourceInfo : {};
+    const text = String(info.text || '').trim();
+    if (!text) {
+      alert('No manual story text is available for this comic.');
+      return;
+    }
+    const title = String(info.title || 'Custom Story').trim() || 'Custom Story';
+    const popup = window.open('', '_blank', 'noopener,noreferrer');
+    if (!popup) {
+      alert('Unable to open source story window. Please allow pop-ups for this extension.');
+      return;
+    }
+    const safeTitle = this.escapeHtml(title);
+    const safeText = this.escapeHtml(text);
+    popup.document.write(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${safeTitle} - Source Story</title><style>body{font-family:Segoe UI,Tahoma,Arial,sans-serif;margin:0;padding:20px;background:#f8fafc;color:#111827;line-height:1.55}main{max-width:860px;margin:0 auto;background:#fff;border:1px solid #dbe3ef;border-radius:12px;padding:18px 20px;box-shadow:0 6px 18px rgba(15,23,42,.08)}h1{margin:0 0 10px;font-size:1.3rem}p.meta{margin:0 0 14px;color:#475569}pre{margin:0;white-space:pre-wrap;word-break:break-word;font:inherit;color:inherit}</style></head><body><main><h1>${safeTitle}</h1><p class="meta">User-provided source story</p><pre>${safeText}</pre></main></body></html>`);
+    popup.document.close();
+  }
+
+  handleComicSourceClick(event) {
+    const manualInfo = this.getManualSourceInfo(this.currentComic?.source);
+    if (!manualInfo) return;
+    event.preventDefault();
+    this.openManualSourceWindow(manualInfo);
+  }
+
   getProviderDisplayLabel(providerId) {
     const labels = {
       'gemini-free': 'Gemini',
@@ -717,6 +753,7 @@ class ComicViewer {
     document.getElementById('history-sort-title-btn')?.addEventListener('click', () => this.toggleHistorySortMode('title'));
     document.getElementById('history-sort-date-btn')?.addEventListener('click', () => this.toggleHistorySortMode('date'));
     document.getElementById('layout-preset-select')?.addEventListener('change', (e) => this.setLayoutPreset(e.target.value));
+    document.getElementById('comic-source')?.addEventListener('click', (e) => this.handleComicSourceClick(e));
     document.getElementById('comic-strip')?.addEventListener('click', (e) => this.handlePanelActionClick(e));
     document.getElementById('comic-panels')?.addEventListener('click', (e) => this.handlePanelActionClick(e));
   }
@@ -1212,6 +1249,7 @@ class ComicViewer {
     document.getElementById('comic-display').classList.remove('hidden');
     
     const sourceUrl = String(resolvedStoryboard?.source?.url || '');
+    const manualSourceInfo = this.getManualSourceInfo(resolvedStoryboard?.source);
     document.getElementById('comic-title').textContent = this.resolveComicDisplayTitle(resolvedStoryboard);
     const descriptionEl = document.getElementById('comic-description');
     if (descriptionEl) {
@@ -1219,8 +1257,18 @@ class ComicViewer {
       descriptionEl.textContent = descriptionText;
       descriptionEl.classList.toggle('hidden', !descriptionText);
     }
-    document.getElementById('comic-source').href = this.sanitizeExternalUrl(sourceUrl);
-    this.updateComicSourceFavicon(sourceUrl);
+    const sourceEl = document.getElementById('comic-source');
+    if (sourceEl) {
+      if (manualSourceInfo) {
+        sourceEl.href = '#';
+        sourceEl.textContent = 'View Source Story';
+      } else {
+        const safeHref = this.sanitizeExternalUrl(sourceUrl);
+        sourceEl.href = safeHref;
+        sourceEl.textContent = safeHref === '#' ? 'Source unavailable' : sourceUrl;
+      }
+    }
+    this.updateComicSourceFavicon(manualSourceInfo ? '' : sourceUrl);
     
     this.renderPanels(resolvedStoryboard.panels);
     this.renderCarousel(resolvedStoryboard.panels);
@@ -2825,6 +2873,8 @@ class ComicViewer {
   getHistorySourceInfo(item) {
     const storyboardSource = item?.storyboard?.source || {};
     const source = item?.source || {};
+    const manualSourceInfo = this.getManualSourceInfo(storyboardSource) || this.getManualSourceInfo(source);
+    const isManual = !!manualSourceInfo;
     const url = String(
       source.url ||
       item?.sourceUrl ||
@@ -2833,17 +2883,23 @@ class ComicViewer {
       ''
     ).trim();
     const title = this.deriveHistoryCardTitle(item);
-    return { url: url || '#', title };
+    return {
+      url: isManual ? '#' : (url || '#'),
+      title,
+      isManual,
+      manualSourceInfo
+    };
   }
 
   renderHistoryCard(item, options = {}) {
     const sourceInfo = this.getHistorySourceInfo(item);
     const sourceUrl = sourceInfo.url || '#';
     const safeSourceHref = this.sanitizeExternalUrl(sourceUrl);
-    const shortName = this.getShortSourceName(sourceUrl);
+    const shortName = sourceInfo.isManual ? 'Custom story' : this.getShortSourceName(sourceUrl);
     const sourceTitle = sourceInfo.title || 'Untitled';
     const showDate = options.showDate !== false;
     const showSourceLink = options.showOriginalLink !== false;
+    const sourceLinkLabel = sourceInfo.isManual ? 'Story' : 'Source';
     let dateText = '';
     try {
       dateText = item?.generated_at
@@ -2875,7 +2931,7 @@ class ComicViewer {
           <div class="history-title" title="${safeSourceTitle}">${safeSourceTitle}</div>
           <div class="history-meta-row">
             <span class="history-source-chip">${safeShortName}</span>
-            ${showSourceLink ? `<a class="history-source-link" href="${safeSourceHref}" target="_blank" rel="noopener noreferrer">Source</a>` : ''}
+            ${showSourceLink ? `<a class="history-source-link" href="${safeSourceHref}" target="_blank" rel="noopener noreferrer">${sourceLinkLabel}</a>` : ''}
           </div>
           ${showDate && dateText ? `<div class="history-date">${safeDateText}</div>` : ''}
           <div class="history-card-actions">
@@ -3062,6 +3118,14 @@ class ComicViewer {
 
     container.querySelectorAll('.history-source-link').forEach((link) => {
       link.addEventListener('click', (e) => {
+        const itemEl = e.currentTarget.closest('.history-item');
+        const itemId = String(itemEl?.dataset?.id || '').trim();
+        const item = this.historyItems.find((h) => h && String(h.id || '') === itemId);
+        const sourceInfo = item ? this.getHistorySourceInfo(item) : null;
+        if (sourceInfo?.isManual && sourceInfo.manualSourceInfo) {
+          e.preventDefault();
+          this.openManualSourceWindow(sourceInfo.manualSourceInfo);
+        }
         e.stopPropagation();
       });
     });

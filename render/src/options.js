@@ -15,6 +15,8 @@ const OPTION_MAP = {
     'debate-map'
   ],
   'generation.output_language': ['en', 'auto', 'es', 'fr', 'de', 'it', 'pt', 'ru', 'ja', 'ko', 'zh', 'he'],
+  'generation.invent_temperature': ['0.3', '0.5', '0.7', '0.95', '1.2', '1.5'],
+  'generation.delivery_mode': ['default', 'media_group', 'single'],
   'generation.detail_level': ['low', 'medium', 'high'],
   'providers.text.provider': ['gemini', 'openai', 'openrouter', 'cloudflare', 'huggingface'],
   'providers.image.provider': ['gemini', 'openai', 'openrouter', 'cloudflare', 'huggingface'],
@@ -66,6 +68,11 @@ function parseUserValue(pathKey, raw) {
   if (/panel_count|_concurrency|retries|output\.width|panel_height|caption_height|timeout_ms|padding|gap|header_height|footer_height/.test(key)) {
     const n = Number.parseInt(v, 10);
     if (!Number.isFinite(n)) throw new Error(`Expected integer for ${key}`);
+    return n;
+  }
+  if (/invent_temperature/.test(key)) {
+    const n = Number.parseFloat(v);
+    if (!Number.isFinite(n)) throw new Error(`Expected number for ${key}`);
     return n;
   }
   return v;

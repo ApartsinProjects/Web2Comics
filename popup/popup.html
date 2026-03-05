@@ -41,6 +41,10 @@
               </span>
               <span class="launcher-title">Comicify!</span>
             </button>
+            <button id="create-from-text-btn" class="launcher-btn secondary launcher-card" aria-label="Create comic from custom text">
+              <span class="launcher-icon" aria-hidden="true">✎</span>
+              <span class="launcher-title">Create</span>
+            </button>
             <button id="view-history-btn" class="launcher-btn secondary launcher-card" aria-label="Open My Collection">
               <span class="launcher-icon launcher-image-icon" aria-hidden="true">
                 <img src="assets/my-collection-collage.png" alt="" loading="lazy">
@@ -122,6 +126,17 @@
 
             <div id="site-profile-hint" class="site-profile-hint hidden"></div>
 
+            <div id="manual-story-editor" class="manual-story-editor hidden">
+              <div class="preview-header">
+                <span class="label">Story Text</span>
+                <span class="context-meta">Write or paste the story that should be comicified</span>
+              </div>
+              <textarea id="manual-story-input" class="manual-story-input" placeholder="Paste or type your story here..."></textarea>
+              <div class="char-count">
+                <span id="manual-story-char-count">0</span> characters
+              </div>
+            </div>
+
             <div class="content-source">
               <label class="label">Source Mode</label>
               <div class="radio-group">
@@ -136,7 +151,7 @@
               </div>
             </div>
 
-            <div class="extracted-preview">
+            <div id="extracted-preview-block" class="extracted-preview">
               <div class="preview-header">
                 <span class="label">Selected Story Source Text</span>
                 <span class="context-meta">Raw extraction from the currently selected story</span>
@@ -150,7 +165,7 @@
               </div>
             </div>
 
-            <div class="model-context-preview">
+            <div id="model-context-preview-block" class="model-context-preview">
               <div class="preview-header">
                 <span class="label">AI Storyboard Input Preview</span>
                 <span class="context-meta">Processed input derived from selected story (trimmed before sending)</span>

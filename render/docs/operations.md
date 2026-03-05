@@ -15,7 +15,7 @@
 ## Runtime behavior
 - Immediate webhook ACK, processing continues asynchronously.
 - Per-chat queue to avoid concurrent conflicts.
-- Per-user config + secrets persisted in Postgres.
+- Per-user config + secrets persisted in R2 state object.
 - Banned users are blocked before allowlist evaluation.
 - Panels are sent to Telegram progressively as they are generated.
 

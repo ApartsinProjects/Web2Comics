@@ -221,6 +221,7 @@ class RuntimeConfigStore {
       `- generation.panel_count: ${cfg.generation.panel_count}`,
       `- generation.objective: ${cfg.generation.objective}`,
       `- generation.output_language: ${cfg.generation.output_language}`,
+      `- generation.delivery_mode: ${cfg.generation.delivery_mode || 'default'}`,
       `- generation.detail_level: ${cfg.generation.detail_level}`,
       `- providers.text.provider: ${cfg.providers.text.provider}`,
       `- providers.text.model: ${cfg.providers.text.model}`,

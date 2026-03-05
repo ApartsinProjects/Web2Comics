@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const { S3Adapter } = require('./crash-log-store');
 
 function sanitizeIdentifier(value, fallback) {
   const id = String(value || '').trim();
@@ -85,14 +86,76 @@ class PostgresPersistence {
   }
 }
 
+class R2Persistence {
+  constructor(options = {}) {
+    this.bucket = String(options.bucket || '').trim();
+    this.stateKey = String(options.stateKey || 'state/runtime-config.json').trim();
+    if (!this.bucket) throw new Error('Missing R2 bucket for persistence.');
+    this.adapter = options.adapter || new S3Adapter({
+      endpoint: options.endpoint,
+      accessKeyId: options.accessKeyId,
+      secretAccessKey: options.secretAccessKey
+    });
+  }
+
+  async load() {
+    try {
+      const raw = await this.adapter.getObject(this.bucket, this.stateKey);
+      if (!raw) return null;
+      return JSON.parse(raw);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  async save(state) {
+    await this.adapter.putObject(this.bucket, this.stateKey, JSON.stringify(state || {}));
+  }
+}
+
 function createPersistence(options = {}) {
+  const mode = String(options.mode || '').trim().toLowerCase();
   const pgUrl = String(options.pgUrl || '').trim();
+  const r2Endpoint = String(options.r2Endpoint || '').trim();
+  const r2Bucket = String(options.r2Bucket || '').trim();
+  const r2AccessKeyId = String(options.r2AccessKeyId || '').trim();
+  const r2SecretAccessKey = String(options.r2SecretAccessKey || '').trim();
+  const r2StateKey = String(options.r2StateKey || 'state/runtime-config.json').trim();
+
+  const canUseR2 = Boolean(r2Endpoint && r2Bucket && r2AccessKeyId && r2SecretAccessKey);
+  if (mode === 'r2' && canUseR2) {
+    return {
+      mode: 'r2',
+      impl: new R2Persistence({
+        endpoint: r2Endpoint,
+        bucket: r2Bucket,
+        accessKeyId: r2AccessKeyId,
+        secretAccessKey: r2SecretAccessKey,
+        stateKey: r2StateKey
+      })
+    };
+  }
+
   if (pgUrl) {
     return {
       mode: 'postgres',
       impl: new PostgresPersistence(pgUrl, options.pgTableName, options.pgStateKey)
     };
   }
+
+  if (canUseR2) {
+    return {
+      mode: 'r2',
+      impl: new R2Persistence({
+        endpoint: r2Endpoint,
+        bucket: r2Bucket,
+        accessKeyId: r2AccessKeyId,
+        secretAccessKey: r2SecretAccessKey,
+        stateKey: r2StateKey
+      })
+    };
+  }
+
   return {
     mode: 'file',
     impl: new FilePersistence(options.filePath)
@@ -102,5 +165,6 @@ function createPersistence(options = {}) {
 module.exports = {
   FilePersistence,
   PostgresPersistence,
+  R2Persistence,
   createPersistence
 };

@@ -112,6 +112,8 @@ class PopupController {
     this.currentPageUrl = '';
     this.currentSiteProfile = 'generic';
     this.hasCompletedFirstGeneration = false;
+    this.composerMode = 'page';
+    this.manualStoryText = '';
     
     this.init();
   }
@@ -153,6 +155,7 @@ class PopupController {
     this.renderExtensionVersion();
     await this.loadRecommendedDefaults();
     await this.loadSettings();
+    await this.loadManualStoryDraft();
     await this.loadCustomStyles();
     await this.loadFirstSuccessState();
     await this.checkOnboarding();
@@ -187,6 +190,7 @@ class PopupController {
       this.currentPageUrl = String(payload.sourceUrl || this.currentPageUrl || '');
       this.currentSiteProfile = this.classifySiteProfile(this.currentPageUrl);
       this.updateSiteProfileHint();
+      this.setComposerMode('page');
       this.setSelectedContentSource('selection');
       this.storySelectionLockedByUser = true;
       this.selectionFallbackActive = false;
@@ -348,6 +352,11 @@ class PopupController {
   updateStoryFlowHint() {
     const hintEl = document.getElementById('story-flow-hint');
     if (!hintEl) return;
+    if (this.isManualComposerMode()) {
+      hintEl.classList.add('hidden');
+      hintEl.textContent = '';
+      return;
+    }
 
     const mode = this.getSelectedContentSource();
     if (!this.extractedText || !String(this.extractedText).trim()) {
@@ -404,6 +413,21 @@ class PopupController {
     }
   }
 
+  async loadManualStoryDraft() {
+    try {
+      const stored = await chrome.storage.local.get('manualStoryDraft');
+      this.manualStoryText = String(stored?.manualStoryDraft || '');
+    } catch (_) {
+      this.manualStoryText = '';
+    }
+  }
+
+  async saveManualStoryDraft() {
+    try {
+      await chrome.storage.local.set({ manualStoryDraft: this.manualStoryText || '' });
+    } catch (_) {}
+  }
+
   beginStoryDetectionProgress(isRetry) {
     this.storyDetectionInFlight += 1;
     const message = isRetry
@@ -447,6 +471,11 @@ class PopupController {
     const text = document.getElementById('quality-confidence-text');
     const storyPickerBtn = document.getElementById('story-picker-btn');
     if (!shell || !badge || !text || !levelEl) return;
+    if (this.isManualComposerMode()) {
+      shell.classList.add('hidden');
+      if (storyPickerBtn) storyPickerBtn.classList.add('hidden');
+      return;
+    }
     if (!this.extractedText) {
       shell.classList.add('hidden');
       if (storyPickerBtn) storyPickerBtn.classList.add('hidden');
@@ -520,7 +549,71 @@ class PopupController {
     }, delayMs);
   }
 
+  isManualComposerMode() {
+    return this.composerMode === 'manual';
+  }
+
+  deriveManualStoryTitle(text) {
+    const normalized = String(text || '').replace(/\s+/g, ' ').trim();
+    if (!normalized) return 'Custom Story';
+    const sentence = normalized.split(/[.!?\n]/).find((line) => String(line || '').trim()) || normalized;
+    return sentence.trim().slice(0, 80) || 'Custom Story';
+  }
+
+  updateManualStoryCount() {
+    const countEl = document.getElementById('manual-story-char-count');
+    if (countEl) countEl.textContent = String((this.manualStoryText || '').length.toLocaleString());
+  }
+
+  setComposerMode(mode) {
+    const normalizedMode = mode === 'manual' ? 'manual' : 'page';
+    const previousMode = this.composerMode;
+    this.composerMode = normalizedMode;
+
+    const manual = normalizedMode === 'manual';
+    document.getElementById('manual-story-editor')?.classList.toggle('hidden', !manual);
+    document.getElementById('site-profile-hint')?.classList.toggle('hidden', manual);
+    document.querySelector('.content-source')?.classList.toggle('hidden', manual);
+    document.getElementById('extracted-preview-block')?.classList.toggle('hidden', manual);
+    document.getElementById('model-context-preview-block')?.classList.toggle('hidden', manual);
+    document.getElementById('story-detection-progress')?.classList.toggle('hidden', manual);
+    document.getElementById('quality-confidence')?.classList.toggle('hidden', manual);
+
+    if (manual) {
+      this.storyDetectionInFlight = 0;
+      this.setStoryDetectionProgress(false);
+      this.selectionFallbackActive = false;
+      this.clearExtractRetry();
+      this.extractRetryCount = 0;
+      const input = document.getElementById('manual-story-input');
+      if (input && input.value !== String(this.manualStoryText || '')) {
+        input.value = String(this.manualStoryText || '');
+      }
+      this.updateManualStoryCount();
+      this.extractedText = String(this.manualStoryText || '');
+      this.selectedStoryTitle = this.deriveManualStoryTitle(this.manualStoryText);
+      this.updatePreview(this.extractedText);
+      this.setExtraSectionOpen('content-extra-section', true);
+    } else {
+      this.refreshSelectionFallbackUI();
+      if (previousMode === 'manual') {
+        void this.extractContent({ isRetry: false });
+      }
+    }
+  }
+
+  onManualStoryInputChanged() {
+    const input = document.getElementById('manual-story-input');
+    this.manualStoryText = String(input?.value || '');
+    this.extractedText = this.manualStoryText;
+    this.selectedStoryTitle = this.deriveManualStoryTitle(this.manualStoryText);
+    this.updateManualStoryCount();
+    this.updatePreview(this.manualStoryText);
+    void this.saveManualStoryDraft();
+  }
+
   getSelectedContentSource() {
+    if (this.isManualComposerMode()) return 'manual';
     return document.querySelector('input[name="contentSource"]:checked')?.value || 'full';
   }
 
@@ -549,6 +642,12 @@ class PopupController {
   }
 
   async extractContent(options = {}) {
+    if (this.isManualComposerMode()) {
+      this.extractedText = String(this.manualStoryText || '');
+      this.updatePreview(this.extractedText);
+      return;
+    }
+
     const requestSeq = ++this.extractRequestSeq;
     const contentSource = this.getSelectedContentSource();
     const isRetry = !!options.isRetry;
@@ -1008,9 +1107,11 @@ class PopupController {
   bindEvents() {
     // Onboarding
     document.getElementById('onboarding-start-btn')?.addEventListener('click', () => this.completeOnboarding());
-    document.getElementById('create-comic-btn')?.addEventListener('click', () => this.showCreateComposer());
+    document.getElementById('create-comic-btn')?.addEventListener('click', () => this.showCreateComposer('page'));
+    document.getElementById('create-from-text-btn')?.addEventListener('click', () => this.showCreateComposer('manual'));
     document.getElementById('view-history-btn')?.addEventListener('click', () => this.openCollectionViewFromLauncher());
     document.getElementById('back-home-btn')?.addEventListener('click', () => this.showHome());
+    document.getElementById('manual-story-input')?.addEventListener('input', () => this.onManualStoryInputChanged());
     document.getElementById('content-extra-section')?.addEventListener('toggle', (e) => {
       if (this.suppressExtraIntentTracking) return;
       this.userCollapsedContent = !(e && e.target && e.target.open);
@@ -1023,6 +1124,7 @@ class PopupController {
     // Content source change
     document.querySelectorAll('input[name="contentSource"]').forEach(radio => {
       radio.addEventListener('change', () => {
+        if (this.isManualComposerMode()) return;
         this.storySelectionLockedByUser = this.getSelectedContentSource() === 'selection';
         if (this.getSelectedContentSource() !== 'full') {
           this.selectedExtractionCandidateId = '';
@@ -1185,6 +1287,10 @@ class PopupController {
     
     this.toggleLegacyCustomStyleEditor();
     this.updateFirstRunVisibility();
+    const manualInput = document.getElementById('manual-story-input');
+    if (manualInput) manualInput.value = String(this.manualStoryText || '');
+    this.updateManualStoryCount();
+    this.setComposerMode('page');
     this.refreshSelectionFallbackUI();
     this.updateWizardReadiness();
   }
@@ -1349,6 +1455,10 @@ class PopupController {
   refreshSelectionFallbackUI() {
     const note = document.getElementById('selection-fallback-note');
     if (!note) return;
+    if (this.isManualComposerMode()) {
+      note.classList.add('hidden');
+      return;
+    }
     const show = this.selectionFallbackActive || this.getSelectedContentSource() === 'selection';
     note.classList.toggle('hidden', !show);
   }
@@ -1690,7 +1800,8 @@ class PopupController {
     const readinessText = document.getElementById('wizard-readiness-text');
     if (!readinessBox || !readinessText) return;
 
-    const sourceBusy = Number(this.storyDetectionInFlight || 0) > 0;
+    const manualMode = this.isManualComposerMode();
+    const sourceBusy = !manualMode && Number(this.storyDetectionInFlight || 0) > 0;
     const contentReady = !sourceBusy && Boolean(this.extractedText && this.extractedText.length >= 50);
     const styleReady = true;
     const providerReady = this.hasAnyConfiguredProviders && (this.providerIsReady !== false);
@@ -1701,7 +1812,9 @@ class PopupController {
       issues.push('Story selection is being updated, please wait');
     } else if (!contentReady) {
       issues.push(
-        this.getSelectedContentSource() === 'selection'
+        manualMode
+          ? 'Paste or type at least 50 characters in Story Text'
+          : this.getSelectedContentSource() === 'selection'
           ? 'Highlight text on the page to continue'
           : 'Wait for top stories to be detected or choose highlighted text'
       );
@@ -1709,7 +1822,7 @@ class PopupController {
     if (!this.hasAnyConfiguredProviders) issues.push('Connect a model provider in Settings');
     else if (!providerReady) issues.push('Finish provider setup in Settings');
     if (!styleReady) issues.push('Complete style details');
-    this.lastWizardReadiness = { contentReady, settingsReady, canGenerate, issues, sourceBusy };
+    this.lastWizardReadiness = { contentReady, settingsReady, canGenerate, issues, sourceBusy, manualMode };
     const canonicalText = this.getReadinessGuidance({
       canGenerate,
       contentReady,
@@ -1783,6 +1896,9 @@ class PopupController {
     if (!state?.hasAnyConfiguredProviders) return 'Connect a model provider in Settings to continue.';
     if (!state?.providerReady) return 'Complete provider setup in Settings.';
     if (!state?.contentReady) {
+      if (this.isManualComposerMode()) {
+        return 'Paste or type story text (minimum 50 characters).';
+      }
       if (this.getSelectedContentSource() === 'selection') {
         return 'Select text on the page, then click Re-scan.';
       }
@@ -1849,7 +1965,7 @@ class PopupController {
     this.setStoryDetectionProgress(false);
   }
 
-  showCreateComposer() {
+  showCreateComposer(mode = 'page') {
     document.getElementById('onboarding-section')?.classList.add('hidden');
     document.getElementById('home-section')?.classList.add('hidden');
     document.getElementById('progress-section')?.classList.add('hidden');
@@ -1858,10 +1974,15 @@ class PopupController {
       this.setExtraSectionOpen('content-extra-section', false);
       this.setExtraSectionOpen('options-extra-section', false);
     }
+    this.setComposerMode(mode);
     this.updateFirstRunVisibility();
     this.refreshSelectionFallbackUI();
     this.updateWizardReadiness();
-    document.getElementById('generate-btn')?.focus();
+    if (this.isManualComposerMode()) {
+      document.getElementById('manual-story-input')?.focus();
+    } else {
+      document.getElementById('generate-btn')?.focus();
+    }
   }
 
   async openCollectionViewFromLauncher() {
@@ -1928,14 +2049,24 @@ class PopupController {
     const selectedImageModel = this.getSelectedImageModelForProvider(this.settings.activeImageProvider);
     const selectedImageQuality = this.getSelectedImageQualityForProvider(this.settings.activeImageProvider);
     const selectedImageSize = this.getSelectedImageSizeForProvider(this.settings.activeImageProvider);
+    const isManualSource = this.isManualComposerMode();
+    const manualStoryText = isManualSource ? String(this.extractedText || '').trim() : '';
+    const manualStoryTitle = isManualSource ? this.deriveManualStoryTitle(manualStoryText) : '';
+    const sourceUrl = isManualSource ? '' : String(tab?.url || this.currentPageUrl || '');
+    const sourceTitle = isManualSource
+      ? manualStoryTitle
+      : String(this.selectedStoryTitle || tab?.title || 'Untitled');
     
     try {
-      const response = await chrome.tabs.sendMessage(tab.id, {
+      const response = await chrome.runtime.sendMessage({
         type: 'START_GENERATION',
         payload: {
           text: this.extractedText,
-          url: tab.url,
-          title: this.selectedStoryTitle || tab.title,
+          url: sourceUrl,
+          title: sourceTitle,
+          sourceMode: isManualSource ? 'manual' : 'page',
+          manualSourceText: manualStoryText,
+          manualSourceTitle: manualStoryTitle,
           settings: {
             panel_count: this.settings.panelCount,
             objective: this.settings.objective || 'explain-like-im-five',

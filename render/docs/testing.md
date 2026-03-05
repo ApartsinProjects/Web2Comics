@@ -35,6 +35,12 @@ npx vitest run -c render/vitest.config.js render/tests/webhook-rest.test.js
 npx vitest run -c render/vitest.config.js render/tests/generate.test.js
 ```
 
+- Telegram payload behavior (forwardable messages/photos):
+
+```bash
+npx vitest run -c render/vitest.config.js render/tests/telegram-api.test.js
+```
+
 ## 3) Real Provider Tests
 Gemini live tests:
 
@@ -80,7 +86,10 @@ Validated interfaces include:
 - Text input and URL input flows
 - Streaming panel delivery (panels sent as ready)
 - Caption prefix format `X(Y)` on each panel
+- Story-summary context present in image prompts (engine prompt builder test)
+- Panel watermark is applied to generated panel images
 - Prompt controls (`/options`, `/choose`, `/set`)
+- `/crazyness` command updates story invention temperature
 - Objective listing with `/objective` (no args)
 - Admin commands (`/peek`, `/users`, `/ban`, `/unban`)
 - Secret redaction in user-visible messages

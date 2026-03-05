@@ -1,7 +1,12 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { ImageStorageManager, R2ImageStorageManager, HARD_MAX_CAPACITY_BYTES } = require('../src/image-storage');
+const {
+  ImageStorageManager,
+  R2ImageStorageManager,
+  deriveHierarchicalImageKey,
+  HARD_MAX_CAPACITY_BYTES
+} = require('../src/image-storage');
 
 const TINY_PNG_BASE64 =
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/w8AAgMBAp6R9gAAAABJRU5ErkJggg==';
@@ -97,8 +102,8 @@ describe('image storage manager', () => {
 
   it('uploads images to R2 storage and can fetch them back by key', async () => {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'img-store-r2-'));
-    const img1 = path.join(tmp, 'panel1.png');
-    const img2 = path.join(tmp, 'panel2.png');
+    const img1 = path.join(tmp, 'users', '777', 'generations', 'gen-abc', 'panel1.png');
+    const img2 = path.join(tmp, 'users', '777', 'generations', 'gen-abc', 'panel2.png');
     writeTiny(img1);
     writeTiny(img2);
 
@@ -116,10 +121,16 @@ describe('image storage manager', () => {
     expect(out.imageCount).toBe(2);
     expect(out.totalBytes).toBeGreaterThan(0);
     expect(out.images[0].key).toContain('images/');
+    expect(out.images[0].key).toContain('images/users/777/generations/gen-abc/');
 
     const bytes = await manager.fetchImageBytesByKey(out.images[0].key);
     expect(Buffer.isBuffer(bytes)).toBe(true);
     expect(bytes.length).toBeGreaterThan(0);
+  });
+
+  it('derives hierarchical R2 key from user/generation path', () => {
+    const key = deriveHierarchicalImageKey('images', 'C:\\tmp\\users\\777\\generations\\gen-1\\panel-3.png');
+    expect(key).toBe('images/users/777/generations/gen-1/panel-3.png');
   });
 
   it('enforces hard max capacity of 5GB', async () => {

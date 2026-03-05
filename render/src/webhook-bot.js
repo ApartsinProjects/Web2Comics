@@ -1,4 +1,5 @@
 const http = require('http');
+const fs = require('fs');
 const path = require('path');
 const { loadEnvFiles } = require('./env');
 const { TelegramApi } = require('./telegram-api');
@@ -10,6 +11,7 @@ const { redactSensitiveText } = require('./redact');
 const { createCrashLogStoreFromEnv, FileCrashLogStore } = require('./crash-log-store');
 const { createRequestLogStoreFromEnv } = require('./request-log-store');
 const { classifyMessageInput } = require('./message-utils');
+const { composeComicSheet } = require('../../engine/src/compose');
 
 const repoRoot = path.resolve(__dirname, '../..');
 loadEnvFiles([
@@ -242,6 +244,11 @@ const PROVIDER_REQUIRED_KEYS = {
   huggingface: ['HUGGINGFACE_INFERENCE_API_TOKEN']
 };
 const PROMPT_MANUAL_URL = 'https://github.com/ApartsinProjects/Web2Comics/blob/engine/render/docs/deployment-runbook.md';
+const COMMAND_ALIASES = {
+  '/credentials': '/keys',
+  '/reset_default': '/reset_config',
+  '/reset': '/reset_config'
+};
 
 function getMissingProviderKeys(chatId, providerName) {
   const provider = String(providerName || '').trim().toLowerCase();
@@ -307,40 +314,59 @@ function commandHelp(chatId) {
     BOT_DISPLAY_NAME,
     BOT_SHORT_DESCRIPTION,
     '',
-    'Send plain text or URL to generate a comic image.',
+    'Send plain text or URL to generate a comic.',
     '',
-    'Commands:',
+    'Basic:',
     '/help',
     '/about',
+    '/explain',
+    '/user',
     '/config',
+    '/presets',
+    '',
+    'Generate:',
+    '/invent <story>',
+    '',
+    'Creative controls:',
+    '/panels <count>',
+    '/objective',
+    '/objective <name>',
+    '/style <preset-or-your-style>',
+    '/new_style <name> <text>',
+    '/set_style <text>',
+    '/language <code>',
+    '/mode <default|media_group|single>',
+    '/crazyness <0..2>',
+    '/detail <low|medium|high>',
+    '/concurrency <1..5>',
+    '/retries <0..3>',
+    '',
+    'Providers and keys:',
+    '/vendor <name>',
+    '/text_vendor <name>',
+    '/image_vendor <name>',
+    '/keys',
+    '/setkey <KEY> <VALUE>',
+    '/unsetkey <KEY>',
+    '',
+    'Advanced config:',
     '/list_options',
     '/options <path>',
     '/choose <path> <number>',
     '/set <path> <value>',
-    '/presets',
-    '/vendor <name>',
-    '/text_vendor <name>',
-    '/image_vendor <name>',
-    '/language <code>',
-    '/panels <count>',
-    '/objective <name>',
-    '/style <preset>',
-    '/set_style <text>',
     '/prompts',
     '/set_prompt story <text>',
     '/set_prompt panel <text>',
     '/set_prompt objective <name> <text>',
-    '/detail <low|medium|high>',
-    '/concurrency <1..5>',
-    '/retries <0..3>',
-    '/keys',
-    '/credentials',
-    '/setkey <KEY> <VALUE>',
-    '/unsetkey <KEY>',
-    '/restart',
-    '/invent <story>',
+    '',
+    'Maintenance:',
     '/reset_config',
-    '/reset_default',
+    '/restart',
+    '',
+    'Compatibility aliases:',
+    '/credentials -> /keys',
+    '/reset_default -> /reset_config',
+    '/reset -> /reset_config',
     '',
     'Provider key links (Gemini free first):',
     '- Gemini: https://aistudio.google.com/apikey',
@@ -366,22 +392,36 @@ function commandHelp(chatId) {
   return lines.join('\n');
 }
 
-function presetsMessage() {
+function presetsMessage(chatId) {
+  const userStyles = (() => {
+    const cfg = configStore.getEffectiveConfig(chatId);
+    const styles = cfg && cfg.generation && typeof cfg.generation.user_styles === 'object'
+      ? cfg.generation.user_styles
+      : {};
+    return styles && typeof styles === 'object' ? styles : {};
+  })();
+  const userStyleNames = Object.keys(userStyles);
   return [
     'Friendly presets:',
     `- vendor: ${Object.keys(PROVIDER_DEFAULT_MODELS).join(', ')}`,
     `- language: ${getOptions('generation.output_language').join(', ')}`,
     `- objective: ${getOptions('generation.objective').join(', ')}`,
+    `- mode: ${getOptions('generation.delivery_mode').join(', ')}`,
+    `- crazyness: ${getOptions('generation.invent_temperature').join(', ')}`,
     `- panels: ${getOptions('generation.panel_count').join(', ')}`,
     `- detail: ${getOptions('generation.detail_level').join(', ')}`,
     `- style: ${Object.keys(STYLE_PRESETS).join(', ')}`,
+    userStyleNames.length ? `- your styles: ${userStyleNames.join(', ')}` : '- your styles: none (use /new_style <name> <text>)',
     '',
     'Examples:',
     '/vendor gemini',
     '/language en',
+    '/mode media_group',
+    '/crazyness 1.2',
     '/panels 4',
     '/objective summarize',
-    '/style manga'
+    '/style manga',
+    '/new_style retro-noir high contrast inked comic, moody lighting, halftone texture'
   ].join('\n');
 }
 
@@ -399,6 +439,16 @@ function keysStatusMessage(chatId) {
 function valueExists(options, value) {
   const normalized = String(value || '').trim().toLowerCase();
   return (Array.isArray(options) ? options : []).some((opt) => String(opt).toLowerCase() === normalized);
+}
+
+function normalizeStyleName(raw) {
+  return String(raw || '').trim().toLowerCase().replace(/\s+/g, '-');
+}
+
+function normalizeCommandToken(rawToken) {
+  const token = String(rawToken || '').trim().toLowerCase();
+  if (!token) return '';
+  return COMMAND_ALIASES[token] || token;
 }
 
 function setConfigPathValue(chatId, pathKey, rawValue) {
@@ -538,7 +588,10 @@ function buildPromptCatalog(cfg) {
 
   const panelPrompt = [
     'Comic panel <index>/<total>',
-    'Caption: <panel.caption>',
+    'Story title: <storyboard.title>',
+    'Story summary: <storyboard.description short summary>',
+    'Panel caption: <panel.caption>',
+    'Panel visual brief: <panel.image_prompt>',
     `Style: ${cfg?.generation?.style_prompt || '-'}`,
     'Create one clear scene, no collage.',
     'Do not render caption text inside the image.',
@@ -611,10 +664,36 @@ function compactConfigString(cfg) {
     `o:${cfg?.generation?.objective || '-'}`,
     `s:${styleShort}`,
     `l:${cfg?.generation?.output_language || '-'}`,
+    `m:${cfg?.generation?.delivery_mode || 'default'}`,
     `d:${cfg?.generation?.detail_level || '-'}`,
     `c:${cfg?.runtime?.image_concurrency ?? '-'}`,
     `r:${cfg?.runtime?.retries ?? '-'}`
   ].join(' ');
+}
+
+function explainSummaryLineMessage() {
+  return [
+    'Generation summary line format:',
+    't:<text_provider>/<text_model>',
+    'i:<image_provider>/<image_model>',
+    'p:<panel_count>',
+    'o:<objective>',
+    's:<style_key_or_short_style>',
+    'l:<output_language>',
+    'm:<delivery_mode>',
+    'd:<detail_level>',
+    'c:<image_concurrency>',
+    'r:<retries>',
+    '',
+    'Example:',
+    't:gemini/gemini-2.5-flash i:gemini/gemini-2.0-flash-exp-image-generation p:8 o:explain-like-im-five s:classic l:auto m:default d:low c:3 r:1'
+  ].join('\n');
+}
+
+function createGenerationId(chatId) {
+  const now = new Date().toISOString().replace(/[:.]/g, '-');
+  const rnd = Math.random().toString(36).slice(2, 8);
+  return `g-${chatId}-${now}-${rnd}`;
 }
 
 function listOptionPathsMessage() {
@@ -639,18 +718,77 @@ async function sendPanelWithRetry(chatId, panel, index) {
   throw new Error(`Failed sending panel ${index + 1}: ${String(last?.message || last)}`);
 }
 
-async function sendPanelSequence(chatId, panelResult, modeLabel, configLine = '', alreadySent = new Set()) {
-  const mode = String(modeLabel || 'text').toLowerCase();
+function normalizeDeliveryMode(raw) {
+  const v = String(raw || '').trim().toLowerCase().replace(/-/g, '_');
+  if (!v || v === 'default') return 'default';
+  if (v === 'media' || v === 'group' || v === 'mediagroup' || v === 'media_group') return 'media_group';
+  if (v === 'single' || v === 'single_message' || v === 'singlemessage' || v === 'single_formatted_message') return 'single';
+  return '';
+}
+
+async function sendMediaGroupWithRetry(chatId, panels) {
+  let last = null;
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    try {
+      await api.sendMediaGroup(chatId, panels);
+      return;
+    } catch (error) {
+      last = error;
+      if (attempt < 3) await new Promise((r) => setTimeout(r, 250 * attempt));
+    }
+  }
+  throw new Error(`Failed sending media group: ${String(last?.message || last)}`);
+}
+
+async function sendSingleFormattedComic(chatId, panelResult, sourceMode, cfg) {
+  const panels = Array.isArray(panelResult?.panelMessages) ? panelResult.panelMessages : [];
+  if (!panels.length) return;
+  const caption = [
+    `Panels: ${panels.length}`,
+    ...panels.map((p, idx) => `${idx + 1}. ${String(p.caption || '').replace(/\s+/g, ' ').slice(0, 160)}`)
+  ].join('\n');
+  const firstPath = String(panels[0].imagePath || '');
+  const dir = path.dirname(firstPath);
+  const outPath = path.join(dir, 'comic-sheet.png');
+  try {
+    const panelImages = panels.map((p) => ({ buffer: fs.readFileSync(String(p.imagePath || '')) }));
+    const storyboard = panelResult?.storyboard || {
+      title: 'Web2Comic',
+      description: '',
+      panels: panels.map((p) => ({ caption: String(p.caption || '') }))
+    };
+    await composeComicSheet({
+      storyboard,
+      panelImages,
+      source: String(sourceMode || 'text'),
+      outputConfig: cfg?.output || {},
+      outputPath: outPath
+    });
+    await sendPanelWithRetry(chatId, { imagePath: outPath, caption: caption.slice(0, 1000) }, 0);
+  } catch (_) {
+    await sendPanelWithRetry(chatId, { imagePath: firstPath, caption: caption.slice(0, 1000) }, 0);
+  }
+}
+
+async function sendPanelSequence(chatId, panelResult, sourceModeLabel, configLine = '', alreadySent = new Set(), deliveryMode = 'default', cfg = null) {
+  const sourceMode = String(sourceModeLabel || 'text').toLowerCase();
+  const selectedMode = normalizeDeliveryMode(deliveryMode);
   const panels = Array.isArray(panelResult?.panelMessages) ? panelResult.panelMessages.slice() : [];
   if (String(configLine || '').trim()) {
     await api.sendMessage(chatId, configLine);
   }
-  for (let i = 0; i < panels.length; i += 1) {
-    if (alreadySent.has(Number(panels[i]?.index || i + 1))) continue;
-    await sendPanelWithRetry(panels[i], i);
+  const remaining = panels.filter((p, idx) => !alreadySent.has(Number(p?.index || idx + 1)));
+  if (selectedMode === 'media_group' && remaining.length) {
+    await sendMediaGroupWithRetry(chatId, remaining);
+  } else if (selectedMode === 'single' && panels.length) {
+    await sendSingleFormattedComic(chatId, panelResult, sourceMode, cfg);
+  } else {
+    for (let i = 0; i < remaining.length; i += 1) {
+      await sendPanelWithRetry(chatId, remaining[i], i);
+    }
   }
   await api.sendMessage(chatId, [
-    `Done: ${mode} -> comic panels`,
+    `Done: ${sourceMode} -> comic panels`,
     `Panels: ${panelResult.panelCount}`,
     `Time: ${(Number(panelResult.elapsedMs || 0) / 1000).toFixed(1)}s`
   ].join('\n'));
@@ -745,7 +883,7 @@ function formatLogMessage(history, limit = 10) {
 async function handleCommand(chatId, text) {
   const parts = splitCommand(text);
   const commandToken = String(parts[0] || '').toLowerCase();
-  const command = commandToken;
+  const command = normalizeCommandToken(commandToken);
   const peekTokenMatch = commandToken.match(/^\/peek(\d{1,3})$/);
   const logTokenMatch = commandToken.match(/^\/log(\d{1,3})$/);
 
@@ -770,6 +908,11 @@ async function handleCommand(chatId, text) {
     return true;
   }
 
+  if (command === '/explain') {
+    await api.sendMessage(chatId, explainSummaryLineMessage());
+    return true;
+  }
+
   if (command === '/user') {
     await api.sendMessage(chatId, `Your user id: ${chatId}`);
     return true;
@@ -781,7 +924,7 @@ async function handleCommand(chatId, text) {
   }
 
   if (command === '/presets') {
-    await api.sendMessage(chatId, presetsMessage());
+    await api.sendMessage(chatId, presetsMessage(chatId));
     return true;
   }
 
@@ -914,6 +1057,20 @@ async function handleCommand(chatId, text) {
     return true;
   }
 
+  if (command === '/mode') {
+    const raw = String(parts[1] || '').trim();
+    const value = normalizeDeliveryMode(raw);
+    const options = getOptions('generation.delivery_mode');
+    if (!raw || !value || !valueExists(options, value)) {
+      const current = String(configStore.getCurrent(chatId, 'generation.delivery_mode') || 'default');
+      await api.sendMessage(chatId, `Usage: /mode <name>\nCurrent: ${current}\nAllowed: ${options.join(', ')}`);
+      return true;
+    }
+    const current = await setConfigPathValue(chatId, 'generation.delivery_mode', value);
+    await api.sendMessage(chatId, `Updated generation.delivery_mode = ${current}`);
+    return true;
+  }
+
   if (command === '/panels') {
     const value = String(parts[1] || '').trim();
     const options = getOptions('generation.panel_count');
@@ -949,14 +1106,46 @@ async function handleCommand(chatId, text) {
   }
 
   if (command === '/style') {
-    const preset = String(parts[1] || '').trim().toLowerCase();
-    const prompt = STYLE_PRESETS[preset];
+    const preset = normalizeStyleName(parts[1] || '');
+    const userStyles = (() => {
+      const cfg = configStore.getEffectiveConfig(chatId);
+      const styles = cfg && cfg.generation && typeof cfg.generation.user_styles === 'object'
+        ? cfg.generation.user_styles
+        : {};
+      return styles && typeof styles === 'object' ? styles : {};
+    })();
+    if (!preset) {
+      const customNames = Object.keys(userStyles);
+      const allowed = customNames.length
+        ? `${Object.keys(STYLE_PRESETS).join(', ')} | your styles: ${customNames.join(', ')}`
+        : `${Object.keys(STYLE_PRESETS).join(', ')} | your styles: none`;
+      await api.sendMessage(chatId, `Usage: /style <preset-or-your-style>\nAllowed: ${allowed}`);
+      return true;
+    }
+    const prompt = STYLE_PRESETS[preset] || String(userStyles[preset] || '').trim();
     if (!prompt) {
-      await api.sendMessage(chatId, `Usage: /style <preset>\nAllowed: ${Object.keys(STYLE_PRESETS).join(', ')}`);
+      const dynamic = Object.keys(userStyles);
+      const allowed = dynamic.length
+        ? `${Object.keys(STYLE_PRESETS).join(', ')}, ${dynamic.join(', ')}`
+        : Object.keys(STYLE_PRESETS).join(', ');
+      await api.sendMessage(chatId, `Usage: /style <preset>\nAllowed: ${allowed}`);
       return true;
     }
     await configStore.setConfigValue(chatId, 'generation.style_prompt', prompt);
     await api.sendMessage(chatId, `Updated style preset = ${preset}`);
+    return true;
+  }
+
+  if (command === '/new_style') {
+    const rawName = String(parts[1] || '').trim();
+    const styleName = normalizeStyleName(rawName);
+    const stylePrompt = parts.slice(2).join(' ').trim();
+    if (!styleName || !/^[a-z0-9][a-z0-9-]{1,40}$/.test(styleName) || !stylePrompt) {
+      await api.sendMessage(chatId, 'Usage: /new_style <name> <text>\nName: lowercase letters/numbers/dash, 2-41 chars.');
+      return true;
+    }
+    await configStore.setConfigValue(chatId, `generation.user_styles.${styleName}`, stylePrompt);
+    await api.sendMessage(chatId, `Saved style '${styleName}'. Use it with /style ${styleName}`);
     return true;
   }
 
@@ -1018,6 +1207,19 @@ async function handleCommand(chatId, text) {
     }
     const current = await setConfigPathValue(chatId, 'generation.detail_level', value);
     await api.sendMessage(chatId, `Updated generation.detail_level = ${current}`);
+    return true;
+  }
+
+  if (command === '/crazyness') {
+    const value = String(parts[1] || '').trim();
+    const options = getOptions('generation.invent_temperature');
+    const parsed = Number.parseFloat(value);
+    if (!value || !Number.isFinite(parsed) || parsed < 0 || parsed > 2) {
+      await api.sendMessage(chatId, `Usage: /crazyness <0..2>\nAllowed presets: ${options.join(', ')}`);
+      return true;
+    }
+    const current = await setConfigPathValue(chatId, 'generation.invent_temperature', value);
+    await api.sendMessage(chatId, `Updated generation.invent_temperature = ${current}`);
     return true;
   }
 
@@ -1112,7 +1314,7 @@ async function handleCommand(chatId, text) {
     return true;
   }
 
-  if (command === '/keys' || command === '/credentials') {
+  if (command === '/keys') {
     await api.sendMessage(chatId, keysStatusMessage(chatId));
     return true;
   }
@@ -1145,7 +1347,7 @@ async function handleCommand(chatId, text) {
     return true;
   }
 
-  if (command === '/reset_config' || command === '/reset_default' || command === '/reset') {
+  if (command === '/reset_config') {
     await configStore.clearOverrides(chatId);
     await api.sendMessage(chatId, 'Runtime config overrides were reset to base config.');
     return true;
@@ -1274,17 +1476,24 @@ async function processMessage(message) {
       const effectiveConfig = configStore.getEffectiveConfig(chatId);
       configStore.applySecretsToEnv(chatId);
       const inventedStory = await inventStoryText(seed, effectiveConfigPath);
+      await sendLongMessage(chatId, formatInventedStoryMessage(inventedStory));
       await api.sendMessage(chatId, 'Invented story ready. Generating your comic...');
       const configLine = compactConfigString(effectiveConfig);
       await api.sendMessage(chatId, configLine);
+      const deliveryMode = normalizeDeliveryMode(effectiveConfig?.generation?.delivery_mode || 'default');
       const alreadySent = new Set();
+      const generationId = createGenerationId(chatId);
       const result = await generatePanelsWithRuntimeConfig(inventedStory, runtime, effectiveConfigPath, {
-        onPanelReady: async (panelMessage) => {
-          await sendPanelWithRetry(chatId, panelMessage, Number(panelMessage?.index || 1) - 1);
-          alreadySent.add(Number(panelMessage?.index || 0));
-        }
+        userId: chatId,
+        generationId,
+        onPanelReady: (deliveryMode === 'default')
+          ? async (panelMessage) => {
+              await sendPanelWithRetry(chatId, panelMessage, Number(panelMessage?.index || 1) - 1);
+              alreadySent.add(Number(panelMessage?.index || 0));
+            }
+          : undefined
       });
-      await sendPanelSequence(chatId, result, 'invent', '', alreadySent);
+      await sendPanelSequence(chatId, result, 'invent', '', alreadySent, deliveryMode, effectiveConfig);
       runBackgroundTask('record invent success', () => safeRecordInteraction(chatId, {
         kind: incoming.kind,
         command: incoming.command,
@@ -1341,14 +1550,20 @@ async function processMessage(message) {
 
     const configLine = compactConfigString(effectiveConfig);
     await api.sendMessage(chatId, configLine);
+    const deliveryMode = normalizeDeliveryMode(effectiveConfig?.generation?.delivery_mode || 'default');
     const alreadySent = new Set();
+    const generationId = createGenerationId(chatId);
     const result = await generatePanelsWithRuntimeConfig(generationInput, runtime, effectiveConfigPath, {
-      onPanelReady: async (panelMessage) => {
-        await sendPanelWithRetry(chatId, panelMessage, Number(panelMessage?.index || 1) - 1);
-        alreadySent.add(Number(panelMessage?.index || 0));
-      }
+      userId: chatId,
+      generationId,
+      onPanelReady: (deliveryMode === 'default')
+        ? async (panelMessage) => {
+            await sendPanelWithRetry(chatId, panelMessage, Number(panelMessage?.index || 1) - 1);
+            alreadySent.add(Number(panelMessage?.index || 0));
+          }
+        : undefined
     });
-    await sendPanelSequence(chatId, result, result.kind === 'url' ? 'url' : 'text', '', alreadySent);
+    await sendPanelSequence(chatId, result, result.kind === 'url' ? 'url' : 'text', '', alreadySent, deliveryMode, effectiveConfig);
     runBackgroundTask('record generation success', () => safeRecordInteraction(chatId, {
       kind: incoming.kind,
       command: incoming.command,
@@ -1448,9 +1663,15 @@ async function startServer() {
   if (!webhookSecret) throw new Error('Missing TELEGRAM_WEBHOOK_SECRET');
 
   const persistenceMode = createPersistence({
+    mode: process.env.RENDER_BOT_PERSISTENCE_MODE || '',
     pgUrl: process.env.RENDER_BOT_PG_URL || process.env.DATABASE_URL || '',
     pgTableName: process.env.RENDER_BOT_PG_TABLE || 'render_bot_state',
     pgStateKey: process.env.RENDER_BOT_PG_STATE_KEY || 'runtime_config',
+    r2Endpoint: process.env.R2_S3_ENDPOINT || '',
+    r2Bucket: process.env.R2_BUCKET || '',
+    r2AccessKeyId: process.env.R2_ACCESS_KEY_ID || '',
+    r2SecretAccessKey: process.env.R2_SECRET_ACCESS_KEY || '',
+    r2StateKey: process.env.R2_STATE_KEY || 'state/runtime-config.json',
     filePath: path.resolve(process.env.RENDER_BOT_STATE_FILE || path.join(repoRoot, 'render/data/runtime-state.json'))
   });
   configStore = new RuntimeConfigStore(

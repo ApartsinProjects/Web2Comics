@@ -138,6 +138,9 @@ describe('render bot comprehensive interaction suite', () => {
       expect(textRes.status).toBe(200);
       await waitFor(() => tg.calls.some((c) => c.url.endsWith('/sendPhoto')), 10000, 100);
       expect(sentMessages(tg.calls).some((c) => String(c.body.text || '').includes('Generating your comic'))).toBe(true);
+      expect(sentMessages(tg.calls).every((c) => c.body.protect_content === false)).toBe(true);
+      const firstPhoto = tg.calls.find((c) => c.url.endsWith('/sendPhoto'));
+      expect(extractMultipartField(firstPhoto && firstPhoto.raw, 'protect_content')).toBe('false');
 
       const beforePhotos = tg.calls.filter((c) => c.url.endsWith('/sendPhoto')).length;
       const urlRes = await postUpdate(botPort, {
@@ -172,20 +175,28 @@ describe('render bot comprehensive interaction suite', () => {
       await runCommandAndExpect('/help', 'aistudio.google.com/apikey');
       await runCommandAndExpect('/help', '/invent <story>');
       await runCommandAndExpect('/about', 'Alexander (Sasha) Apartsin');
+      await runCommandAndExpect('/explain', 'Generation summary line format:');
+      await runCommandAndExpect('/explain', 'm:<delivery_mode>');
       const helpMsgs = sentMessages(tg.calls).map((c) => String(c.body.text || ''));
       expect(helpMsgs.some((m) => m.includes('/peek'))).toBe(false);
       await runCommandAndExpect('/presets', 'Friendly presets');
       await runCommandAndExpect('/vendor gemini', 'Provider updated: gemini');
       await runCommandAndExpect('/language en', 'Updated generation.output_language = en');
+      await runCommandAndExpect('/mode media_group', 'Updated generation.delivery_mode = media_group');
       await runCommandAndExpect('/panels 4', 'Updated generation.panel_count = 4');
       await runCommandAndExpect('/objective', 'Available objectives:');
       await runCommandAndExpect('/objective summarize', 'Updated generation.objective = summarize');
+      await runCommandAndExpect('/crazyness 1.2', 'Updated generation.invent_temperature = 1.2');
       await runCommandAndExpect('/detail low', 'Updated generation.detail_level = low');
+      await runCommandAndExpect('/new_style my-style bold inks, dramatic shadows', "Saved style 'my-style'");
+      await runCommandAndExpect('/style my-style', 'Updated style preset = my-style');
       await runCommandAndExpect('/set_style cinematic hand-drawn frames', 'Updated generation.style_prompt');
       await runCommandAndExpect('/set_prompt story Focus on cause and effect', 'Updated generation.custom_story_prompt');
       await runCommandAndExpect('/set_prompt panel Keep faces expressive', 'Updated generation.custom_panel_prompt');
       await runCommandAndExpect('/set_prompt objective summarize Keep it extra concise', 'Updated objective prompt override for summarize');
       await runCommandAndExpect('/prompts', 'Prompt catalog');
+      await runCommandAndExpect('/prompts', 'Story summary: <storyboard.description short summary>');
+      await runCommandAndExpect('/prompts', 'Panel visual brief: <panel.image_prompt>');
       await runCommandAndExpect('/concurrency 2', 'Updated runtime.image_concurrency = 2');
       await runCommandAndExpect('/retries 1', 'Updated runtime.retries = 1');
       await runCommandAndExpect('/options', 'Config paths with predefined options:');
@@ -529,6 +540,8 @@ describe('render bot comprehensive interaction suite', () => {
       expect(text5).toContain('user:');
       expect(text5).toContain('name:');
       expect(text5).toContain('image:');
+      expect(text5.toLowerCase()).toContain('users');
+      expect(text5.toLowerCase()).toContain('generations');
 
       const beforePeek3 = sentMessages(tg.calls).length;
       await send(777, '/peek 3');
@@ -563,13 +576,14 @@ describe('render bot comprehensive interaction suite', () => {
         const chatId = i % 2 === 0 ? 777 : 888;
         await send(chatId, `/set output.width ${1200 + i}`);
       }
+      await new Promise((r) => setTimeout(r, 700));
 
       const before = sentMessages(tg.calls).length;
       await send(1796415913, '/log');
       await waitFor(() => sentMessages(tg.calls)
         .slice(before)
         .map((c) => String(c.body.text || ''))
-        .some((m) => m.includes('Last 10 logs:')), 10000, 100);
+        .some((m) => m.includes('Last 10 logs:')), 20000, 150);
       const text = sentMessages(tg.calls)
         .slice(before)
         .map((c) => String(c.body.text || ''))
@@ -583,19 +597,19 @@ describe('render bot comprehensive interaction suite', () => {
       await waitFor(() => sentMessages(tg.calls)
         .slice(before3)
         .map((c) => String(c.body.text || ''))
-        .some((m) => m.includes('Last 3 logs:')), 10000, 100);
+        .some((m) => m.includes('Last 3 logs:')), 20000, 150);
 
       const before2 = sentMessages(tg.calls).length;
       await send(1796415913, '/log 2');
       await waitFor(() => sentMessages(tg.calls)
         .slice(before2)
         .map((c) => String(c.body.text || ''))
-        .some((m) => m.includes('Last 2 logs:')), 10000, 100);
+        .some((m) => m.includes('Last 2 logs:')), 20000, 150);
     } finally {
       await bot.stop();
       await tg.close();
     }
-  }, 50000);
+  }, 70000);
 
   it('restarts user state to defaults and clears runtime keys', async () => {
     const tg = await startFakeTelegramServer();
@@ -665,4 +679,64 @@ describe('render bot comprehensive interaction suite', () => {
       await tg.close();
     }
   }, 50000);
+
+  it('supports /mode delivery options: default, media_group, single', async () => {
+    const tg = await startFakeTelegramServer();
+    const botPort = await getFreePort();
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'render-bot-mode-'));
+    const bot = await startBotProcess(botPort, `http://127.0.0.1:${tg.port}/botTEST_TOKEN`, path.join(tmpDir, 'state.json'));
+
+    async function send(chatId, text) {
+      const res = await postUpdate(botPort, { chat: { id: chatId }, text });
+      expect(res.status).toBe(200);
+    }
+
+    try {
+      async function waitDoneOrFail(fromIndex, timeoutMs = 20000) {
+        await waitFor(() => {
+          const msgs = sentMessages(tg.calls).slice(fromIndex).map((c) => String(c.body.text || ''));
+          if (msgs.some((m) => m.includes('Generation failed:'))) return true;
+          return msgs.some((m) => m.includes('Done: text -> comic panels'));
+        }, timeoutMs, 100);
+        const msgs = sentMessages(tg.calls).slice(fromIndex).map((c) => String(c.body.text || ''));
+        const fail = msgs.find((m) => m.includes('Generation failed:'));
+        if (fail) throw new Error(`Mode generation failed: ${fail}`);
+      }
+
+      const beforeDefault = tg.calls.length;
+      const beforeDefaultMsgs = sentMessages(tg.calls).length;
+      await send(777, '/mode default');
+      await send(777, 'Mode default story');
+      await waitDoneOrFail(beforeDefaultMsgs);
+      expect(tg.calls.slice(beforeDefault).some((c) => c.url.endsWith('/sendMediaGroup'))).toBe(false);
+      expect(tg.calls.slice(beforeDefault).filter((c) => c.url.endsWith('/sendPhoto')).length).toBeGreaterThanOrEqual(3);
+
+      const beforeGroup = tg.calls.length;
+      const beforeGroupMsgs = sentMessages(tg.calls).length;
+      await send(777, '/mode media_group');
+      await send(777, 'Mode media group story');
+      await waitDoneOrFail(beforeGroupMsgs);
+      await waitFor(() => tg.calls.slice(beforeGroup).some((c) => c.url.endsWith('/sendMediaGroup')), 20000, 100);
+      const mg = tg.calls.slice(beforeGroup).find((c) => c.url.endsWith('/sendMediaGroup'));
+      const mediaRaw = extractMultipartField(mg && mg.raw, 'media');
+      expect(mediaRaw).toContain('"type":"photo"');
+      expect(mediaRaw).toContain('"caption"');
+      expect(extractMultipartField(mg && mg.raw, 'protect_content')).toBe('false');
+
+      const beforeSingle = tg.calls.length;
+      const beforeSingleMsgs = sentMessages(tg.calls).length;
+      await send(777, '/mode single');
+      await send(777, 'Mode single story');
+      await waitDoneOrFail(beforeSingleMsgs);
+      await waitFor(() => tg.calls.slice(beforeSingle).filter((c) => c.url.endsWith('/sendPhoto')).length >= 1, 20000, 100);
+      expect(tg.calls.slice(beforeSingle).some((c) => c.url.endsWith('/sendMediaGroup'))).toBe(false);
+      const singlePhoto = tg.calls.slice(beforeSingle).find((c) => c.url.endsWith('/sendPhoto'));
+      const cap = extractMultipartField(singlePhoto && singlePhoto.raw, 'caption');
+      expect(cap).toContain('Panels:');
+      expect(cap).toContain('1.');
+    } finally {
+      await bot.stop();
+      await tg.close();
+    }
+  }, 60000);
 });

@@ -27,6 +27,7 @@ Panel captions are prefixed as `X(Y)`:
 - `/text_vendor <name>`
 - `/image_vendor <name>`
 - `/language <code>`
+- `/crazyness <0..2>` control story-invention temperature (higher = wilder twists)
 - `/panels <count>`
 - `/objective` list objectives
 - `/objective <name>` set objective
@@ -55,6 +56,19 @@ If `/options` or `/choose` is called without required args, the bot explains usa
 - Very short prompt: bot first expands story with AI, shows invented story, then generates comic
 - URL input: bot renders page content and uses it as source
 
+## Image Prompt Context
+For each panel image, the bot sends context that includes:
+- storyboard title
+- short storyboard summary
+- panel caption
+- panel visual brief (`image_prompt`)
+
+This keeps panel visuals coherent across the full story.
+
+## Panel Output Details
+- Each panel image has a subtle bottom-right watermark: `made with Web2Comics`
+- Bot messages/photos are forwardable (content protection is disabled)
+
 ## Reset And Recovery
 - `/reset_config` clear runtime overrides
 - `/reset_default` same as reset config
@@ -63,4 +77,3 @@ If `/options` or `/choose` is called without required args, the bot explains usa
 
 ## Hidden/Admin Features
 Standard users do not see admin commands in `/help`.
-

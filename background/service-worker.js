@@ -4274,8 +4274,20 @@ var ServiceWorker = function() {
   this.handleStartGeneration = function(message) {
     var payload = message.payload;
     var text = payload.text;
-    var url = payload.url;
-    var title = payload.title;
+    var sourceMode = String(payload.sourceMode || 'page').toLowerCase() === 'manual' ? 'manual' : 'page';
+    var manualSourceText = sourceMode === 'manual'
+      ? String(payload.manualSourceText || text || '').trim()
+      : '';
+    if (manualSourceText.length > 16000) {
+      manualSourceText = manualSourceText.slice(0, 16000);
+    }
+    var manualSourceTitle = sourceMode === 'manual'
+      ? String(payload.manualSourceTitle || payload.title || 'Custom Story').trim()
+      : '';
+    var url = sourceMode === 'manual' ? '' : payload.url;
+    var title = sourceMode === 'manual'
+      ? (manualSourceTitle || String(payload.title || '').trim() || 'Custom Story')
+      : payload.title;
     var settings = payload.settings || {};
     if (!settings.objective) settings.objective = 'explain-like-im-five';
     if (!settings.output_language && settings.outputLanguage) {
@@ -4294,6 +4306,9 @@ var ServiceWorker = function() {
       sourceUrl: url,
       sourceTitle: title,
       extractedText: text,
+      sourceMode: sourceMode,
+      manualSourceText: manualSourceText,
+      manualSourceTitle: manualSourceTitle || title,
       settings: settings,
       storyboard: null,
       currentPanelIndex: 0,
@@ -4421,7 +4436,16 @@ var ServiceWorker = function() {
         sourceUrl: job.sourceUrl || null,
         score: job.captionQuality || null
       });
-      storyboard.source = { url: job.sourceUrl, title: job.sourceTitle, extracted_at: new Date().toISOString() };
+      storyboard.source = {
+        url: job.sourceUrl,
+        title: job.sourceTitle,
+        extracted_at: new Date().toISOString(),
+        source_type: job.sourceMode === 'manual' ? 'manual_text' : 'page'
+      };
+      if (job.sourceMode === 'manual' && job.manualSourceText) {
+        storyboard.source.manual_story_text = String(job.manualSourceText || '');
+        storyboard.source.manual_story_title = String(job.manualSourceTitle || job.sourceTitle || 'Custom Story');
+      }
       storyboard.panels = (Array.isArray(storyboard.panels) ? storyboard.panels : []).map(function(panel, idx) {
         var p = panel || {};
         p.runtime_status = 'pending';
@@ -5964,7 +5988,8 @@ var ServiceWorker = function() {
                   id: job.id,
                   source: {
                     url: job.sourceUrl,
-                    title: job.sourceTitle
+                    title: job.sourceTitle,
+                    source_type: job.sourceMode === 'manual' ? 'manual_text' : 'page'
                   },
                   generated_at: new Date().toISOString(),
                   settings_snapshot: job.storyboard.settings,

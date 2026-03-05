@@ -7,10 +7,17 @@ const { buildStoryboardPrompt, parseStoryboardResponse } = require('./prompts');
 const { generateTextWithProvider, generateImageWithProvider } = require('./providers');
 const { composeComicSheet } = require('./compose');
 
-function buildPanelImagePrompt(panel, index, total, settings) {
+function buildPanelImagePrompt(panel, index, total, settings, storyboard) {
+  const storyTitle = String(storyboard?.title || '').trim();
+  const storySummary = String(storyboard?.description || '').trim().replace(/\s+/g, ' ');
+  const shortSummary = storySummary.length > 280 ? `${storySummary.slice(0, 280)}...` : storySummary;
+  const panelSpecificPrompt = String(panel?.image_prompt || '').trim();
   const out = [
     `Comic panel ${index + 1}/${total}`,
-    `Caption: ${panel.caption}`,
+    `Story title: ${storyTitle || 'Comic Summary'}`,
+    `Story summary: ${shortSummary || 'No summary provided.'}`,
+    `Panel caption: ${panel.caption}`,
+    `Panel visual brief: ${panelSpecificPrompt || panel.caption}`,
     `Style: ${settings.style_prompt}`,
     'Create one clear scene, no collage.',
     'Do not render caption text inside the image.',
@@ -104,7 +111,7 @@ async function runComicEngine(options) {
     async (panel, index) => withRetries(
       () => generateImageWithProvider(
         config.providers.image,
-        buildPanelImagePrompt(panel, index, storyboard.panels.length, config.generation),
+        buildPanelImagePrompt(panel, index, storyboard.panels.length, config.generation, storyboard),
         config.runtime
       ),
       config.runtime.retries,
@@ -181,7 +188,7 @@ async function runComicEnginePanels(options) {
       const image = await withRetries(
         () => generateImageWithProvider(
           config.providers.image,
-          buildPanelImagePrompt(panel, index, storyboard.panels.length, config.generation),
+          buildPanelImagePrompt(panel, index, storyboard.panels.length, config.generation, storyboard),
           config.runtime
         ),
         config.runtime.retries,
@@ -228,6 +235,7 @@ async function runComicEnginePanels(options) {
 module.exports = {
   runComicEngine,
   runComicEnginePanels,
+  buildPanelImagePrompt,
   mapWithConcurrency,
   withRetries
 };

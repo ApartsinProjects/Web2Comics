@@ -1,0 +1,20 @@
+name = "web2comics-telegram-bot"
+main = "src/worker.mjs"
+compatibility_date = "2026-03-05"
+workers_dev = true
+
+[vars]
+APP_MODE = "production"
+DEFAULT_PANELS = "3"
+IMAGE_CAPACITY_BYTES = "10737418240"
+IMAGE_CLEANUP_THRESHOLD_RATIO = "0.5"
+ALLOWED_CHAT_IDS = "1796415913"
+ADMIN_CHAT_IDS = "1796415913"
+
+[[kv_namespaces]]
+binding = "STATE_KV"
+id = "__REPLACE_STATE_KV_ID__"
+
+[[r2_buckets]]
+binding = "BOT_R2"
+bucket_name = "web2comics-bot-data"

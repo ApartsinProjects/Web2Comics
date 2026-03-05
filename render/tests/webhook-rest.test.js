@@ -399,6 +399,11 @@ describe('render webhook bot REST + telegram flow', () => {
       });
       expect(res.status).toBe(200);
       await waitFor(() => tg.calls.filter((c) => c.url.endsWith('/sendPhoto')).length >= 3, 10000, 100);
+      await waitFor(() => tg.calls
+        .slice(before)
+        .filter((c) => c.url.endsWith('/sendMessage'))
+        .map((c) => String(c.body.text || ''))
+        .some((m) => m.includes('Done: url -> comic panels')), 10000, 100);
       const chunk = tg.calls.slice(before);
       const msgTexts = chunk.filter((c) => c.url.endsWith('/sendMessage')).map((c) => String(c.body.text || ''));
       expect(msgTexts.some((m) => m.includes('Done: url -> comic panels'))).toBe(true);
@@ -489,6 +494,75 @@ describe('render webhook bot REST + telegram flow', () => {
         .filter((c) => c.url.endsWith('/sendMessage'))
         .map((c) => String(c.body.text || ''))
         .some((m) => m.includes('Set failed:')), 8000, 100);
+    } finally {
+      await bot.stop();
+      await tg.close();
+    }
+  }, 30000);
+
+  it('validates /mode command usage and accepts valid values', async () => {
+    const tg = await startFakeTelegramServer();
+    const botPort = await getFreePort();
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'render-bot-webhook-mode-'));
+    const bot = await startBotProcess(
+      botPort,
+      `http://127.0.0.1:${tg.port}/botTEST_TOKEN`,
+      path.join(tmpDir, 'runtime-state.json')
+    );
+
+    try {
+      async function runAndCollect(text) {
+        const before = tg.calls.filter((c) => c.url.endsWith('/sendMessage')).length;
+        const res = await postUpdate(botPort, { chat: { id: 777 }, text });
+        expect(res.status).toBe(200);
+        await waitFor(() => tg.calls.filter((c) => c.url.endsWith('/sendMessage')).length > before, 8000, 100);
+        return tg.calls
+          .filter((c) => c.url.endsWith('/sendMessage'))
+          .slice(before)
+          .map((c) => String(c.body.text || ''));
+      }
+
+      const msgs1 = await runAndCollect('/mode');
+      expect(msgs1.some((m) => m.includes('Usage: /mode <name>'))).toBe(true);
+
+      const msgs2 = await runAndCollect('/mode weird');
+      expect(msgs2.some((m) => m.includes('Usage: /mode <name>'))).toBe(true);
+      expect(msgs2.some((m) => m.includes('media_group'))).toBe(true);
+      expect(msgs2.some((m) => m.includes('single'))).toBe(true);
+
+      const msgs3 = await runAndCollect('/mode media_group');
+      expect(msgs3.some((m) => m.includes('Updated generation.delivery_mode = media_group'))).toBe(true);
+    } finally {
+      await bot.stop();
+      await tg.close();
+    }
+  }, 30000);
+
+  it('handles URL generation in media_group mode', async () => {
+    const tg = await startFakeTelegramServer();
+    const botPort = await getFreePort();
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'render-bot-webhook-mode-url-'));
+    const bot = await startBotProcess(
+      botPort,
+      `http://127.0.0.1:${tg.port}/botTEST_TOKEN`,
+      path.join(tmpDir, 'runtime-state.json')
+    );
+
+    try {
+      await postUpdate(botPort, { chat: { id: 777 }, text: '/mode media_group' });
+      const before = tg.calls.length;
+      const res = await postUpdate(botPort, {
+        chat: { id: 777 },
+        from: { id: 777, username: 'url_media_user', first_name: 'UrlMedia' },
+        text: 'https://example.com'
+      });
+      expect(res.status).toBe(200);
+      await waitFor(() => tg.calls.slice(before).some((c) => c.url.endsWith('/sendMediaGroup')), 10000, 100);
+      await waitFor(() => tg.calls
+        .slice(before)
+        .filter((c) => c.url.endsWith('/sendMessage'))
+        .map((c) => String(c.body.text || ''))
+        .some((m) => m.includes('Done: url -> comic panels')), 10000, 100);
     } finally {
       await bot.stop();
       await tg.close();

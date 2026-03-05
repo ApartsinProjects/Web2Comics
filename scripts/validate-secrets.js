@@ -50,8 +50,7 @@ const PROFILES = {
       'R2_S3_ENDPOINT',
       'R2_BUCKET',
       'R2_ACCESS_KEY_ID',
-      'R2_SECRET_ACCESS_KEY',
-      'DATABASE_URL'
+      'R2_SECRET_ACCESS_KEY'
     ]
   },
   tests: {

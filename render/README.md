@@ -12,12 +12,15 @@ GitHub Pages bot docs: <https://apartsinprojects.github.io/Web2Comics/HTML/teleg
 - Builds storyboard and panel images with configured providers
 - Streams panels to users as they are generated
 - Uses per-user runtime settings and credentials
-- Persists runtime state in Postgres
+- Persists runtime state in Cloudflare R2
 - Persists artifacts/logs/images in Cloudflare R2
 
 ## Runtime Highlights
 - Fast webhook ACK + per-chat processing queue
 - Caption prefix format `X(Y)` for each panel
+- Per-panel watermark: small semi-transparent `made with Web2Comics` (bottom-right)
+- Panel image prompts include story title + short summary + panel visual brief
+- Outbound Telegram messages/photos are sent with forwarding allowed (`protect_content=false`)
 - `/objective` without args lists all objectives
 - `/options` and `/choose` provide guided usage when called without args
 - Admin moderation and ops commands (`/users`, `/ban`, `/unban`, `/peek`, `/log`, `/share`)
@@ -29,7 +32,7 @@ User:
 - `/user`
 - `/config`
 - `/vendor`, `/text_vendor`, `/image_vendor`
-- `/panels`, `/objective`, `/language`, `/style`
+- `/panels`, `/objective`, `/language`, `/style`, `/crazyness`
 - `/options`, `/choose`, `/set`
 - `/keys` or `/credentials`
 - `/setkey`, `/unsetkey`
@@ -80,4 +83,3 @@ Includes:
 - predeploy checks + local tests
 - Render deploy automation
 - post-deploy sanity E2E check (health + webhook + Telegram + R2 evidence)
-
