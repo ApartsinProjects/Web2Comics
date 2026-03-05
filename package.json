@@ -49,6 +49,7 @@
     "cloudflare:create-tokens": "node scripts/cloudflare/create-scoped-tokens.js",
     "fetch_logs": "node scripts/fetch_logs.js",
     "analyze_logs": "node scripts/analyze_logs.js",
+    "fetch_deploy_log": "node scripts/fetch_deploy_log.js",
     "tail_crash_log": "node scripts/tail_crash_log.js",
     "test:cloudflare": "vitest run -c cloudflare/vitest.config.mjs",
     "deploy:cloudflare": "node cloudflare/scripts/deploy-worker.js",
