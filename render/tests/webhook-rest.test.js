@@ -432,6 +432,37 @@ describe('render webhook bot REST + telegram flow', () => {
     }
   }, 30000);
 
+  it('reports timeout errors back to chat when a job exceeds timeout', async () => {
+    const tg = await startFakeTelegramServer();
+    const botPort = await getFreePort();
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'render-bot-webhook-'));
+    const bot = await startBotProcess(
+      botPort,
+      `http://127.0.0.1:${tg.port}/botTEST_TOKEN`,
+      path.join(tmpDir, 'runtime-state.json'),
+      {
+        RENDER_BOT_JOB_TIMEOUT_MS: '120',
+        RENDER_BOT_FAKE_GENERATOR_DELAY_MS: '600'
+      }
+    );
+
+    try {
+      const res = await postUpdate(botPort, {
+        chat: { id: 777 },
+        text: 'This should timeout in test mode'
+      });
+      expect(res.status).toBe(200);
+      await waitFor(() => tg.calls.some((c) =>
+        c.url.endsWith('/sendMessage')
+          && String(c.body.text || '').includes('Unexpected bot error:')
+          && String(c.body.text || '').includes('timed out after')
+      ), 10000, 100);
+    } finally {
+      await bot.stop();
+      await tg.close();
+    }
+  }, 30000);
+
   it('supports /invent flow and produces ordered panel photo responses', async () => {
     const tg = await startFakeTelegramServer();
     const botPort = await getFreePort();

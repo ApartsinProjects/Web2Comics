@@ -14,6 +14,12 @@ function isFakeGeneratorEnabled() {
   return String(process.env.RENDER_BOT_FAKE_GENERATOR || '').trim().toLowerCase() === 'true';
 }
 
+async function maybeFakeDelay() {
+  const delayMs = Math.max(0, Number(process.env.RENDER_BOT_FAKE_GENERATOR_DELAY_MS || 0));
+  if (!delayMs) return;
+  await new Promise((r) => setTimeout(r, delayMs));
+}
+
 function writeTinyPng(filePath) {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   fs.writeFileSync(filePath, Buffer.from(TINY_PNG_BASE64, 'base64'));
@@ -83,6 +89,7 @@ async function prepareInput(text, runtime) {
 
 async function generateWithRuntimeConfig(text, runtime, effectiveConfigPath) {
   if (isFakeGeneratorEnabled()) {
+    await maybeFakeDelay();
     const parsed = classifyMessageInput(text);
     if (parsed.kind === 'empty') throw new Error('Empty message. Send plain text or full URL.');
     const ts = new Date().toISOString().replace(/[:.]/g, '-');
@@ -126,6 +133,7 @@ async function generateWithRuntimeConfig(text, runtime, effectiveConfigPath) {
 
 async function generatePanelsWithRuntimeConfig(text, runtime, effectiveConfigPath) {
   if (isFakeGeneratorEnabled()) {
+    await maybeFakeDelay();
     const parsed = classifyMessageInput(text);
     if (parsed.kind === 'empty') throw new Error('Empty message. Send plain text or full URL.');
     const ts = new Date().toISOString().replace(/[:.]/g, '-');

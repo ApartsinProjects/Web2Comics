@@ -40,7 +40,7 @@ if (!webhookSecret) throw new Error('Missing TELEGRAM_WEBHOOK_SECRET');
 const api = new TelegramApi(token, process.env.TELEGRAM_API_BASE_URL || '');
 let configStore = null;
 const rawSendMessage = api.sendMessage.bind(api);
-const jobTimeoutMs = Math.max(15000, Number(process.env.RENDER_BOT_JOB_TIMEOUT_MS || 300000));
+const jobTimeoutMs = Math.max(100, Number(process.env.RENDER_BOT_JOB_TIMEOUT_MS || 300000));
 const processedUpdates = new Map();
 const processedUpdatesTtlMs = Math.max(60000, Number(process.env.RENDER_BOT_UPDATE_TTL_MS || 900000));
 
@@ -741,6 +741,13 @@ function enqueueUpdate(update) {
     .catch(async (error) => {
       const targetChatId = Number(update?.message?.chat?.id || 0);
       await safeNotifyUser(targetChatId, `Unexpected bot error: ${String(error?.message || error)}`);
+      await safeRecordInteraction(targetChatId, {
+        kind: 'command',
+        command: 'queue_error',
+        requestText: String(update?.message?.text || update?.message?.caption || ''),
+        result: { ok: false, type: 'queue_error', error: String(error?.message || error) },
+        config: configStore && targetChatId ? configStore.getEffectiveConfig(targetChatId) : {}
+      });
       console.error('[render-bot] job failed:', error && error.message ? error.message : String(error));
     });
   chatQueues.set(key, next.finally(() => {
