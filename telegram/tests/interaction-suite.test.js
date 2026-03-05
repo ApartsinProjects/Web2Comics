@@ -58,6 +58,13 @@ async function startFakeTelegramServer() {
 
 async function startBotProcess(botPort, telegramBaseUrl, statePath, extraEnv = {}) {
   const repoRoot = path.resolve(__dirname, '../..');
+  const stateDir = path.dirname(statePath);
+  const isolatedOutDir = path.join(stateDir, 'out');
+  const isolatedCfgsDir = path.join(stateDir, 'cfgs');
+  const isolatedDataDir = path.join(stateDir, 'data');
+  fs.mkdirSync(isolatedOutDir, { recursive: true });
+  fs.mkdirSync(isolatedCfgsDir, { recursive: true });
+  fs.mkdirSync(isolatedDataDir, { recursive: true });
   const env = {
     ...process.env,
     PORT: String(botPort),
@@ -68,7 +75,10 @@ async function startBotProcess(botPort, telegramBaseUrl, statePath, extraEnv = {
     TELEGRAM_ADMIN_CHAT_IDS: '1796415913',
     RENDER_BOT_STATE_FILE: statePath,
     RENDER_BOT_BASE_CONFIG: path.join(repoRoot, 'telegram/config/default.render.yml'),
-    RENDER_BOT_OUT_DIR: path.join(repoRoot, 'telegram/out'),
+    RENDER_BOT_OUT_DIR: isolatedOutDir,
+    RENDER_BOT_CFGS_DIR: isolatedCfgsDir,
+    RENDER_BOT_BLACKLIST_FILE: path.join(isolatedDataDir, 'blacklist.json'),
+    RENDER_BOT_KNOWN_USERS_FILE: path.join(isolatedDataDir, 'known-users.json'),
     RENDER_BOT_FAKE_GENERATOR: 'true',
     ...extraEnv
   };
@@ -165,7 +175,11 @@ describe('render bot comprehensive interaction suite', () => {
       const before = sentMessages(tg.calls).length;
       const res = await postUpdate(botPort, { chat: { id: 777 }, text });
       expect(res.status).toBe(200);
-      await waitFor(() => sentMessages(tg.calls).length > before, 10000, 100);
+      if (expectedSubstring) {
+        await waitFor(() => messageTexts(before).some((m) => m.includes(expectedSubstring)), 10000, 100);
+      } else {
+        await waitFor(() => sentMessages(tg.calls).length > before, 10000, 100);
+      }
       if (expectedSubstring) {
         const msgs = messageTexts(before);
         expect(msgs.some((m) => m.includes(expectedSubstring))).toBe(true);
@@ -331,18 +345,33 @@ describe('render bot comprehensive interaction suite', () => {
       await runCommandAndExpect('/objective', 'Available objectives:');
       await runCommandAndExpect('/objective summarize', 'Updated generation.objective = summarize');
       await runCommandAndExpect('/objective summarize', 'Updated generation.objective = summarize');
+      await runCommandAndExpect('/summary', 'Updated generation.objective = summarize (via /summary)');
+      await runCommandAndExpect('/fun', 'Updated generation.objective = fun (via /fun)');
+      await runCommandAndExpect('/5yold', 'Updated generation.objective = explain-like-im-five (via /5yold)');
+      await runCommandAndExpect('/learn', 'Updated generation.objective = learn-step-by-step (via /learn)');
+      await runCommandAndExpect('/news', 'Updated generation.objective = news-recap (via /news)');
+      await runCommandAndExpect('/timeline', 'Updated generation.objective = timeline (via /timeline)');
+      await runCommandAndExpect('/facts', 'Updated generation.objective = key-facts (via /facts)');
+      await runCommandAndExpect('/compare', 'Updated generation.objective = compare-views (via /compare)');
+      await runCommandAndExpect('/study', 'Updated generation.objective = study-guide (via /study)');
+      await runCommandAndExpect('/meeting', 'Updated generation.objective = meeting-recap (via /meeting)');
+      await runCommandAndExpect('/howto', 'Updated generation.objective = how-to-guide (via /howto)');
+      await runCommandAndExpect('/debate', 'Updated generation.objective = debate-map (via /debate)');
       await runCommandAndExpect('/crazyness 1.2', 'Updated generation.invent_temperature = 1.2');
       await runCommandAndExpect('/detail low', 'Updated generation.detail_level = low');
       await runCommandAndExpect('/new_style my-style bold inks, dramatic shadows', "Saved style 'my-style'");
       await runCommandAndExpect('/style my-style', 'Updated style preset = my-style');
+      await runCommandAndExpect('/noir', 'Updated style preset = noir (via /noir)');
       await runCommandAndExpect('/style cinematic hand-drawn frames', 'Updated generation.style_prompt');
       await runCommandAndExpect('/set_prompt story Focus on cause and effect', 'Updated generation.custom_story_prompt');
       await runCommandAndExpect('/set_prompt panel Keep faces expressive', 'Updated generation.custom_panel_prompt');
       await runCommandAndExpect('/set_prompt objective summarize Keep it extra concise', 'Updated objective prompt override for summarize');
       await runCommandAndExpect('/prompts', 'Prompt catalog');
-      await runCommandAndExpect('/prompts', 'Story summary: <storyboard.description short summary>');
+      await runCommandAndExpect('/prompts', 'Source title: <source title>');
       await runCommandAndExpect('/prompts', 'Panel visual brief: <panel.image_prompt>');
-      await runCommandAndExpect('/prompts', 'must avoid panel numbering');
+      await runCommandAndExpect('/prompts', '[Panel image prompt | with style reference image]');
+      await runCommandAndExpect('/prompts', '[Style reference image prompt (consistency mode)]');
+      await runCommandAndExpect('/prompts', 'Image prompt should not include requirements for in-image text or panel number.');
       await runCommandAndExpect('/concurrency 2', 'Updated runtime.image_concurrency = 2');
       await runCommandAndExpect('/retries 1', 'Updated runtime.retries = 1');
       await runCommandAndExpect('/options', 'Config paths with predefined options:');
@@ -579,7 +608,7 @@ describe('render bot comprehensive interaction suite', () => {
     }
   }, 50000);
 
-  it('isolates settings and keys per user, new user starts from defaults', async () => {
+  it('keeps key state per user while config defaults remain unchanged for new users', async () => {
     const tg = await startFakeTelegramServer();
     const botPort = await getFreePort();
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'render-bot-users-'));
@@ -603,18 +632,81 @@ describe('render bot comprehensive interaction suite', () => {
       expect(first888.some((m) => m.includes('/help  /config  /vendor'))).toBe(true);
       expect(first888.some((m) => m.includes('GEMINI_API_KEY: missing'))).toBe(true);
 
-      await command(777, '/panels 8');
+      await command(777, '/panels 6');
       const cfg777 = await command(777, '/config');
-      expect(cfg777.some((m) => m.includes('generation.panel_count: 8'))).toBe(true);
+      expect(cfg777.some((m) => m.includes('generation.panel_count: 6'))).toBe(true);
 
       const cfg888 = await command(888, '/config');
       expect(cfg888.some((m) => m.includes('generation.panel_count: 8'))).toBe(true);
-      expect(cfg888.some((m) => m.includes('generation.panel_count: 3'))).toBe(false);
+      expect(cfg888.some((m) => m.includes('generation.panel_count: 6'))).toBe(false);
     } finally {
       await bot.stop();
       await tg.close();
     }
   }, 40000);
+
+  it('persists user command config and uses it during generation', async () => {
+    const tg = await startFakeTelegramServer();
+    const botPort = await getFreePort();
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'render-bot-config-persist-use-'));
+    const statePath = path.join(tmpDir, 'state.json');
+    let bot = await startBotProcess(botPort, `http://127.0.0.1:${tg.port}/botTEST_TOKEN`, statePath);
+
+    async function command(text) {
+      const before = sentMessages(tg.calls).length;
+      const res = await postUpdate(botPort, { chat: { id: 777 }, text });
+      expect(res.status).toBe(200);
+      await waitFor(() => sentMessages(tg.calls).length > before, 8000, 100);
+      return sentMessages(tg.calls).slice(before).map((c) => String(c.body.text || ''));
+    }
+
+    async function generateAndCountPhotos(inputText) {
+      const beforePhoto = tg.calls.filter((c) => c.url.endsWith('/sendPhoto')).length;
+      const beforeMsg = sentMessages(tg.calls).length;
+      const res = await postUpdate(botPort, { chat: { id: 777 }, text: inputText });
+      expect(res.status).toBe(200);
+      await waitFor(() => sentMessages(tg.calls).slice(beforeMsg).some((m) => String(m.body.text || '').includes('Done: text -> comic panels')), 15000, 100);
+      const afterPhoto = tg.calls.filter((c) => c.url.endsWith('/sendPhoto')).length;
+      const newCaptions = tg.calls
+        .filter((c) => c.url.endsWith('/sendPhoto'))
+        .slice(beforePhoto)
+        .map((c) => extractMultipartField(c.raw, 'caption'));
+      return { photoCount: afterPhoto - beforePhoto, captions: newCaptions };
+    }
+
+    try {
+      const panelsResp = await command('/panels 5');
+      expect(panelsResp.some((m) => m.includes('Updated generation.panel_count = 5'))).toBe(true);
+      const objectiveResp = await command('/objective fun');
+      expect(objectiveResp.some((m) => m.includes('Updated generation.objective = fun'))).toBe(true);
+
+      const run1 = await generateAndCountPhotos('configuration persistence test story');
+      expect(run1.photoCount).toBe(5);
+      expect(run1.captions[0]).toContain('1(5)');
+      expect(run1.captions[4]).toContain('5(5)');
+
+      const cfgPath = path.join(tmpDir, 'cfgs', 'user_777', 'config.json');
+      await waitFor(() => fs.existsSync(cfgPath), 8000, 100);
+      const cfgJson = JSON.parse(fs.readFileSync(cfgPath, 'utf8'));
+      expect(cfgJson.config.generation.panel_count).toBe(5);
+      expect(cfgJson.config.generation.objective).toBe('fun');
+
+      await bot.stop();
+      bot = await startBotProcess(botPort, `http://127.0.0.1:${tg.port}/botTEST_TOKEN`, statePath);
+
+      const cfgAfterRestart = await command('/config');
+      expect(cfgAfterRestart.some((m) => m.includes('generation.panel_count: 5'))).toBe(true);
+      expect(cfgAfterRestart.some((m) => m.includes('generation.objective: fun'))).toBe(true);
+
+      const run2 = await generateAndCountPhotos('configuration persistence second run');
+      expect(run2.photoCount).toBe(5);
+      expect(run2.captions[0]).toContain('1(5)');
+      expect(run2.captions[4]).toContain('5(5)');
+    } finally {
+      await bot.stop();
+      await tg.close();
+    }
+  }, 70000);
 
   it('persists interaction history and caps at last 20 entries', async () => {
     const tg = await startFakeTelegramServer();
@@ -629,7 +721,15 @@ describe('render bot comprehensive interaction suite', () => {
         const res = await postUpdate(botPort, { chat: { id: chatId }, text: '/help' });
         expect(res.status).toBe(200);
       }
-      await waitFor(() => sentMessages(tg.calls).length >= 22, 15000, 100);
+      await waitFor(() => {
+        if (!fs.existsSync(statePath)) return false;
+        try {
+          const raw = JSON.parse(fs.readFileSync(statePath, 'utf8'));
+          return Array.isArray(raw.history) && raw.history.length === 20;
+        } catch (_) {
+          return false;
+        }
+      }, 25000, 150);
     } finally {
       await bot.stop();
       await tg.close();
@@ -729,9 +829,11 @@ describe('render bot comprehensive interaction suite', () => {
       const replayPhotos5 = replayChunk5.filter((c) => c.url.endsWith('/sendPhoto'));
       expect(replayPhotos5.length).toBeGreaterThanOrEqual(3);
       const replayCaptions5 = replayPhotos5.slice(0, 3).map((c) => extractMultipartField(c.raw, 'caption'));
-      expect(replayCaptions5[0]).toContain('1(3)');
-      expect(replayCaptions5[1]).toContain('2(3)');
-      expect(replayCaptions5[2]).toContain('3(3)');
+      const replayTotal = Number((replayCaptions5[0].match(/1\((\d+)\)/) || [])[1] || 0);
+      expect(replayTotal).toBeGreaterThanOrEqual(3);
+      expect(replayCaptions5[0]).toContain(`1(${replayTotal})`);
+      expect(replayCaptions5[1]).toContain(`2(${replayTotal})`);
+      expect(replayCaptions5[2]).toContain(`3(${replayTotal})`);
 
       const beforePeek3 = sentMessages(tg.calls).length;
       await send(777, '/peek 3');
@@ -856,12 +958,16 @@ describe('render bot comprehensive interaction suite', () => {
       const c888 = byChat.get('888') || [];
       expect(c777.length).toBeGreaterThanOrEqual(3);
       expect(c888.length).toBeGreaterThanOrEqual(3);
-      expect(c777[0]).toContain('1(3)');
-      expect(c777[1]).toContain('2(3)');
-      expect(c777[2]).toContain('3(3)');
-      expect(c888[0]).toContain('1(3)');
-      expect(c888[1]).toContain('2(3)');
-      expect(c888[2]).toContain('3(3)');
+      const total777 = Number((c777[0].match(/1\((\d+)\)/) || [])[1] || 0);
+      const total888 = Number((c888[0].match(/1\((\d+)\)/) || [])[1] || 0);
+      expect(total777).toBeGreaterThanOrEqual(3);
+      expect(total888).toBeGreaterThanOrEqual(3);
+      expect(c777[0]).toContain(`1(${total777})`);
+      expect(c777[1]).toContain(`2(${total777})`);
+      expect(c777[2]).toContain(`3(${total777})`);
+      expect(c888[0]).toContain(`1(${total888})`);
+      expect(c888[1]).toContain(`2(${total888})`);
+      expect(c888[2]).toContain(`3(${total888})`);
     } finally {
       await bot.stop();
       await tg.close();

@@ -18,6 +18,9 @@ const {
   extractTextFallbackFromUrlMessage,
   inferLikelyWebUrlFromText
 } = require('./message-utils');
+const { buildStoryboardPrompt } = require('../../engine/src/prompts');
+const { buildPanelImagePrompt, buildStyleReferencePrompt } = require('../../engine/src');
+const { buildInventStoryPrompt } = require('./generate');
 const { composeComicSheet } = require('../../engine/src/compose');
 const packageJson = require('../../package.json');
 
@@ -67,11 +70,13 @@ const rawSendMessage = api.sendMessage.bind(api);
 const jobTimeoutMs = Math.max(100, Number(process.env.RENDER_BOT_JOB_TIMEOUT_MS || 300000));
 const processedUpdates = new Map();
 const processedUpdatesTtlMs = Math.max(60000, Number(process.env.RENDER_BOT_UPDATE_TTL_MS || 900000));
+let coldStartNoticePending = true;
 let crashStore;
 let crashStoreMode = 'unknown';
 const BOT_DISPLAY_NAME = 'Web2Comic';
 const BOT_SHORT_DESCRIPTION = 'AI comic maker from text or URL.';
 const BOT_PROCESS_START_TIME = new Date().toISOString();
+const BOT_COLD_START_NOTICE = 'I just woke up. First response may take a bit longer.';
 const BOT_TEST_MODE = String(process.env.RENDER_BOT_TEST_MODE || process.env.RENDER_BOT_FAKE_GENERATOR || '')
   .trim()
   .toLowerCase() === 'true';
@@ -261,6 +266,25 @@ const STYLE_PRESETS = {
   watercolor: 'watercolor comic style, soft painterly textures, warm tones',
   newspaper: 'newspaper comic strip style, clean ink lines, expressive cartooning'
 };
+const STYLE_SHORTCUTS = Object.fromEntries(
+  Object.keys(STYLE_PRESETS).map((name) => [`/${name}`, name])
+);
+
+const OBJECTIVE_SHORTCUTS = {
+  '/summary': 'summarize',
+  '/fun': 'fun',
+  '/learn': 'learn-step-by-step',
+  '/news': 'news-recap',
+  '/timeline': 'timeline',
+  '/facts': 'key-facts',
+  '/compare': 'compare-views',
+  '/5yold': 'explain-like-im-five',
+  '/eli5': 'explain-like-im-five',
+  '/study': 'study-guide',
+  '/meeting': 'meeting-recap',
+  '/howto': 'how-to-guide',
+  '/debate': 'debate-map'
+};
 
 const PROVIDER_DEFAULT_MODELS = {
   gemini: {
@@ -315,7 +339,8 @@ const PROVIDER_REQUIRED_KEYS = {
   cloudflare: ['CLOUDFLARE_ACCOUNT_ID', 'CLOUDFLARE_API_TOKEN'],
   huggingface: ['HUGGINGFACE_INFERENCE_API_TOKEN']
 };
-const PROMPT_MANUAL_URL = 'https://github.com/ApartsinProjects/Web2Comics/blob/engine/telegram/docs/deployment-runbook.md';
+const REPO_DOCS_BASE_URL = 'https://github.com/ApartsinProjects/Web2Comics/tree/main/telegram';
+const PROMPT_MANUAL_URL = `${REPO_DOCS_BASE_URL}/docs/deployment-runbook.md`;
 
 function getMissingProviderKeys(chatId, providerName) {
   const provider = String(providerName || '').trim().toLowerCase();
@@ -345,6 +370,97 @@ function isAllowedChat(chatId) {
 function splitCommand(text) {
   const parts = String(text || '').trim().split(/\s+/).filter(Boolean);
   return parts;
+}
+
+function deepCloneJson(value) {
+  try {
+    return JSON.parse(JSON.stringify(value));
+  } catch (_) {
+    return null;
+  }
+}
+
+function snapshotConfigStoreState() {
+  if (!configStore || typeof configStore !== 'object') return null;
+  return deepCloneJson(configStore.state || {});
+}
+
+function flattenObjectForDiff(value, prefix = '', out = new Map()) {
+  const key = String(prefix || '').trim();
+  if (value == null || typeof value !== 'object') {
+    out.set(key, value);
+    return out;
+  }
+  if (Array.isArray(value)) {
+    if (!value.length) {
+      out.set(key, []);
+      return out;
+    }
+    value.forEach((item, idx) => {
+      const next = key ? `${key}[${idx}]` : `[${idx}]`;
+      flattenObjectForDiff(item, next, out);
+    });
+    return out;
+  }
+  const keys = Object.keys(value);
+  if (!keys.length) {
+    out.set(key, {});
+    return out;
+  }
+  keys.sort().forEach((k) => {
+    const next = key ? `${key}.${k}` : k;
+    flattenObjectForDiff(value[k], next, out);
+  });
+  return out;
+}
+
+function formatDiffValue(pathKey, value) {
+  const p = String(pathKey || '').toLowerCase();
+  const hasSecretWord = p.includes('.secrets.') || p.endsWith('.secrets') || p.includes('telegram_bot_token') || p.includes('webhook_secret');
+  const hasSecretKey = SECRET_KEYS.some((k) => p.includes(String(k || '').toLowerCase()));
+  if (hasSecretWord || hasSecretKey) return '<redacted>';
+  if (value == null) return 'null';
+  if (typeof value === 'string') return value.length > 80 ? `${value.slice(0, 77)}...` : value;
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+  if (Array.isArray(value)) return `[len=${value.length}]`;
+  if (typeof value === 'object') return '{...}';
+  return String(value);
+}
+
+function summarizeStateChanges(beforeState, afterState, limit = 8) {
+  if (!beforeState || !afterState) return { total: 0, lines: [] };
+  const before = flattenObjectForDiff(beforeState);
+  const after = flattenObjectForDiff(afterState);
+  const keys = new Set([...before.keys(), ...after.keys()]);
+  const changed = [];
+  keys.forEach((k) => {
+    const a = before.get(k);
+    const b = after.get(k);
+    if (JSON.stringify(a) !== JSON.stringify(b)) changed.push(k);
+  });
+  changed.sort();
+  const lines = changed.slice(0, Math.max(1, limit)).map((k) => {
+    const prev = formatDiffValue(k, before.get(k));
+    const next = formatDiffValue(k, after.get(k));
+    const pathLabel = String(k || '(root)');
+    return `- ${pathLabel}: ${prev} -> ${next}`;
+  });
+  return { total: changed.length, lines };
+}
+
+async function sendCommandChangeConfirmation(chatId, beforeState) {
+  try {
+    const afterState = snapshotConfigStoreState();
+    const diff = summarizeStateChanges(beforeState, afterState, 8);
+    if (!diff.total) {
+      await api.sendMessage(chatId, 'Confirmed changes: none.');
+      return;
+    }
+    const more = diff.total > diff.lines.length ? `\n- ... and ${diff.total - diff.lines.length} more change(s)` : '';
+    await api.sendMessage(chatId, `Confirmed changes (${diff.total}):\n${diff.lines.join('\n')}${more}`);
+  } catch (_) {
+    await safeNotifyUser(chatId, 'Confirmed changes: unavailable.');
+  }
 }
 
 function classifyIncoming(text) {
@@ -419,8 +535,7 @@ function formatProviderFallbackMessage(info) {
 function isShortTextPrompt(text) {
   const t = String(text || '').trim();
   if (!t) return false;
-  const words = t.split(/\s+/).filter(Boolean);
-  return t.length <= 40 || words.length <= 6;
+  return t.length <= 100;
 }
 
 function formatInventedStoryMessage(storyText) {
@@ -438,6 +553,9 @@ function isAdminChat(chatId) {
 }
 
 function commandHelp(chatId) {
+  const objectiveShortcutLines = Object.entries(OBJECTIVE_SHORTCUTS)
+    .map(([cmd, objective]) => `${cmd} - set objective to ${objective}.`);
+  const styleShortcutLines = Object.keys(STYLE_PRESETS).map((name) => `/${name} - quick style shortcut (${name}).`);
   const lines = [
     BOT_DISPLAY_NAME,
     BOT_SHORT_DESCRIPTION,
@@ -458,7 +576,9 @@ function commandHelp(chatId) {
     '/random - generate a fully random story and make a comic.',
     '/panels <count> - set panel count.',
     '/objective [name] - list or set objective.',
+    ...objectiveShortcutLines,
     '/style <preset-or-your-style> - set visual style.',
+    ...styleShortcutLines,
     '/new_style <name> <text> - save a custom named style.',
     '/language <code> - set output language.',
     '/mode <default|media_group|single> - set delivery mode.',
@@ -490,7 +610,7 @@ function commandHelp(chatId) {
     '- Cloudflare: https://dash.cloudflare.com/profile/api-tokens',
     '- Hugging Face: https://huggingface.co/settings/tokens',
     '',
-    'Docs: https://github.com/ApartsinProjects/Web2Comics/tree/engine/render'
+    `Docs: ${REPO_DOCS_BASE_URL}/docs`
   ];
   if (isAdminChat(chatId)) {
     lines.push('');
@@ -607,7 +727,7 @@ function onboardingMessage(chatId) {
     '',
     'Or go solo with a free Gemini key:',
     '1) Get key: https://aistudio.google.com/apikey',
-    '2) How-to: https://github.com/ApartsinProjects/Web2Comics/tree/engine/render',
+    `2) How-to: ${PROMPT_MANUAL_URL}`,
     '3) Set it: /setkey GEMINI_API_KEY <YOUR_KEY>',
     '4) Verify: /keys',
     '',
@@ -672,56 +792,44 @@ async function sendLongMessage(chatId, text) {
 
 function buildPromptCatalog(cfg) {
   const objective = String(cfg?.generation?.objective || 'summarize');
-  const storyPrompt = [
-    'Create a comic storyboard as strict JSON only. No markdown fences.',
-    'Schema: {"title":string,"description":string,"panels":[{"caption":string,"image_prompt":string}]}',
-    `Panel count: ${cfg?.generation?.panel_count ?? '-'}`,
-    `Objective: ${objective}`,
-    `Output language: ${cfg?.generation?.output_language || 'en'}`,
-    `Visual style: ${cfg?.generation?.style_prompt || '-'}`,
-    'Rules:',
-    '- Keep captions concise, factual, and sequential.',
-    '- Keep each image_prompt visual and concrete for a single panel scene.',
-    '- For every image_prompt, explicitly require text-free artwork (no words/letters/numbers/signs/logos/UI text/speech bubbles/watermarks).',
-    '- Every image_prompt must avoid panel numbering (for example "Panel 1", "1/8") and must not ask for any text elements to be shown in the image.',
-    '- Do not invent facts not present in source text.'
-  ];
-  const activeObjectiveOverride = String(cfg?.generation?.objective_prompt_overrides?.[objective] || '').trim();
-  if (activeObjectiveOverride) {
-    storyPrompt.push(`Objective-specific instructions: ${activeObjectiveOverride}`);
-  }
-  const customStoryPrompt = String(cfg?.generation?.custom_story_prompt || '').trim();
-  if (customStoryPrompt) {
-    storyPrompt.push(`Custom user story prompt: ${customStoryPrompt}`);
-  }
-  storyPrompt.push('Source title: <source title>', 'Source label: <source label>', 'Source text:', '<source text>');
+  const storyPrompt = buildStoryboardPrompt({
+    sourceTitle: '<source title>',
+    sourceLabel: '<source label>',
+    sourceText: '<source text>',
+    panelCount: cfg?.generation?.panel_count ?? '-',
+    objective,
+    stylePrompt: cfg?.generation?.style_prompt || '-',
+    outputLanguage: cfg?.generation?.output_language || 'en',
+    objectivePromptOverride: cfg?.generation?.objective_prompt_overrides?.[objective],
+    customStoryPrompt: cfg?.generation?.custom_story_prompt
+  });
 
-  const panelPrompt = [
-    'Story title: <storyboard.title>',
-    'Story summary: <storyboard.description short summary>',
-    'Panel visual brief: <panel.image_prompt>',
-    `Style: ${cfg?.generation?.style_prompt || '-'}`,
-    'Create one clear scene, no collage.',
-    'STRICT NO-TEXT RULE: do not render any text in the image.',
-    'No words, letters, numbers, symbols, subtitles, labels, signs, logos, UI text, speech bubbles, captions, or watermarks.',
-    'If any text appears, regenerate mentally and output a text-free scene.'
-  ];
-  const customPanelPrompt = String(cfg?.generation?.custom_panel_prompt || '').trim();
-  if (customPanelPrompt) {
-    panelPrompt.push(`Custom user panel prompt: ${customPanelPrompt}`);
-  }
-
-  const inventPrompt = [
-    'You are a creative comic writer.',
-    'Expand the seed into an engaging short narrative that is easy to storyboard into comic panels.',
-    'Add at least two unexpected but coherent twists.',
-    'Keep characters and timeline consistent.',
-    `Objective: ${cfg?.generation?.objective || 'summarize'}`,
-    `Style: ${cfg?.generation?.style_prompt || '-'}`,
-    'Return plain text only (no JSON, no markdown headings).',
-    'Seed story:',
-    '<seed>'
-  ];
+  const sampleStoryboard = {
+    title: '<storyboard.title>',
+    description: '<storyboard.description short summary>',
+    panels: [
+      { caption: '<panel.caption>', image_prompt: '<panel.image_prompt>' }
+    ]
+  };
+  const samplePanel = sampleStoryboard.panels[0];
+  const panelPromptNoRef = buildPanelImagePrompt(
+    samplePanel,
+    0,
+    Number(cfg?.generation?.panel_count || 1),
+    cfg?.generation || {},
+    sampleStoryboard,
+    { hasStyleReferenceImage: false }
+  );
+  const panelPromptWithRef = buildPanelImagePrompt(
+    samplePanel,
+    0,
+    Number(cfg?.generation?.panel_count || 1),
+    cfg?.generation || {},
+    sampleStoryboard,
+    { hasStyleReferenceImage: true }
+  );
+  const styleReferencePrompt = buildStyleReferencePrompt(sampleStoryboard, cfg?.generation || {});
+  const inventPrompt = buildInventStoryPrompt({ generation: cfg?.generation || {} }, '<seed>');
 
   const objectives = getOptions('generation.objective');
   const objectiveLines = objectives.map((name) => {
@@ -733,13 +841,19 @@ function buildPromptCatalog(cfg) {
     'Prompt catalog',
     '',
     '[Storyboard prompt]',
-    storyPrompt.join('\n'),
+    storyPrompt,
     '',
-    '[Panel image prompt]',
-    panelPrompt.join('\n'),
+    '[Panel image prompt | no style reference image]',
+    panelPromptNoRef,
+    '',
+    '[Panel image prompt | with style reference image]',
+    panelPromptWithRef,
+    '',
+    '[Style reference image prompt (consistency mode)]',
+    styleReferencePrompt,
     '',
     '[Story invention prompt]',
-    inventPrompt.join('\n'),
+    inventPrompt,
     '',
     '[Objectives]',
     objectiveLines.join('\n') || '- summarize'
@@ -1446,6 +1560,23 @@ async function handleCommand(chatId, text) {
     return true;
   }
 
+  if (OBJECTIVE_SHORTCUTS[command]) {
+    const objective = String(OBJECTIVE_SHORTCUTS[command]).trim().toLowerCase();
+    const options = getOptions('generation.objective');
+    const current = String(configStore.getCurrent(chatId, 'generation.objective') || '').trim() || '-';
+    if (!valueExists(options, objective)) {
+      await api.sendMessage(chatId, [
+        `Shortcut is configured to '${objective}', but this objective is not available.`,
+        `Allowed: ${options.join(', ')}`,
+        `Current: ${current}`
+      ].join('\n'));
+      return true;
+    }
+    const updated = await setConfigPathValue(chatId, 'generation.objective', objective);
+    await api.sendMessage(chatId, `Updated generation.objective = ${updated} (via ${command})`);
+    return true;
+  }
+
   if (command === '/style') {
     const styleInput = parts.slice(1).join(' ').trim();
     const preset = normalizeStyleName(styleInput);
@@ -1454,9 +1585,17 @@ async function handleCommand(chatId, text) {
       const styles = cfg && cfg.generation && typeof cfg.generation.user_styles === 'object'
         ? cfg.generation.user_styles
         : {};
-      return styles && typeof styles === 'object' ? styles : {};
+      const source = styles && typeof styles === 'object' ? styles : {};
+      const filtered = {};
+      Object.entries(source).forEach(([k, v]) => {
+        const key = normalizeStyleName(k);
+        const prompt = String(v || '').trim();
+        if (!key || !prompt) return;
+        filtered[key] = prompt;
+      });
+      return filtered;
     })();
-    const currentStylePrompt = String(configStore.getCurrent(chatId, 'generation.style_prompt') || '').trim() || '-';
+    const currentStyleName = String(configStore.getCurrent(chatId, 'generation.style_name') || '').trim() || '-';
     if (!styleInput) {
       const customNames = Object.keys(userStyles);
       const allowed = customNames.length
@@ -1466,18 +1605,33 @@ async function handleCommand(chatId, text) {
         'Usage: /style <preset-or-your-style>',
         'Explanation: choose a predefined/custom style, or pass free-form style text.',
         `Allowed: ${allowed}`,
-        `Current: ${currentStylePrompt}`
+        `Current: ${currentStyleName}`
       ].join('\n'));
       return true;
     }
     const prompt = STYLE_PRESETS[preset] || String(userStyles[preset] || '').trim();
     if (!prompt) {
       await configStore.setConfigValue(chatId, 'generation.style_prompt', styleInput);
+      await configStore.setConfigValue(chatId, 'generation.style_name', 'custom');
       await api.sendMessage(chatId, 'Updated generation.style_prompt');
       return true;
     }
     await configStore.setConfigValue(chatId, 'generation.style_prompt', prompt);
+    await configStore.setConfigValue(chatId, 'generation.style_name', preset);
     await api.sendMessage(chatId, `Updated style preset = ${preset}`);
+    return true;
+  }
+
+  if (STYLE_SHORTCUTS[command]) {
+    const preset = String(STYLE_SHORTCUTS[command] || '').trim().toLowerCase();
+    const prompt = String(STYLE_PRESETS[preset] || '').trim();
+    if (!prompt) {
+      await api.sendMessage(chatId, `Style shortcut not available: ${command}`);
+      return true;
+    }
+    await configStore.setConfigValue(chatId, 'generation.style_prompt', prompt);
+    await configStore.setConfigValue(chatId, 'generation.style_name', preset);
+    await api.sendMessage(chatId, `Updated style preset = ${preset} (via ${command})`);
     return true;
   }
 
@@ -1856,6 +2010,11 @@ async function processMessage(message, context = {}) {
       return;
     }
 
+    if (coldStartNoticePending) {
+      coldStartNoticePending = false;
+      await safeNotifyUser(chatId, BOT_COLD_START_NOTICE);
+    }
+
     try {
       await configStore.updateUserProfile(chatId, {
         chat: {
@@ -1894,6 +2053,8 @@ async function processMessage(message, context = {}) {
         await safeNotifyUser(adminId, echoText);
       }
     }
+
+    const commandStateBefore = incoming.kind === 'command' ? snapshotConfigStoreState() : null;
 
     if (incoming.kind === 'command' && (incoming.command === '/invent' || incoming.command === '/random')) {
       let seed = '';
@@ -1950,6 +2111,7 @@ async function processMessage(message, context = {}) {
           : undefined
       });
       await sendPanelSequence(chatId, result, 'invent', '', alreadySent, deliveryMode, effectiveConfig, debugPromptsEnabled);
+      await sendCommandChangeConfirmation(chatId, commandStateBefore);
       runBackgroundTask('record invent success', () => safeRecordInteraction(chatId, {
         kind: incoming.kind,
         command: incoming.command,
@@ -1975,6 +2137,7 @@ async function processMessage(message, context = {}) {
 
     const handled = await handleCommand(chatId, text);
     if (handled) {
+      await sendCommandChangeConfirmation(chatId, commandStateBefore);
       runBackgroundTask('record command success', () => safeRecordInteraction(chatId, {
         kind: incoming.kind,
         command: incoming.command,
@@ -1987,6 +2150,7 @@ async function processMessage(message, context = {}) {
 
     if (incoming.kind === 'command') {
       await api.sendMessage(chatId, 'Unrecognized command.');
+      await sendCommandChangeConfirmation(chatId, commandStateBefore);
       runBackgroundTask('record unknown command', () => safeRecordInteraction(chatId, {
         kind: incoming.kind,
         command: incoming.command,
@@ -2030,6 +2194,9 @@ async function processMessage(message, context = {}) {
     }
 
     await api.sendChatAction(chatId, 'upload_photo');
+    if (hasWebPageUrl) {
+      await api.sendMessage(chatId, 'Detected link, parsing page.');
+    }
     if (shortPromptExpanded) {
       await api.sendMessage(chatId, 'Generating your comic from the expanded story...');
     } else {

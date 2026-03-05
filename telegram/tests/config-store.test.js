@@ -54,13 +54,13 @@ describe('render config store', () => {
     expect(fs.existsSync(written)).toBe(true);
   });
 
-  it('keeps settings isolated between users', async () => {
+  it('keeps per-user overrides isolated while leaving other users on defaults', async () => {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'render-bot-'));
     const baseConfig = path.resolve(__dirname, '../config/default.render.yml');
     const store = new RuntimeConfigStore(baseConfig, new FilePersistence(path.join(tmp, 'state.json')));
     await store.load();
-    await store.setConfigValue('alice', 'generation.panel_count', 8);
-    expect(store.getCurrent('alice', 'generation.panel_count')).toBe(8);
+    await store.setConfigValue('alice', 'generation.panel_count', 6);
+    expect(store.getCurrent('alice', 'generation.panel_count')).toBe(6);
     expect(store.getCurrent('bob', 'generation.panel_count')).toBe(8);
   });
 

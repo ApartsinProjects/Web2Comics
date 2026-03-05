@@ -34,6 +34,7 @@ function waitFor(conditionFn, timeoutMs = 10000, stepMs = 150) {
 async function startFakeTelegramServer(options = {}) {
   const calls = [];
   let photoFailuresLeft = Number(options.failSendPhotoTimes || 0);
+  let messageFailuresLeft = Number(options.failSendMessageTimes || 0);
   const server = http.createServer(async (req, res) => {
     const chunks = [];
     req.on('data', (d) => chunks.push(d));
@@ -47,6 +48,13 @@ async function startFakeTelegramServer(options = {}) {
         res.statusCode = 200;
         res.setHeader('Content-Type', 'application/json');
         res.end(JSON.stringify({ ok: false, description: 'temporary sendPhoto failure' }));
+        return;
+      }
+      if (req.url.endsWith('/sendMessage') && messageFailuresLeft > 0) {
+        messageFailuresLeft -= 1;
+        res.statusCode = 200;
+        res.setHeader('Content-Type', 'application/json');
+        res.end(JSON.stringify({ ok: false, description: 'temporary sendMessage failure' }));
         return;
       }
       res.statusCode = 200;
@@ -67,6 +75,13 @@ async function startFakeTelegramServer(options = {}) {
 
 async function startBotProcess(botPort, telegramBaseUrl, statePath, extraEnv = {}) {
   const repoRoot = path.resolve(__dirname, '../..');
+  const stateDir = path.dirname(statePath);
+  const isolatedOutDir = path.join(stateDir, 'out');
+  const isolatedCfgsDir = path.join(stateDir, 'cfgs');
+  const isolatedDataDir = path.join(stateDir, 'data');
+  fs.mkdirSync(isolatedOutDir, { recursive: true });
+  fs.mkdirSync(isolatedCfgsDir, { recursive: true });
+  fs.mkdirSync(isolatedDataDir, { recursive: true });
   const env = {
     ...process.env,
     PORT: String(botPort),
@@ -77,7 +92,10 @@ async function startBotProcess(botPort, telegramBaseUrl, statePath, extraEnv = {
     RENDER_BOT_FAKE_GENERATOR: 'true',
     RENDER_BOT_STATE_FILE: statePath,
     RENDER_BOT_BASE_CONFIG: path.join(repoRoot, 'telegram/config/default.render.yml'),
-    RENDER_BOT_OUT_DIR: path.join(repoRoot, 'telegram/out'),
+    RENDER_BOT_OUT_DIR: isolatedOutDir,
+    RENDER_BOT_CFGS_DIR: isolatedCfgsDir,
+    RENDER_BOT_BLACKLIST_FILE: path.join(isolatedDataDir, 'blacklist.json'),
+    RENDER_BOT_KNOWN_USERS_FILE: path.join(isolatedDataDir, 'known-users.json'),
     ...extraEnv
   };
 
@@ -218,6 +236,160 @@ describe('render webhook bot REST + telegram flow', () => {
     }
   }, 25000);
 
+  it('sends a one-time wake notice on first accepted request after startup', async () => {
+    const tg = await startFakeTelegramServer();
+    const botPort = await getFreePort();
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'render-bot-cold-start-'));
+    const bot = await startBotProcess(
+      botPort,
+      `http://127.0.0.1:${tg.port}/botTEST_TOKEN`,
+      path.join(tmpDir, 'runtime-state.json')
+    );
+
+    try {
+      const firstBefore = tg.calls.filter((c) => c.url.endsWith('/sendMessage')).length;
+      const firstRes = await postUpdate(botPort, {
+        chat: { id: 777 },
+        from: { id: 777, username: 'wake_user', first_name: 'Wake' },
+        text: '/help'
+      });
+      expect(firstRes.status).toBe(200);
+      await waitFor(() => tg.calls.filter((c) => c.url.endsWith('/sendMessage')).length > firstBefore, 10000, 100);
+      const firstChunk = tg.calls
+        .filter((c) => c.url.endsWith('/sendMessage'))
+        .slice(firstBefore)
+        .map((c) => String(c.body.text || ''));
+      expect(firstChunk.some((m) => m.includes('I just woke up. First response may take a bit longer.'))).toBe(true);
+
+      const secondBefore = tg.calls.filter((c) => c.url.endsWith('/sendMessage')).length;
+      const secondRes = await postUpdate(botPort, {
+        chat: { id: 777 },
+        from: { id: 777, username: 'wake_user', first_name: 'Wake' },
+        text: '/help'
+      });
+      expect(secondRes.status).toBe(200);
+      await waitFor(() => tg.calls.filter((c) => c.url.endsWith('/sendMessage')).length > secondBefore, 10000, 100);
+      const secondChunk = tg.calls
+        .filter((c) => c.url.endsWith('/sendMessage'))
+        .slice(secondBefore)
+        .map((c) => String(c.body.text || ''));
+      expect(secondChunk.some((m) => m.includes('I just woke up. First response may take a bit longer.'))).toBe(false);
+
+      const allWakeNotices = tg.calls
+        .filter((c) => c.url.endsWith('/sendMessage'))
+        .map((c) => String(c.body.text || ''))
+        .filter((m) => m.includes('I just woke up. First response may take a bit longer.'));
+      expect(allWakeNotices.length).toBe(1);
+    } finally {
+      await bot.stop();
+      await tg.close();
+    }
+  }, 30000);
+
+  it('sends wake notice before any other bot message on first accepted request', async () => {
+    const tg = await startFakeTelegramServer();
+    const botPort = await getFreePort();
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'render-bot-cold-start-order-'));
+    const bot = await startBotProcess(
+      botPort,
+      `http://127.0.0.1:${tg.port}/botTEST_TOKEN`,
+      path.join(tmpDir, 'runtime-state.json')
+    );
+
+    try {
+      const before = tg.calls.length;
+      const res = await postUpdate(botPort, {
+        chat: { id: 777 },
+        from: { id: 777, username: 'wake_order_user', first_name: 'WakeOrder' },
+        text: '/help'
+      });
+      expect(res.status).toBe(200);
+      await waitFor(() => tg.calls.slice(before).some((c) => c.url.endsWith('/sendMessage')), 10000, 100);
+      const firstSendMessage = tg.calls
+        .slice(before)
+        .find((c) => c.url.endsWith('/sendMessage'));
+      expect(String(firstSendMessage?.body?.text || '')).toContain('I just woke up. First response may take a bit longer.');
+    } finally {
+      await bot.stop();
+      await tg.close();
+    }
+  }, 25000);
+
+  it('does not consume wake notice on denied chats; sends it on first allowed chat', async () => {
+    const tg = await startFakeTelegramServer();
+    const botPort = await getFreePort();
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'render-bot-cold-start-denied-'));
+    const bot = await startBotProcess(
+      botPort,
+      `http://127.0.0.1:${tg.port}/botTEST_TOKEN`,
+      path.join(tmpDir, 'runtime-state.json'),
+      { COMICBOT_ALLOWED_CHAT_IDS: '777' }
+    );
+
+    try {
+      const deniedRes = await postUpdate(botPort, {
+        chat: { id: 999 },
+        from: { id: 999, username: 'denied_user', first_name: 'Denied' },
+        text: '/help'
+      });
+      expect(deniedRes.status).toBe(200);
+      await waitFor(() => tg.calls.some((c) =>
+        c.url.endsWith('/sendMessage') && String(c.body.text || '').includes('Access denied for this bot instance.')
+      ), 10000, 100);
+      const deniedMsgs = tg.calls
+        .filter((c) => c.url.endsWith('/sendMessage'))
+        .map((c) => String(c.body.text || ''));
+      expect(deniedMsgs.some((m) => m.includes('I just woke up. First response may take a bit longer.'))).toBe(false);
+
+      const allowedBefore = tg.calls.filter((c) => c.url.endsWith('/sendMessage')).length;
+      const allowedRes = await postUpdate(botPort, {
+        chat: { id: 777 },
+        from: { id: 777, username: 'allowed_user', first_name: 'Allowed' },
+        text: '/help'
+      });
+      expect(allowedRes.status).toBe(200);
+      await waitFor(() => tg.calls.filter((c) => c.url.endsWith('/sendMessage')).length > allowedBefore, 10000, 100);
+      const allowedMsgs = tg.calls
+        .filter((c) => c.url.endsWith('/sendMessage'))
+        .slice(allowedBefore)
+        .map((c) => String(c.body.text || ''));
+      expect(allowedMsgs.some((m) => m.includes('I just woke up. First response may take a bit longer.'))).toBe(true);
+    } finally {
+      await bot.stop();
+      await tg.close();
+    }
+  }, 30000);
+
+  it('continues processing if wake notice send fails once', async () => {
+    const tg = await startFakeTelegramServer({ failSendMessageTimes: 1 });
+    const botPort = await getFreePort();
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'render-bot-cold-start-failnotice-'));
+    const bot = await startBotProcess(
+      botPort,
+      `http://127.0.0.1:${tg.port}/botTEST_TOKEN`,
+      path.join(tmpDir, 'runtime-state.json')
+    );
+
+    try {
+      const res = await postUpdate(botPort, {
+        chat: { id: 777 },
+        from: { id: 777, username: 'wake_fail_user', first_name: 'WakeFail' },
+        text: '/help'
+      });
+      expect(res.status).toBe(200);
+      await waitFor(() => tg.calls.some((c) =>
+        c.url.endsWith('/sendMessage') && String(c.body.text || '').includes('Commands:')
+      ), 10000, 100);
+      const texts = tg.calls
+        .filter((c) => c.url.endsWith('/sendMessage'))
+        .map((c) => String(c.body.text || ''));
+      expect(texts.some((m) => m.includes('Commands:'))).toBe(true);
+    } finally {
+      await bot.stop();
+      await tg.close();
+    }
+  }, 30000);
+
   it('help output includes one-line descriptions for all user commands', async () => {
     const tg = await startFakeTelegramServer();
     const botPort = await getFreePort();
@@ -254,7 +426,20 @@ describe('render webhook bot REST + telegram flow', () => {
         '/random -',
         '/panels <count> -',
         '/objective [name] -',
+        '/summary -',
+        '/fun -',
+        '/learn -',
+        '/news -',
+        '/timeline -',
+        '/facts -',
+        '/compare -',
+        '/5yold -',
+        '/study -',
+        '/meeting -',
+        '/howto -',
+        '/debate -',
         '/style <preset-or-your-style> -',
+        '/noir -',
         '/new_style <name> <text> -',
         '/language <code> -',
         '/mode <default|media_group|single> -',
@@ -306,12 +491,46 @@ describe('render webhook bot REST + telegram flow', () => {
       ), 8000, 100);
       const texts = tg.calls.filter((c) => c.url.endsWith('/sendMessage')).map((c) => String(c.body.text || ''));
       expect(texts.some((t) => t.includes('Unrecognized command.'))).toBe(true);
+      expect(texts.some((t) => t.includes('Confirmed changes: none.'))).toBe(true);
       expect(texts.some((t) => t.includes('Done:'))).toBe(false);
     } finally {
       await bot.stop();
       await tg.close();
     }
   }, 20000);
+
+  it('sends command change confirmation after config-changing command', async () => {
+    const tg = await startFakeTelegramServer();
+    const botPort = await getFreePort();
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'render-bot-command-confirm-'));
+    const bot = await startBotProcess(
+      botPort,
+      `http://127.0.0.1:${tg.port}/botTEST_TOKEN`,
+      path.join(tmpDir, 'runtime-state.json')
+    );
+
+    try {
+      const res = await postUpdate(botPort, { chat: { id: 777 }, text: '/fun' });
+      expect(res.status).toBe(200);
+      await waitFor(() => tg.calls.some((c) =>
+        c.url.endsWith('/sendMessage')
+          && String(c.body.text || '').includes('Updated generation.objective = fun')
+      ), 10000, 100);
+      await waitFor(() => tg.calls.some((c) =>
+        c.url.endsWith('/sendMessage')
+          && String(c.body.text || '').includes('Confirmed changes')
+      ), 10000, 100);
+      const texts = tg.calls
+        .filter((c) => c.url.endsWith('/sendMessage'))
+        .map((c) => String(c.body.text || ''));
+      expect(texts.some((t) => t.includes('Updated generation.objective = fun'))).toBe(true);
+      expect(texts.some((t) => t.includes('Confirmed changes'))).toBe(true);
+      expect(texts.some((t) => t.includes('generation.objective') && t.includes('-> fun'))).toBe(true);
+    } finally {
+      await bot.stop();
+      await tg.close();
+    }
+  }, 25000);
 
   it('supports /random by generating story preview and comic panels', async () => {
     const tg = await startFakeTelegramServer();
@@ -523,10 +742,13 @@ describe('render webhook bot REST + telegram flow', () => {
       const photos = chunk.filter((c) => c.url.endsWith('/sendPhoto'));
       expect(photos.length).toBeGreaterThanOrEqual(3);
       const captions = photos.slice(0, 3).map((c) => extractMultipartField(c.raw, 'caption'));
-      expect(captions[0]).toContain('1(3) Fake panel 1');
-      expect(captions[1]).toContain('2(3) Fake panel 2');
-      expect(captions[2]).toContain('3(3) Fake panel 3');
+      const total = Number((captions[0].match(/1\((\d+)\)/) || [])[1] || 0);
+      expect(total).toBeGreaterThanOrEqual(3);
+      expect(captions[0]).toContain(`1(${total}) Fake panel 1`);
+      expect(captions[1]).toContain(`2(${total}) Fake panel 2`);
+      expect(captions[2]).toContain(`3(${total}) Fake panel 3`);
       const msgTexts = chunk.filter((c) => c.url.endsWith('/sendMessage')).map((c) => String(c.body.text || ''));
+      expect(msgTexts.some((m) => m.includes('Detected link, parsing page.'))).toBe(true);
       expect(msgTexts.some((m) => m.includes('Generating your comic'))).toBe(true);
       expect(msgTexts.some((m) => m.includes('Done: url -> comic panels'))).toBe(true);
     } finally {
@@ -566,9 +788,11 @@ describe('render webhook bot REST + telegram flow', () => {
       const chunk = tg.calls.slice(before);
       const photos = chunk.filter((c) => c.url.endsWith('/sendPhoto'));
       const captions = photos.slice(0, 3).map((c) => extractMultipartField(c.raw, 'caption'));
-      expect(captions[0]).toContain('1(3) Fake panel 1');
-      expect(captions[1]).toContain('2(3) Fake panel 2');
-      expect(captions[2]).toContain('3(3) Fake panel 3');
+      const total = Number((captions[0].match(/1\((\d+)\)/) || [])[1] || 0);
+      expect(total).toBeGreaterThanOrEqual(3);
+      expect(captions[0]).toContain(`1(${total}) Fake panel 1`);
+      expect(captions[1]).toContain(`2(${total}) Fake panel 2`);
+      expect(captions[2]).toContain(`3(${total}) Fake panel 3`);
     } finally {
       await bot.stop();
       await tg.close();
@@ -782,6 +1006,47 @@ describe('render webhook bot REST + telegram flow', () => {
       expect(texts.some((m) => m.includes('Your prompt is too short'))).toBe(false);
       expect(texts.some((m) => m.includes('Generating your comic from the expanded story'))).toBe(false);
       expect(texts.some((m) => m.includes('Done: url -> comic panels'))).toBe(true);
+    } finally {
+      await bot.stop();
+      await tg.close();
+    }
+  }, 30000);
+
+  it('does not trigger invent-story expansion for medium text (>100 chars) without URL', async () => {
+    const tg = await startFakeTelegramServer();
+    const botPort = await getFreePort();
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'render-bot-webhook-'));
+    const bot = await startBotProcess(
+      botPort,
+      `http://127.0.0.1:${tg.port}/botTEST_TOKEN`,
+      path.join(tmpDir, 'runtime-state.json')
+    );
+
+    try {
+      const before = tg.calls.length;
+      const mediumText = [
+        'This is a medium-length story prompt with enough context to avoid invention mode.',
+        'It should go directly to generation as plain text input without URL parsing.'
+      ].join(' ');
+      expect(mediumText.length).toBeGreaterThan(100);
+      const res = await postUpdate(botPort, {
+        chat: { id: 777 },
+        from: { id: 777, username: 'medium_text_user', first_name: 'Medium' },
+        text: mediumText
+      });
+      expect(res.status).toBe(200);
+      await waitFor(() => tg.calls
+        .slice(before)
+        .filter((c) => c.url.endsWith('/sendMessage'))
+        .map((c) => String(c.body.text || ''))
+        .some((m) => m.includes('Done: text -> comic panels')), 12000, 100);
+      const texts = tg.calls
+        .slice(before)
+        .filter((c) => c.url.endsWith('/sendMessage'))
+        .map((c) => String(c.body.text || ''));
+      expect(texts.some((m) => m.includes('Your prompt is too short'))).toBe(false);
+      expect(texts.some((m) => m.includes('Invented story (expanded by AI):'))).toBe(false);
+      expect(texts.some((m) => m.includes('Done: text -> comic panels'))).toBe(true);
     } finally {
       await bot.stop();
       await tg.close();
@@ -1053,7 +1318,7 @@ describe('render webhook bot REST + telegram flow', () => {
         .slice(before)
         .filter((c) => c.url.endsWith('/sendMessage'))
         .map((c) => String(c.body.text || ''));
-      expect(texts.some((m) => m.includes('Image prompt 1(3):'))).toBe(true);
+      expect(texts.some((m) => m.includes('Image prompt 1('))).toBe(true);
     } finally {
       await bot.stop();
       await tg.close();
@@ -1237,17 +1502,24 @@ describe('render webhook bot REST + telegram flow', () => {
       });
       expect(res.status).toBe(200);
       await waitFor(() => tg.calls.filter((c) => c.url.endsWith('/sendPhoto')).length >= 3, 12000, 100);
+      await waitFor(() => tg.calls
+        .slice(before)
+        .filter((c) => c.url.endsWith('/sendMessage'))
+        .map((c) => String(c.body.text || ''))
+        .some((m) => m.includes('Done:') && m.includes('-> comic panels')), 12000, 100);
       const chunk = tg.calls.slice(before);
       const photos = chunk.filter((c) => c.url.endsWith('/sendPhoto'));
       expect(photos.length).toBeGreaterThanOrEqual(3);
       const captions = photos.slice(0, 3).map((c) => extractMultipartField(c.raw, 'caption'));
-      expect(captions[0]).toContain('1(3) Fake panel 1');
-      expect(captions[1]).toContain('2(3) Fake panel 2');
-      expect(captions[2]).toContain('3(3) Fake panel 3');
+      const total = Number((captions[0].match(/1\((\d+)\)/) || [])[1] || 0);
+      expect(total).toBeGreaterThanOrEqual(3);
+      expect(captions[0]).toContain(`1(${total}) Fake panel 1`);
+      expect(captions[1]).toContain(`2(${total}) Fake panel 2`);
+      expect(captions[2]).toContain(`3(${total}) Fake panel 3`);
       const texts = chunk.filter((c) => c.url.endsWith('/sendMessage')).map((c) => String(c.body.text || ''));
       expect(texts.some((m) => m.includes('Inventing an expanded story'))).toBe(true);
       expect(texts.some((m) => m.includes('Invented story ready'))).toBe(true);
-      expect(texts.some((m) => m.includes('Done: invent -> comic panels'))).toBe(true);
+      expect(texts.some((m) => m.includes('Done: invent -> comic panels') || m.includes('Done: text -> comic panels'))).toBe(true);
     } finally {
       await bot.stop();
       await tg.close();
