@@ -12,7 +12,9 @@ function buildPanelImagePrompt(panel, index, total, settings) {
     `Comic panel ${index + 1}/${total}`,
     `Caption: ${panel.caption}`,
     `Style: ${settings.style_prompt}`,
-    'Create one clear scene, no collage, no extra text overlays unless implied by caption.'
+    'Create one clear scene, no collage.',
+    'Do not render caption text inside the image.',
+    'No words, letters, subtitles, labels, or text overlays in the artwork.'
   ];
   const customPanelPrompt = String(settings.custom_panel_prompt || '').trim();
   if (customPanelPrompt) {
@@ -175,15 +177,26 @@ async function runComicEnginePanels(options) {
   const panelImages = await mapWithConcurrency(
     storyboard.panels,
     config.runtime.image_concurrency,
-    async (panel, index) => withRetries(
-      () => generateImageWithProvider(
-        config.providers.image,
-        buildPanelImagePrompt(panel, index, storyboard.panels.length, config.generation),
-        config.runtime
-      ),
-      config.runtime.retries,
-      `Panel image ${index + 1}`
-    )
+    async (panel, index) => {
+      const image = await withRetries(
+        () => generateImageWithProvider(
+          config.providers.image,
+          buildPanelImagePrompt(panel, index, storyboard.panels.length, config.generation),
+          config.runtime
+        ),
+        config.runtime.retries,
+        `Panel image ${index + 1}`
+      );
+      if (typeof options.onPanelReady === 'function') {
+        await options.onPanelReady({
+          index,
+          total: storyboard.panels.length,
+          panel,
+          image
+        });
+      }
+      return image;
+    }
   );
 
   const result = {
