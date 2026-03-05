@@ -675,12 +675,16 @@ class RuntimeConfigStore {
   }
 
   async copySecretsFromTo(sourceChatId, targetChatId) {
-    const source = this.ensureUser(sourceChatId);
+    this.ensureUser(sourceChatId);
     const target = this.ensureUser(targetChatId);
+    const sourceResolved = this.resolveUserCredentials(sourceChatId);
     let copied = 0;
     SECRET_KEYS.forEach((k) => {
-      const value = String((source.secrets || {})[k] || '').trim();
+      const value = String((sourceResolved || {})[k] || '').trim();
       if (!value) return;
+      const existing = String((target.secrets || {})[k] || '').trim();
+      // Do not overwrite user-provided keys; sharing only backfills missing keys.
+      if (existing) return;
       if (target.secrets[k] !== value) copied += 1;
       target.secrets[k] = value;
     });

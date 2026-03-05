@@ -778,6 +778,87 @@ describe('render webhook bot REST + telegram flow', () => {
     }
   }, 20000);
 
+  it('persists shared keys across restart and keeps user-owned key precedence', async () => {
+    const tg = await startFakeTelegramServer();
+    const botPort = await getFreePort();
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'render-bot-share-restart-flow-'));
+    const statePath = path.join(tmpDir, 'runtime-state.json');
+    let bot = await startBotProcess(
+      botPort,
+      `http://127.0.0.1:${tg.port}/botTEST_TOKEN`,
+      statePath,
+      { TELEGRAM_ADMIN_CHAT_IDS: '1796415913' }
+    );
+
+    try {
+      const adminId = 1796415913;
+      const userId = 777;
+      const waitText = async (label, predicate, timeoutMs = 12000) => {
+        await waitFor(() => tg.calls.some(predicate), timeoutMs, 100).catch(() => {
+          const recent = tg.calls
+            .filter((c) => c.url.endsWith('/sendMessage'))
+            .slice(-15)
+            .map((c) => `[${c.body.chat_id}] ${String(c.body.text || '').replace(/\s+/g, ' ').trim()}`);
+          throw new Error(`Timeout waiting for ${label}. Recent messages:\n${recent.join('\n')}`);
+        });
+      };
+
+      await postUpdate(botPort, { chat: { id: adminId }, text: '/setkey GEMINI_API_KEY ADMIN_SHARED_V1' });
+      await waitText('admin setkey v1', (c) =>
+        c.url.endsWith('/sendMessage') && Number(c.body.chat_id) === adminId
+          && String(c.body.text || '').includes('Stored key GEMINI_API_KEY in runtime state.')
+      );
+
+      await postUpdate(botPort, { chat: { id: adminId }, text: `/share ${userId}` });
+      await waitText('admin share to user', (c) =>
+        c.url.endsWith('/sendMessage') && Number(c.body.chat_id) === adminId
+          && String(c.body.text || '').includes(`runtime key(s) to user ${userId}.`)
+      );
+
+      await postUpdate(botPort, { chat: { id: userId }, text: '/setkey GEMINI_API_KEY USER_OWN_KEY' });
+      await waitText('user set own key', (c) =>
+        c.url.endsWith('/sendMessage') && Number(c.body.chat_id) === userId
+          && String(c.body.text || '').includes('Stored key GEMINI_API_KEY in runtime state.')
+      );
+
+      await postUpdate(botPort, { chat: { id: adminId }, text: '/setkey GEMINI_API_KEY ADMIN_SHARED_V2' });
+      await waitText('admin setkey v2', (c) =>
+        c.url.endsWith('/sendMessage') && Number(c.body.chat_id) === adminId
+          && String(c.body.text || '').includes('Stored key GEMINI_API_KEY in runtime state.')
+      );
+
+      await postUpdate(botPort, { chat: { id: adminId }, text: `/share ${userId}` });
+      await waitText('admin re-share to user', (c) =>
+        c.url.endsWith('/sendMessage') && Number(c.body.chat_id) === adminId
+          && String(c.body.text || '').includes(`runtime key(s) to user ${userId}.`)
+      );
+
+      const savedBeforeRestart = JSON.parse(fs.readFileSync(statePath, 'utf8'));
+      expect(String(savedBeforeRestart?.users?.['777']?.secrets?.GEMINI_API_KEY || '')).toBe('USER_OWN_KEY');
+
+      await bot.stop();
+      bot = await startBotProcess(
+        botPort,
+        `http://127.0.0.1:${tg.port}/botTEST_TOKEN`,
+        statePath,
+        { TELEGRAM_ADMIN_CHAT_IDS: '1796415913' }
+      );
+
+      await postUpdate(botPort, { chat: { id: userId }, text: '/keys' });
+      await waitText('user /keys after restart', (c) =>
+        c.url.endsWith('/sendMessage') && Number(c.body.chat_id) === userId
+          && String(c.body.text || '').includes('Provider key status:')
+          && String(c.body.text || '').includes('- GEMINI_API_KEY: set (runtime)')
+      );
+
+      const savedAfterRestart = JSON.parse(fs.readFileSync(statePath, 'utf8'));
+      expect(String(savedAfterRestart?.users?.['777']?.secrets?.GEMINI_API_KEY || '')).toBe('USER_OWN_KEY');
+    } finally {
+      await bot.stop();
+      await tg.close();
+    }
+  }, 45000);
+
   it('sends onboarding to first-time user only', async () => {
     const tg = await startFakeTelegramServer();
     const botPort = await getFreePort();
