@@ -297,8 +297,21 @@ function summarizeConfig(cfg) {
 async function sendPanelSequence(chatId, panelResult, modeLabel) {
   const mode = String(modeLabel || 'text').toLowerCase();
   const panels = Array.isArray(panelResult?.panelMessages) ? panelResult.panelMessages.slice() : [];
-  for (const panel of panels) {
-    await api.sendPhoto(chatId, panel.imagePath, panel.caption || '');
+  const sendPanelWithRetry = async (panel, index) => {
+    let last = null;
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      try {
+        await api.sendPhoto(chatId, panel.imagePath, panel.caption || '');
+        return;
+      } catch (error) {
+        last = error;
+        if (attempt < 3) await new Promise((r) => setTimeout(r, 250 * attempt));
+      }
+    }
+    throw new Error(`Failed sending panel ${index + 1}: ${String(last?.message || last)}`);
+  };
+  for (let i = 0; i < panels.length; i += 1) {
+    await sendPanelWithRetry(panels[i], i);
   }
   await api.sendMessage(chatId, [
     `Done: ${mode} -> comic panels`,

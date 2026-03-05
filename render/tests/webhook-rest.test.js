@@ -31,8 +31,9 @@ function waitFor(conditionFn, timeoutMs = 10000, stepMs = 150) {
   });
 }
 
-async function startFakeTelegramServer() {
+async function startFakeTelegramServer(options = {}) {
   const calls = [];
+  let photoFailuresLeft = Number(options.failSendPhotoTimes || 0);
   const server = http.createServer(async (req, res) => {
     const chunks = [];
     req.on('data', (d) => chunks.push(d));
@@ -41,6 +42,13 @@ async function startFakeTelegramServer() {
       let body = {};
       try { body = raw ? JSON.parse(raw) : {}; } catch (_) {}
       calls.push({ method: req.method, url: req.url, body, raw });
+      if (req.url.endsWith('/sendPhoto') && photoFailuresLeft > 0) {
+        photoFailuresLeft -= 1;
+        res.statusCode = 200;
+        res.setHeader('Content-Type', 'application/json');
+        res.end(JSON.stringify({ ok: false, description: 'temporary sendPhoto failure' }));
+        return;
+      }
       res.statusCode = 200;
       res.setHeader('Content-Type', 'application/json');
       res.end(JSON.stringify({ ok: true, result: { ok: true } }));
@@ -453,6 +461,33 @@ describe('render webhook bot REST + telegram flow', () => {
       expect(texts.some((m) => m.includes('Inventing an expanded story'))).toBe(true);
       expect(texts.some((m) => m.includes('Invented story ready'))).toBe(true);
       expect(texts.some((m) => m.includes('Done: invent -> comic panels'))).toBe(true);
+    } finally {
+      await bot.stop();
+      await tg.close();
+    }
+  }, 30000);
+
+  it('retries transient sendPhoto failures and still completes panel flow', async () => {
+    const tg = await startFakeTelegramServer({ failSendPhotoTimes: 1 });
+    const botPort = await getFreePort();
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'render-bot-webhook-'));
+    const bot = await startBotProcess(
+      botPort,
+      `http://127.0.0.1:${tg.port}/botTEST_TOKEN`,
+      path.join(tmpDir, 'runtime-state.json')
+    );
+
+    try {
+      const res = await postUpdate(botPort, {
+        chat: { id: 777 },
+        text: 'Retry photo test story'
+      });
+      expect(res.status).toBe(200);
+      await waitFor(() => tg.calls.filter((c) => c.url.endsWith('/sendPhoto')).length >= 4, 12000, 100);
+      const doneMessages = tg.calls
+        .filter((c) => c.url.endsWith('/sendMessage'))
+        .map((c) => String(c.body.text || ''));
+      expect(doneMessages.some((m) => m.includes('Done: text -> comic panels'))).toBe(true);
     } finally {
       await bot.stop();
       await tg.close();
