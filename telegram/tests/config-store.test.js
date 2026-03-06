@@ -112,20 +112,27 @@ describe('render config store', () => {
   });
 
   it('copies admin keys to target user on share operation', async () => {
-    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'render-bot-'));
-    const baseConfig = path.resolve(__dirname, '../config/default.render.yml');
-    const store = new RuntimeConfigStore(baseConfig, new FilePersistence(path.join(tmp, 'state.json')), {
-      adminChatIds: 'admin'
-    });
-    await store.load();
-    await store.setSecret('admin', 'GEMINI_API_KEY', 'ADMIN_KEY');
-    const copied = await store.copySecretsFromTo('admin', 'user2');
-    expect(copied).toBeGreaterThanOrEqual(1);
-    store.applySecretsToEnv('user2');
-    expect(String(process.env.GEMINI_API_KEY || '')).toBe('ADMIN_KEY');
+    const prevGemini = process.env.GEMINI_API_KEY;
+    process.env.GEMINI_API_KEY = '';
+    try {
+      const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'render-bot-'));
+      const baseConfig = path.resolve(__dirname, '../config/default.render.yml');
+      const store = new RuntimeConfigStore(baseConfig, new FilePersistence(path.join(tmp, 'state.json')), {
+        adminChatIds: 'admin'
+      });
+      await store.load();
+      await store.setSecret('admin', 'GEMINI_API_KEY', 'ADMIN_KEY');
+      const copied = await store.copySecretsFromTo('admin', 'user2');
+      expect(copied).toBeGreaterThanOrEqual(1);
+      store.applySecretsToEnv('user2');
+      expect(String(process.env.GEMINI_API_KEY || '')).toBe('ADMIN_KEY');
+    } finally {
+      if (prevGemini == null) delete process.env.GEMINI_API_KEY;
+      else process.env.GEMINI_API_KEY = prevGemini;
+    }
   });
 
-  it('keeps base env key only for admin users', async () => {
+  it('preseeds base env keys for newly created users (including non-admin)', async () => {
     const previous = process.env.GEMINI_API_KEY;
     process.env.GEMINI_API_KEY = 'ENV_DEFAULT_KEY';
     try {
@@ -136,15 +143,15 @@ describe('render config store', () => {
       });
       await store.load();
       store.applySecretsToEnv('new-user');
-      expect(String(process.env.GEMINI_API_KEY || '')).toBe('');
+      expect(String(process.env.GEMINI_API_KEY || '')).toBe('ENV_DEFAULT_KEY');
       const statusUser = store.getSecretsStatus('new-user');
-      expect(statusUser.GEMINI_API_KEY.hasValue).toBe(false);
-      expect(statusUser.GEMINI_API_KEY.source).toBe('missing');
+      expect(statusUser.GEMINI_API_KEY.hasValue).toBe(true);
+      expect(statusUser.GEMINI_API_KEY.source).toBe('runtime');
       store.applySecretsToEnv('admin');
       expect(String(process.env.GEMINI_API_KEY || '')).toBe('ENV_DEFAULT_KEY');
       const statusAdmin = store.getSecretsStatus('admin');
       expect(statusAdmin.GEMINI_API_KEY.hasValue).toBe(true);
-      expect(statusAdmin.GEMINI_API_KEY.source).toBe('env');
+      expect(statusAdmin.GEMINI_API_KEY.source).toBe('runtime');
     } finally {
       if (previous == null) delete process.env.GEMINI_API_KEY;
       else process.env.GEMINI_API_KEY = previous;
@@ -170,7 +177,7 @@ describe('render config store', () => {
     expect(payload.meta.username).toBe('alice');
     expect(payload.meta.user_id).toBe('777');
     expect(payload.config.generation.panel_count).toBe(6);
-    expect(payload.credentials && Object.keys(payload.credentials).length).toBe(0);
+    expect(payload.credentials && typeof payload.credentials === 'object').toBe(true);
   });
 
   it('creates cfg artifact on first encounter and later uses discovered username in folder name', async () => {
@@ -199,6 +206,8 @@ describe('render config store', () => {
   });
 
   it('share copies credentials once and does not overwrite an already shared user key automatically', async () => {
+    const prevOpenAi = process.env.OPENAI_API_KEY;
+    process.env.OPENAI_API_KEY = '';
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'render-bot-share-once-'));
     const baseConfig = path.resolve(__dirname, '../config/default.render.yml');
     const store = new RuntimeConfigStore(baseConfig, new FilePersistence(path.join(tmp, 'state.json')), {
@@ -222,9 +231,13 @@ describe('render config store', () => {
     await store.copySecretsFromTo('admin', 'u2');
     store.applySecretsToEnv('u2');
     expect(String(process.env.OPENAI_API_KEY || '')).toBe('ADMIN_KEY_V1');
+    if (prevOpenAi == null) delete process.env.OPENAI_API_KEY;
+    else process.env.OPENAI_API_KEY = prevOpenAi;
   });
 
   it('does not overwrite user-provided keys when admin shares again', async () => {
+    const prevGemini = process.env.GEMINI_API_KEY;
+    process.env.GEMINI_API_KEY = '';
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'render-bot-share-user-priority-'));
     const baseConfig = path.resolve(__dirname, '../config/default.render.yml');
     const store = new RuntimeConfigStore(baseConfig, new FilePersistence(path.join(tmp, 'state.json')), {
@@ -246,9 +259,11 @@ describe('render config store', () => {
     expect(copied).toBe(0);
     store.applySecretsToEnv('u2');
     expect(String(process.env.GEMINI_API_KEY || '')).toBe('USER_OWN');
+    if (prevGemini == null) delete process.env.GEMINI_API_KEY;
+    else process.env.GEMINI_API_KEY = prevGemini;
   });
 
-  it('share copies admin env-backed keys and they survive reboot from persisted state', async () => {
+  it('new users get env-backed keys persisted and survive reboot from state', async () => {
     const prevGemini = process.env.GEMINI_API_KEY;
     const prevOpenAi = process.env.OPENAI_API_KEY;
     process.env.GEMINI_API_KEY = 'ENV_ADMIN_GEMINI_BOOT';
@@ -262,7 +277,7 @@ describe('render config store', () => {
       });
       await first.load();
       const copied = await first.copySecretsFromTo('admin', 'u2');
-      expect(copied).toBeGreaterThanOrEqual(2);
+      expect(copied).toBe(0);
 
       const second = new RuntimeConfigStore(baseConfig, new FilePersistence(statePath), {
         adminChatIds: 'admin'
@@ -282,7 +297,7 @@ describe('render config store', () => {
     }
   });
 
-  it('persists shared keys to R2 state and reloads them on boot', async () => {
+  it('persists preseeded keys to R2 state and reloads them on boot', async () => {
     const prevGemini = process.env.GEMINI_API_KEY;
     process.env.GEMINI_API_KEY = 'ENV_ADMIN_R2_GEMINI';
     try {
@@ -299,7 +314,7 @@ describe('render config store', () => {
       });
       await first.load();
       const copied = await first.copySecretsFromTo('admin', '2002');
-      expect(copied).toBeGreaterThanOrEqual(1);
+      expect(copied).toBe(0);
 
       const rawState = await adapter.getObject('cfgs-test', 'state/runtime-config.json');
       const parsed = JSON.parse(String(rawState || '{}'));
@@ -353,7 +368,7 @@ describe('render config store', () => {
     expect(second.getCurrent('u77', 'generation.style_name')).toBe('Noir');
   });
 
-  it('includes admin env credentials in admin cfg artifact only', async () => {
+  it('includes preseeded env credentials in cfg artifacts for all users', async () => {
     const prevGemini = process.env.GEMINI_API_KEY;
     process.env.GEMINI_API_KEY = 'ENV_ADMIN_GEMINI';
     try {
@@ -376,7 +391,7 @@ describe('render config store', () => {
       const adminCfg = JSON.parse(fs.readFileSync(path.join(tmp, 'cfgs', 'sasha_1796415913', 'config.json'), 'utf8'));
       const guestCfg = JSON.parse(fs.readFileSync(path.join(tmp, 'cfgs', 'guest_888', 'config.json'), 'utf8'));
       expect(adminCfg.credentials.GEMINI_API_KEY).toBe('ENV_ADMIN_GEMINI');
-      expect(Boolean(guestCfg.credentials.GEMINI_API_KEY)).toBe(false);
+      expect(guestCfg.credentials.GEMINI_API_KEY).toBe('ENV_ADMIN_GEMINI');
     } finally {
       if (prevGemini == null) delete process.env.GEMINI_API_KEY;
       else process.env.GEMINI_API_KEY = prevGemini;
@@ -402,6 +417,23 @@ describe('render config store', () => {
     expect(raw.users.u2.overrides.generation.panel_count).toBe(5);
     expect(raw.users.u1.secrets.GEMINI_API_KEY).toBe('KEY1');
     expect(raw.users.u2.secrets.GEMINI_API_KEY).toBe('KEY2');
+  });
+
+  it('accepts common alias key names and stores canonical secret key', async () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'render-bot-alias-keys-'));
+    const baseConfig = path.resolve(__dirname, '../config/default.render.yml');
+    const statePath = path.join(tmp, 'state.json');
+    const store = new RuntimeConfigStore(baseConfig, new FilePersistence(statePath));
+    await store.load();
+    await store.setSecret('u1', 'CLOUDFLARE_WORKERS_AI_TOKEN', 'CF_WORKERS_TOKEN_X');
+    await store.setSecret('u1', 'LLAMAPARSE_API_KEY', 'LLAMA_ALIAS_TOKEN_Y');
+    store.applySecretsToEnv('u1');
+    expect(String(process.env.CLOUDFLARE_API_TOKEN || '')).toBe('CF_WORKERS_TOKEN_X');
+    expect(String(process.env.LLAMA_CLOUD_API_KEY || '')).toBe('LLAMA_ALIAS_TOKEN_Y');
+
+    const raw = JSON.parse(fs.readFileSync(statePath, 'utf8'));
+    expect(raw.users.u1.secrets.CLOUDFLARE_API_TOKEN).toBe('CF_WORKERS_TOKEN_X');
+    expect(raw.users.u1.secrets.LLAMA_CLOUD_API_KEY).toBe('LLAMA_ALIAS_TOKEN_Y');
   });
 
   it('loads/saves banlist via external blacklist store (r2/file abstraction)', async () => {

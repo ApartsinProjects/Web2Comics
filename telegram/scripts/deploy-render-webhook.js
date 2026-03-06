@@ -103,6 +103,72 @@ async function verifyHuggingFaceKey(apiKey) {
   if (!res.ok) throw new Error(`Hugging Face token invalid (${res.status}): ${text.slice(0, 300)}`);
 }
 
+async function verifyFirecrawlKey(apiKey) {
+  const { res, text } = await fetchTextWithTimeout('https://api.firecrawl.dev/v1/search', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      query: 'example.com',
+      limit: 1
+    })
+  }, 45000, 'Firecrawl auth');
+  if (!res.ok) throw new Error(`Firecrawl key invalid (${res.status}): ${text.slice(0, 300)}`);
+}
+
+async function verifyJinaKey(apiKey) {
+  const { res, text } = await fetchTextWithTimeout('https://r.jina.ai/http://example.com', {
+    method: 'GET',
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      Accept: 'text/plain'
+    }
+  }, 45000, 'Jina auth');
+  if (!res.ok) throw new Error(`Jina key invalid (${res.status}): ${text.slice(0, 300)}`);
+}
+
+async function verifyDriftbotKey(apiKey) {
+  const query = encodeURIComponent('type:Person');
+  const url = `https://kg.diffbot.com/kg/v3/dql?token=${encodeURIComponent(apiKey)}&query=${query}&size=1`;
+  const { res, text } = await fetchTextWithTimeout(url, {
+    method: 'GET',
+    headers: { Accept: 'application/json' }
+  }, 45000, 'Driftbot auth');
+  if (!res.ok) throw new Error(`Driftbot key invalid (${res.status}): ${text.slice(0, 300)}`);
+}
+
+async function verifyLlamaCloudKey(apiKey) {
+  if (!String(apiKey || '').trim().startsWith('llx-')) {
+    throw new Error('LlamaCloud key format invalid (expected llx-)');
+  }
+  const base = String(process.env.LLAMAPARSE_BASE_URL || process.env.LLAMA_CLOUD_BASE_URL || 'https://api.cloud.llamaindex.ai')
+    .trim()
+    .replace(/\/+$/, '');
+  const { res, text } = await fetchTextWithTimeout(`${base}/api/v1/parsing/upload`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${apiKey}` }
+  }, 30000, 'LlamaParse auth');
+  if (res.status === 401 || res.status === 403) {
+    throw new Error(`LlamaParse key invalid (${res.status}): ${text.slice(0, 300)}`);
+  }
+}
+
+async function verifyAssemblyAiKey(apiKey) {
+  const { res, text } = await fetchTextWithTimeout('https://api.assemblyai.com/v2/transcript', {
+    method: 'POST',
+    headers: {
+      Authorization: apiKey,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({})
+  }, 30000, 'AssemblyAI auth');
+  if (res.status === 401 || res.status === 403) {
+    throw new Error(`AssemblyAI key invalid (${res.status}): ${text.slice(0, 300)}`);
+  }
+}
+
 async function verifyAllProviderCredentials(providerEnv, options = {}) {
   const strictAll = Boolean(options.strictAll);
   const checks = [];
@@ -132,6 +198,31 @@ async function verifyAllProviderCredentials(providerEnv, options = {}) {
     name: 'huggingface',
     enabled: Boolean(key('HUGGINGFACE_INFERENCE_API_TOKEN')),
     run: () => verifyHuggingFaceKey(key('HUGGINGFACE_INFERENCE_API_TOKEN'))
+  });
+  checks.push({
+    name: 'firecrawl',
+    enabled: Boolean(key('FIRECRAWL_API_KEY')),
+    run: () => verifyFirecrawlKey(key('FIRECRAWL_API_KEY'))
+  });
+  checks.push({
+    name: 'jina',
+    enabled: Boolean(key('JINA_API_KEY')),
+    run: () => verifyJinaKey(key('JINA_API_KEY'))
+  });
+  checks.push({
+    name: 'driftbot',
+    enabled: Boolean(key('DRIFTBOT_API_KEY')),
+    run: () => verifyDriftbotKey(key('DRIFTBOT_API_KEY'))
+  });
+  checks.push({
+    name: 'llamaparse',
+    enabled: Boolean(key('LLAMA_CLOUD_API_KEY')),
+    run: () => verifyLlamaCloudKey(key('LLAMA_CLOUD_API_KEY'))
+  });
+  checks.push({
+    name: 'assemblyai',
+    enabled: Boolean(key('ASSEMBLYAI_API_KEY')),
+    run: () => verifyAssemblyAiKey(key('ASSEMBLYAI_API_KEY'))
   });
 
   const failures = [];
@@ -455,8 +546,10 @@ async function main() {
   loadEnvFiles([
     path.join(repoRoot, '.env.local'),
     path.join(repoRoot, '.env.e2e.local'),
+    path.join(repoRoot, '.crawler'),
     path.join(repoRoot, 'comicbot/.env'),
-    path.join(repoRoot, 'telegram/.env')
+    path.join(repoRoot, 'telegram/.env'),
+    path.join(repoRoot, 'telegram/.crawler')
   ]);
 
   const args = preArgs;
@@ -508,7 +601,12 @@ async function main() {
     OPENROUTER_API_KEY: firstNonEmpty(args['openrouter-key'], process.env.OPENROUTER_API_KEY),
     CLOUDFLARE_ACCOUNT_ID: cloudflareAccountId,
     CLOUDFLARE_API_TOKEN: cloudflareAiToken,
-    HUGGINGFACE_INFERENCE_API_TOKEN: firstNonEmpty(args['huggingface-token'], process.env.HUGGINGFACE_INFERENCE_API_TOKEN)
+    HUGGINGFACE_INFERENCE_API_TOKEN: firstNonEmpty(args['huggingface-token'], process.env.HUGGINGFACE_INFERENCE_API_TOKEN),
+    FIRECRAWL_API_KEY: firstNonEmpty(args['firecrawl-key'], process.env.FIRECRAWL_API_KEY),
+    JINA_API_KEY: firstNonEmpty(args['jina-key'], process.env.JINA_API_KEY),
+    DRIFTBOT_API_KEY: firstNonEmpty(args['driftbot-key'], process.env.DRIFTBOT_API_KEY),
+    LLAMA_CLOUD_API_KEY: firstNonEmpty(args['llama-cloud-key'], process.env.LLAMA_CLOUD_API_KEY, process.env.LLAMAPARSE_API_KEY),
+    ASSEMBLYAI_API_KEY: firstNonEmpty(args['assemblyai-key'], process.env.ASSEMBLYAI_API_KEY)
   };
   const resolvedR2 = resolveR2Config(args, cfYaml, awsYaml);
   const r2Env = {

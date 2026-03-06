@@ -90,6 +90,8 @@ async function startBotProcess(botPort, telegramBaseUrl, statePath, extraEnv = {
     TELEGRAM_API_BASE_URL: telegramBaseUrl,
     COMICBOT_ALLOWED_CHAT_IDS: '777,888',
     RENDER_BOT_FAKE_GENERATOR: 'true',
+    RENDER_BOT_FAKE_URL_EXTRACTOR: 'true',
+    RENDER_BOT_FAKE_IMAGE_EXTRACTOR: 'true',
     RENDER_BOT_STATE_FILE: statePath,
     RENDER_BOT_BASE_CONFIG: path.join(repoRoot, 'telegram/config/default.render.yml'),
     RENDER_BOT_OUT_DIR: isolatedOutDir,
@@ -182,11 +184,14 @@ describe('render webhook bot REST + telegram flow', () => {
     try {
       const res = await postUpdate(botPort, {
         chat: { id: 777 },
+        from: { id: 777, username: 'help_user', first_name: 'Help' },
         text: '/help'
       });
       expect(res.status).toBe(200);
 
-      await waitFor(() => tg.calls.some((c) => c.url.endsWith('/sendMessage')), 8000, 100);
+      await waitFor(() => tg.calls.some((c) =>
+        c.url.endsWith('/sendMessage') && String(c.body.text || '').includes('Web2Comic')
+      ), 12000, 100);
       const helpCall = tg.calls.find((c) =>
         c.url.endsWith('/sendMessage') && String(c.body.text || '').includes('Web2Comic')
       );
@@ -428,6 +433,7 @@ describe('render webhook bot REST + telegram flow', () => {
         '/objective [name] -',
         '/summary -',
         '/fun -',
+        '/meme -',
         '/learn -',
         '/news -',
         '/timeline -',
@@ -448,7 +454,10 @@ describe('render webhook bot REST + telegram flow', () => {
         '/newspaper -',
         '/new_style <name> <text> -',
         '/language <code> -',
-        '/extractor <gemini|firecrawl|jina|chromium> -',
+        '/extractor <gemini|firecrawl|jina|driftbot|chromium> -',
+        '/pdf_extractor <llamaparse> -',
+        '/image_extractor <gemini|openai> -',
+        '/voice_extractor <assemblyai> -',
         '/mode <default|media_group|single> -',
         '/consistency <on|off> -',
         '/crazyness <0..2> -',
@@ -456,6 +465,7 @@ describe('render webhook bot REST + telegram flow', () => {
         '/concurrency <1..5> -',
         '/retries <0..3> -',
         '/vendor <name> -',
+        '/vendors [role] -',
         '/text_vendor <name> -',
         '/image_vendor <name> -',
         '/models [text|image] [model] -',
@@ -558,6 +568,254 @@ describe('render webhook bot REST + telegram flow', () => {
       await tg.close();
     }
   }, 20000);
+
+  it('supports /vendors overview and role inspection', async () => {
+    const tg = await startFakeTelegramServer();
+    const botPort = await getFreePort();
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'render-bot-vendors-overview-'));
+    const statePath = path.join(tmpDir, 'runtime-state.json');
+    const bot = await startBotProcess(
+      botPort,
+      `http://127.0.0.1:${tg.port}/botTEST_TOKEN`,
+      statePath
+    );
+
+    try {
+      let res = await postUpdate(botPort, { chat: { id: 777 }, text: '/vendors' });
+      expect(res.status).toBe(200);
+      await waitFor(() => tg.calls.some((c) =>
+        c.url.endsWith('/sendMessage') && String(c.body.text || '').includes('Vendor roles (current):')
+      ), 8000, 100);
+
+      res = await postUpdate(botPort, { chat: { id: 777 }, text: '/vendors url' });
+      expect(res.status).toBe(200);
+      await waitFor(() => tg.calls.some((c) =>
+        c.url.endsWith('/sendMessage') && String(c.body.text || '').includes('Web page extraction (url)')
+      ), 8000, 100);
+    } finally {
+      await bot.stop();
+      await tg.close();
+    }
+  }, 20000);
+
+  it('supports role-based vendor selection with /vendor <role> <vendor>', async () => {
+    const tg = await startFakeTelegramServer();
+    const botPort = await getFreePort();
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'render-bot-vendor-role-set-'));
+    const statePath = path.join(tmpDir, 'runtime-state.json');
+    const bot = await startBotProcess(
+      botPort,
+      `http://127.0.0.1:${tg.port}/botTEST_TOKEN`,
+      statePath
+    );
+
+    try {
+      let res = await postUpdate(botPort, { chat: { id: 777 }, text: '/vendor url firecrawl' });
+      expect(res.status).toBe(200);
+      await waitFor(() => tg.calls.some((c) =>
+        c.url.endsWith('/sendMessage') && String(c.body.text || '').includes('Updated generation.url_extractor = firecrawl')
+      ), 8000, 100);
+
+      res = await postUpdate(botPort, { chat: { id: 777 }, text: '/vendor enrich gemini' });
+      expect(res.status).toBe(200);
+      await waitFor(() => tg.calls.some((c) =>
+        c.url.endsWith('/sendMessage') && String(c.body.text || '').includes('Updated generation.enrichment_provider = gemini')
+      ), 8000, 100);
+
+      const stateRaw = fs.readFileSync(statePath, 'utf8');
+      const state = JSON.parse(stateRaw);
+      expect(state?.users?.['777']?.overrides?.generation?.url_extractor).toBe('firecrawl');
+      expect(state?.users?.['777']?.overrides?.generation?.enrichment_provider).toBe('gemini');
+    } finally {
+      await bot.stop();
+      await tg.close();
+    }
+  }, 20000);
+
+  it('supports /extractor driftbot', async () => {
+    const tg = await startFakeTelegramServer();
+    const botPort = await getFreePort();
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'render-bot-extractor-driftbot-'));
+    const statePath = path.join(tmpDir, 'runtime-state.json');
+    const bot = await startBotProcess(
+      botPort,
+      `http://127.0.0.1:${tg.port}/botTEST_TOKEN`,
+      statePath
+    );
+
+    try {
+      const res = await postUpdate(botPort, { chat: { id: 777 }, text: '/extractor driftbot' });
+      expect(res.status).toBe(200);
+      await waitFor(() => tg.calls.some((c) =>
+        c.url.endsWith('/sendMessage') && String(c.body.text || '').includes('Updated generation.url_extractor = driftbot')
+      ), 8000, 100);
+      const stateRaw = fs.readFileSync(statePath, 'utf8');
+      const state = JSON.parse(stateRaw);
+      expect(state?.users?.['777']?.overrides?.generation?.url_extractor).toBe('driftbot');
+    } finally {
+      await bot.stop();
+      await tg.close();
+    }
+  }, 20000);
+
+  it('supports /pdf_extractor command and stores selected PDF extractor vendor', async () => {
+    const tg = await startFakeTelegramServer();
+    const botPort = await getFreePort();
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'render-bot-pdf-extractor-command-'));
+    const statePath = path.join(tmpDir, 'runtime-state.json');
+    const bot = await startBotProcess(
+      botPort,
+      `http://127.0.0.1:${tg.port}/botTEST_TOKEN`,
+      statePath
+    );
+
+    try {
+      const res = await postUpdate(botPort, { chat: { id: 777 }, text: '/pdf_extractor llamaparse' });
+      expect(res.status).toBe(200);
+      await waitFor(() => tg.calls.some((c) =>
+        c.url.endsWith('/sendMessage') && String(c.body.text || '').includes('Updated generation.pdf_extractor = llamaparse')
+      ), 8000, 100);
+      const stateRaw = fs.readFileSync(statePath, 'utf8');
+      const state = JSON.parse(stateRaw);
+      expect(state?.users?.['777']?.overrides?.generation?.pdf_extractor).toBe('llamaparse');
+    } finally {
+      await bot.stop();
+      await tg.close();
+    }
+  }, 20000);
+
+  it('supports /image_extractor command and stores selected image extractor vendor', async () => {
+    const tg = await startFakeTelegramServer();
+    const botPort = await getFreePort();
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'render-bot-image-extractor-command-'));
+    const statePath = path.join(tmpDir, 'runtime-state.json');
+    const bot = await startBotProcess(
+      botPort,
+      `http://127.0.0.1:${tg.port}/botTEST_TOKEN`,
+      statePath
+    );
+
+    try {
+      const res = await postUpdate(botPort, { chat: { id: 777 }, text: '/image_extractor openai' });
+      expect(res.status).toBe(200);
+      await waitFor(() => tg.calls.some((c) =>
+        c.url.endsWith('/sendMessage') && String(c.body.text || '').includes('Updated generation.image_extractor = openai')
+      ), 8000, 100);
+      const stateRaw = fs.readFileSync(statePath, 'utf8');
+      const state = JSON.parse(stateRaw);
+      expect(state?.users?.['777']?.overrides?.generation?.image_extractor).toBe('openai');
+    } finally {
+      await bot.stop();
+      await tg.close();
+    }
+  }, 20000);
+
+  it('supports /voice_extractor command and stores selected voice extractor vendor', async () => {
+    const tg = await startFakeTelegramServer();
+    const botPort = await getFreePort();
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'render-bot-voice-extractor-command-'));
+    const statePath = path.join(tmpDir, 'runtime-state.json');
+    const bot = await startBotProcess(
+      botPort,
+      `http://127.0.0.1:${tg.port}/botTEST_TOKEN`,
+      statePath
+    );
+
+    try {
+      const res = await postUpdate(botPort, { chat: { id: 777 }, text: '/voice_extractor assemblyai' });
+      expect(res.status).toBe(200);
+      await waitFor(() => tg.calls.some((c) =>
+        c.url.endsWith('/sendMessage') && String(c.body.text || '').includes('Updated generation.voice_extractor = assemblyai')
+      ), 8000, 100);
+      const stateRaw = fs.readFileSync(statePath, 'utf8');
+      const state = JSON.parse(stateRaw);
+      expect(state?.users?.['777']?.overrides?.generation?.voice_extractor).toBe('assemblyai');
+    } finally {
+      await bot.stop();
+      await tg.close();
+    }
+  }, 20000);
+
+  it('generates comic from PDF URL using PDF extraction flow', async () => {
+    const tg = await startFakeTelegramServer();
+    const botPort = await getFreePort();
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'render-bot-pdf-url-flow-'));
+    const bot = await startBotProcess(
+      botPort,
+      `http://127.0.0.1:${tg.port}/botTEST_TOKEN`,
+      path.join(tmpDir, 'runtime-state.json'),
+      { RENDER_BOT_FAKE_PDF_EXTRACTOR: 'true' }
+    );
+
+    try {
+      const res = await postUpdate(botPort, { chat: { id: 777 }, text: 'https://example.com/sample.pdf' });
+      expect(res.status).toBe(200);
+      await waitFor(() => tg.calls.some((c) =>
+        c.url.endsWith('/sendMessage') && String(c.body.text || '').includes('Detected PDF link, extracting story:')
+      ), 10000, 100);
+      await waitFor(() => tg.calls.some((c) =>
+        c.url.endsWith('/sendMessage') && String(c.body.text || '').includes('PDF parsed via')
+      ), 10000, 100);
+      await waitFor(() => tg.calls.filter((c) => c.url.endsWith('/sendPhoto')).length >= 3, 12000, 100);
+    } finally {
+      await bot.stop();
+      await tg.close();
+    }
+  }, 25000);
+
+  it('generates comic from image URL using image extraction flow', async () => {
+    const tg = await startFakeTelegramServer();
+    const botPort = await getFreePort();
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'render-bot-image-url-flow-'));
+    const bot = await startBotProcess(
+      botPort,
+      `http://127.0.0.1:${tg.port}/botTEST_TOKEN`,
+      path.join(tmpDir, 'runtime-state.json'),
+      { RENDER_BOT_FAKE_IMAGE_EXTRACTOR: 'true' }
+    );
+
+    try {
+      const res = await postUpdate(botPort, { chat: { id: 777 }, text: 'https://example.com/scene.png' });
+      expect(res.status).toBe(200);
+      await waitFor(() => tg.calls.some((c) =>
+        c.url.endsWith('/sendMessage') && String(c.body.text || '').includes('Detected image link, extracting story:')
+      ), 10000, 100);
+      await waitFor(() => tg.calls.filter((c) => c.url.endsWith('/sendPhoto')).length >= 3, 12000, 100);
+    } finally {
+      await bot.stop();
+      await tg.close();
+    }
+  }, 25000);
+
+  it('generates comic from voice message using voice extraction flow', async () => {
+    const tg = await startFakeTelegramServer();
+    const botPort = await getFreePort();
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'render-bot-voice-flow-'));
+    const bot = await startBotProcess(
+      botPort,
+      `http://127.0.0.1:${tg.port}/botTEST_TOKEN`,
+      path.join(tmpDir, 'runtime-state.json'),
+      { RENDER_BOT_FAKE_VOICE_EXTRACTOR: 'true' }
+    );
+
+    try {
+      const res = await postUpdate(botPort, {
+        chat: { id: 777 },
+        voice: { file_id: 'voice-file-1', duration: 3, mime_type: 'audio/ogg' }
+      });
+      expect(res.status).toBe(200);
+      await waitFor(() => tg.calls.some((c) =>
+        c.url.endsWith('/sendMessage') && String(c.body.text || '').includes('Detected voice/audio file, transcribing...')
+      ), 10000, 100);
+      await waitFor(() => tg.calls.some((c) =>
+        c.url.endsWith('/sendMessage') && String(c.body.text || '').includes('Voice parsed via assemblyai. Generating your comic...')
+      ), 10000, 100);
+      await waitFor(() => tg.calls.filter((c) => c.url.endsWith('/sendPhoto')).length >= 3, 12000, 100);
+    } finally {
+      await bot.stop();
+      await tg.close();
+    }
+  }, 25000);
 
   it('runs /test provider availability probe and returns a report', async () => {
     const tg = await startFakeTelegramServer();
@@ -904,6 +1162,7 @@ describe('render webhook bot REST + telegram flow', () => {
         .join('\n');
       expect(objectiveText).toContain('explain-like-im-five:');
       expect(objectiveText).toContain('fun:');
+      expect(objectiveText).toContain('meme:');
 
       const beforeStyles = tg.calls.length;
       await postUpdate(botPort, { chat: { id: 777 }, text: '/style' });
@@ -1305,12 +1564,14 @@ describe('render webhook bot REST + telegram flow', () => {
         text: 'Order test prompt'
       });
       expect(res.status).toBe(200);
-      await waitFor(() => tg.calls.filter((c) => c.url.endsWith('/sendPhoto')).length >= 3, 12000, 100);
+      await waitFor(() => tg.calls
+        .slice(before)
+        .filter((c) => c.url.endsWith('/sendPhoto')).length >= 3, 20000, 100);
       await waitFor(() => tg.calls
         .slice(before)
         .filter((c) => c.url.endsWith('/sendMessage'))
         .map((c) => String(c.body.text || ''))
-        .some((m) => m.includes('Done: text -> comic panels') || m.includes('Done: url -> comic panels') || m.includes('Generation failed:')), 12000, 100);
+        .some((m) => m.includes('Done: text -> comic panels') || m.includes('Done: url -> comic panels') || m.includes('Generation failed:')), 20000, 100);
 
       const chunk = tg.calls.slice(before);
       const photos = chunk.filter((c) => c.url.endsWith('/sendPhoto'));
@@ -1691,7 +1952,7 @@ describe('render webhook bot REST + telegram flow', () => {
     }
   }, 30000);
 
-  it('for short protocol-less URL, treats input as URL source even when page load fails', async () => {
+  it('for short protocol-less URL, treats input as URL source and stops gracefully when page load fails', async () => {
     const tg = await startFakeTelegramServer();
     const botPort = await getFreePort();
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'render-bot-webhook-'));
@@ -1716,13 +1977,13 @@ describe('render webhook bot REST + telegram flow', () => {
         .slice(before)
         .filter((c) => c.url.endsWith('/sendMessage'))
         .map((c) => String(c.body.text || ''))
-        .some((m) => m.includes('Generation failed:')), 12000, 100);
+        .some((m) => m.includes("Can't extract story from this link.")), 12000, 100);
 
       const chunk = tg.calls.slice(before);
       const texts = chunk.filter((c) => c.url.endsWith('/sendMessage')).map((c) => String(c.body.text || ''));
       expect(texts.some((m) => m.includes('Detected link, parsing page: https://example.com'))).toBe(true);
-      expect(texts.some((m) => m.includes('Generation failed:'))).toBe(true);
-      expect(texts.some((m) => m.includes('Invented story (expanded by AI):'))).toBe(true);
+      expect(texts.some((m) => m.includes("Can't extract story from this link."))).toBe(true);
+      expect(texts.some((m) => m.includes('Invented story (expanded by AI):'))).toBe(false);
     } finally {
       await bot.stop();
       await tg.close();
@@ -1818,6 +2079,37 @@ describe('render webhook bot REST + telegram flow', () => {
         .filter((c) => c.url.endsWith('/sendMessage'))
         .map((c) => String(c.body.text || ''))
         .some((m) => m.includes('setkey failed:')), 8000, 100);
+    } finally {
+      await bot.stop();
+      await tg.close();
+    }
+  }, 30000);
+
+  it('accepts alias key names in /setkey and stores canonical key', async () => {
+    const tg = await startFakeTelegramServer();
+    const botPort = await getFreePort();
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'render-bot-setkey-alias-'));
+    const statePath = path.join(tmpDir, 'runtime-state.json');
+    const bot = await startBotProcess(
+      botPort,
+      `http://127.0.0.1:${tg.port}/botTEST_TOKEN`,
+      statePath
+    );
+
+    try {
+      const res = await postUpdate(botPort, {
+        chat: { id: 777 },
+        text: '/setkey CLOUDFLARE_WORKERS_AI_TOKEN TEST_CF_TOKEN_1'
+      });
+      expect(res.status).toBe(200);
+      await waitFor(() => tg.calls
+        .filter((c) => c.url.endsWith('/sendMessage'))
+        .map((c) => String(c.body.text || ''))
+        .some((m) => m.includes('Stored key CLOUDFLARE_API_TOKEN in runtime state.')), 8000, 100);
+
+      const stateRaw = fs.readFileSync(statePath, 'utf8');
+      const state = JSON.parse(stateRaw);
+      expect(String(state?.users?.['777']?.secrets?.CLOUDFLARE_API_TOKEN || '')).toBe('TEST_CF_TOKEN_1');
     } finally {
       await bot.stop();
       await tg.close();
@@ -1977,7 +2269,7 @@ describe('render webhook bot REST + telegram flow', () => {
     try {
       const res = await postUpdate(botPort, {
         chat: { id: 777 },
-        photo: [{ file_id: 'x' }]
+        sticker: { file_id: 'x' }
       });
       expect(res.status).toBe(200);
       await waitFor(() => tg.calls.some((c) =>
@@ -1990,7 +2282,7 @@ describe('render webhook bot REST + telegram flow', () => {
     }
   }, 30000);
 
-  it('handles telegram message combinations: text, photo+caption text/url/mixed, and image-only unsupported', async () => {
+  it('handles telegram message combinations: text, photo+caption text/url/mixed, and unsupported sticker-only', async () => {
     const tg = await startFakeTelegramServer();
     const botPort = await getFreePort();
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'render-bot-webhook-combos-'));
@@ -2037,7 +2329,7 @@ describe('render webhook bot REST + telegram flow', () => {
       const r5 = await postUpdate(botPort, {
         chat: { id: 777 },
         from: { id: 777, username: 'combo_user', first_name: 'Combo' },
-        photo: [{ file_id: 'img4' }]
+        sticker: { file_id: 'img4' }
       });
       expect(r5.status).toBe(200);
 
@@ -2049,8 +2341,9 @@ describe('render webhook bot REST + telegram flow', () => {
       const chunk = tg.calls.slice(startCalls);
       const texts = chunk.filter((c) => c.url.endsWith('/sendMessage')).map((c) => String(c.body.text || ''));
 
-      expect(texts.filter((m) => m.includes('Done: text -> comic panels')).length).toBeGreaterThanOrEqual(2);
+      expect(texts.filter((m) => m.includes('Done: text -> comic panels')).length).toBeGreaterThanOrEqual(1);
       expect(texts.filter((m) => m.includes('Done: url -> comic panels')).length).toBeGreaterThanOrEqual(2);
+      expect(texts.filter((m) => m.includes('Done: image -> comic panels')).length).toBeGreaterThanOrEqual(1);
       expect(texts.some((m) => m.includes('Unsupported message format'))).toBe(true);
     } finally {
       await bot.stop();

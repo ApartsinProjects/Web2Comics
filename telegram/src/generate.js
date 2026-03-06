@@ -17,7 +17,10 @@ const PANEL_WATERMARK_TEXT = 'made with Web2Comics';
 const GEMINI_TEXT_MODEL = 'gemini-2.5-flash';
 const GEMINI_IMAGE_MODEL = 'gemini-2.0-flash-exp-image-generation';
 const GEMINI_URL_EXTRACT_MODEL = 'gemini-3-flash-preview';
-const URL_EXTRACTOR_VALUES = new Set(['gemini', 'chromium', 'firecrawl', 'jina']);
+const GEMINI_ENRICH_MODEL = 'gemini-2.5-flash';
+const URL_EXTRACTOR_VALUES = new Set(['gemini', 'chromium', 'firecrawl', 'jina', 'driftbot']);
+const URL_EXTRACTOR_PRIORITY = ['gemini', 'firecrawl', 'jina', 'driftbot', 'chromium'];
+const ENRICHMENT_PROVIDER_VALUES = new Set(['wikipedia', 'jina', 'firecrawl', 'driftbot', 'gemini']);
 let playwrightInstallPromise = null;
 let playwrightChromiumReady = false;
 
@@ -48,6 +51,54 @@ function getConfiguredUrlExtractor(config) {
   return normalizeUrlExtractor(config?.generation?.url_extractor || config?.generation?.extractor || 'gemini');
 }
 
+function getUrlExtractorAttemptOrder(selectedExtractor) {
+  const selected = normalizeUrlExtractor(selectedExtractor);
+  return [selected, ...URL_EXTRACTOR_PRIORITY].filter((v, idx, arr) => v && arr.indexOf(v) === idx);
+}
+
+function normalizeEnrichmentProvider(raw) {
+  const value = String(raw || '').trim().toLowerCase();
+  if (!value) return 'wikipedia';
+  if (ENRICHMENT_PROVIDER_VALUES.has(value)) return value;
+  return 'wikipedia';
+}
+
+function resolveShortPromptWordThreshold(config) {
+  const raw = Number(config?.generation?.short_prompt_word_threshold);
+  if (!Number.isFinite(raw)) return 10;
+  return Math.max(3, Math.min(24, Math.floor(raw)));
+}
+
+function resolveMaxContextItems(config) {
+  const raw = Number(config?.generation?.max_context_items);
+  if (!Number.isFinite(raw)) return 5;
+  return Math.max(1, Math.min(12, Math.floor(raw)));
+}
+
+function resolveMaxEnrichmentChars(config) {
+  const raw = Number(config?.generation?.max_enrichment_chars);
+  if (!Number.isFinite(raw)) return 800;
+  return Math.max(200, Math.min(4000, Math.floor(raw)));
+}
+
+function resolveIncludeSources(config) {
+  const raw = config?.generation?.include_sources;
+  if (raw == null) return true;
+  if (typeof raw === 'boolean') return raw;
+  const normalized = String(raw).trim().toLowerCase();
+  if (!normalized) return true;
+  return normalized === '1' || normalized === 'true' || normalized === 'yes' || normalized === 'on';
+}
+
+function resolveAutoEnrichEnabled(config) {
+  const raw = config?.generation?.auto_enrich_short_story_prompts;
+  if (raw == null) return true;
+  if (typeof raw === 'boolean') return raw;
+  const normalized = String(raw).trim().toLowerCase();
+  if (!normalized) return true;
+  return normalized === '1' || normalized === 'true' || normalized === 'yes' || normalized === 'on';
+}
+
 function getUrlExtractionFailureReason(extracted) {
   const title = String(extracted?.title || '').trim();
   const text = String(extracted?.text || '').trim();
@@ -62,6 +113,114 @@ function getUrlExtractionFailureReason(extracted) {
     return 'page appears gated and not readable without browser/session access';
   }
   return '';
+}
+
+async function extractStoryFromUrlText(inputUrl, runtime, config = {}, options = {}) {
+  const url = String(inputUrl || '').trim();
+  if (!url) throw new Error('URL extraction failed: empty URL');
+  const selectedExtractor = getConfiguredUrlExtractor(config);
+  if (String(process.env.RENDER_BOT_FAKE_URL_EXTRACTOR || '').trim().toLowerCase() === 'true') {
+    if (String(process.env.RENDER_BOT_FAKE_URL_FETCH_FAIL || '').trim().toLowerCase() === 'true') {
+      throw new Error('URL fetch failed (forced test mode)');
+    }
+    const text = 'A protagonist encounters a problem, follows clues, and reaches a clear resolution in a concise narrative arc suitable for comics. The story includes setting, conflict, turning point, and outcome.';
+    return {
+      extractorSelected: selectedExtractor,
+      extractorUsed: selectedExtractor,
+      text,
+      title: 'Synthetic URL Story',
+      inputPath: ''
+    };
+  }
+  const attemptOrder = getUrlExtractorAttemptOrder(selectedExtractor);
+  let lastError = null;
+
+  for (const extractor of attemptOrder) {
+    try {
+      if (extractor === 'gemini') {
+        const extracted = await extractStoryViaGeminiUrlContext(url, runtime, config);
+        const text = String(extracted?.text || '').trim();
+        if (text.length < URL_EXTRACT_MIN_CHARS) {
+          throw new Error(`URL extraction failed: not enough readable story text extracted (${text.length} chars)`);
+        }
+        if (selectedExtractor !== extractor && typeof options.onExtractorFallback === 'function') {
+          await options.onExtractorFallback({ from: selectedExtractor, to: extractor, reason: 'extractor_failure' });
+        }
+        return { extractorSelected: selectedExtractor, extractorUsed: extractor, text, title: String(extracted?.title || '').trim(), inputPath: '' };
+      }
+      if (extractor === 'firecrawl') {
+        const extracted = await extractStoryViaFirecrawl(url, runtime);
+        const text = String(extracted?.text || '').trim();
+        if (text.length < URL_EXTRACT_MIN_CHARS) {
+          throw new Error(`URL extraction failed: not enough readable story text extracted (${text.length} chars)`);
+        }
+        if (selectedExtractor !== extractor && typeof options.onExtractorFallback === 'function') {
+          await options.onExtractorFallback({ from: selectedExtractor, to: extractor, reason: 'extractor_failure' });
+        }
+        return { extractorSelected: selectedExtractor, extractorUsed: extractor, text, title: String(extracted?.title || '').trim(), inputPath: '' };
+      }
+      if (extractor === 'jina') {
+        const extracted = await extractStoryViaJina(url, runtime);
+        const text = String(extracted?.text || '').trim();
+        if (text.length < URL_EXTRACT_MIN_CHARS) {
+          throw new Error(`URL extraction failed: not enough readable story text extracted (${text.length} chars)`);
+        }
+        if (selectedExtractor !== extractor && typeof options.onExtractorFallback === 'function') {
+          await options.onExtractorFallback({ from: selectedExtractor, to: extractor, reason: 'extractor_failure' });
+        }
+        return { extractorSelected: selectedExtractor, extractorUsed: extractor, text, title: String(extracted?.title || '').trim(), inputPath: '' };
+      }
+      if (extractor === 'driftbot') {
+        const extracted = await extractStoryViaDriftbot(url, runtime);
+        const text = String(extracted?.text || '').trim();
+        if (text.length < URL_EXTRACT_MIN_CHARS) {
+          throw new Error(`URL extraction failed: not enough readable story text extracted (${text.length} chars)`);
+        }
+        if (selectedExtractor !== extractor && typeof options.onExtractorFallback === 'function') {
+          await options.onExtractorFallback({ from: selectedExtractor, to: extractor, reason: 'extractor_failure' });
+        }
+        return { extractorSelected: selectedExtractor, extractorUsed: extractor, text, title: String(extracted?.title || '').trim(), inputPath: '' };
+      }
+
+      const snapshotPath = buildSnapshotPath(url, path.join(runtime.outDir, `render-url-${Date.now()}.png`), '');
+      let snap;
+      try {
+        snap = await fetchUrlToHtmlSnapshot(url, snapshotPath, {
+          timeoutMs: runtime.fetchTimeoutMs,
+          waitUntil: 'domcontentloaded'
+        });
+      } catch (error) {
+        if (!shouldInstallPlaywrightBrowser(error)) throw error;
+        await ensurePlaywrightChromiumInstalledAsync('url_extraction_missing_browser');
+        snap = await fetchUrlToHtmlSnapshot(url, snapshotPath, {
+          timeoutMs: runtime.fetchTimeoutMs,
+          waitUntil: 'domcontentloaded'
+        });
+      }
+      const html = await fs.promises.readFile(snap.snapshotPath, 'utf8');
+      const extracted = extractFromHtml(html, {});
+      const failureReason = getUrlExtractionFailureReason(extracted);
+      if (failureReason) throw new Error(`URL extraction failed: ${failureReason}`);
+      const text = String(extracted?.text || '').trim();
+      if (text.length < URL_EXTRACT_MIN_CHARS) {
+        throw new Error(`URL extraction failed: not enough readable story text extracted (${text.length} chars)`);
+      }
+      if (selectedExtractor !== extractor && typeof options.onExtractorFallback === 'function') {
+        await options.onExtractorFallback({ from: selectedExtractor, to: extractor, reason: 'extractor_failure' });
+      }
+      return {
+        extractorSelected: selectedExtractor,
+        extractorUsed: extractor,
+        text,
+        title: String(extracted?.title || snap?.title || '').trim(),
+        inputPath: snap.snapshotPath
+      };
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  throw lastError || new Error('URL extraction failed');
 }
 
 function getGeminiApiKey() {
@@ -79,6 +238,12 @@ function getFirecrawlApiKey() {
 function getJinaApiKey() {
   const key = String(process.env.JINA_API_KEY || '').trim();
   if (!key) throw new Error('Missing JINA_API_KEY for Jina URL extractor');
+  return key;
+}
+
+function getDriftbotApiKey() {
+  const key = String(process.env.DRIFTBOT_API_KEY || '').trim();
+  if (!key) throw new Error('Missing DRIFTBOT_API_KEY for Driftbot URL extractor');
   return key;
 }
 
@@ -203,6 +368,43 @@ async function extractStoryViaJina(url, runtime) {
     text: extractedText,
     title,
     metadata: { provider: 'jina' }
+  };
+}
+
+async function extractStoryViaDriftbot(url, runtime) {
+  const apiKey = getDriftbotApiKey();
+  const timeoutMs = Math.max(5000, Number(runtime?.fetchTimeoutMs || 45000));
+  const endpoint = `https://api.diffbot.com/v3/article?token=${encodeURIComponent(apiKey)}&url=${encodeURIComponent(String(url || '').trim())}&discussion=false`;
+  const response = await fetch(endpoint, {
+    method: 'GET',
+    headers: {
+      Accept: 'application/json'
+    },
+    signal: AbortSignal.timeout(timeoutMs)
+  });
+  const raw = await response.text();
+  let json = null;
+  try {
+    json = raw ? JSON.parse(raw) : null;
+  } catch (_) {}
+  if (!response.ok) {
+    const reason = String(json?.error || json?.message || raw || `HTTP ${response.status}`).slice(0, 800);
+    throw new Error(`Driftbot URL extractor failed (${response.status}): ${reason}`);
+  }
+  const first = (json?.objects && json.objects[0]) || {};
+  const extractedText = String(
+    first?.text
+    || first?.html
+    || ''
+  )
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!extractedText) throw new Error('Driftbot URL extractor returned empty text');
+  return {
+    text: extractedText,
+    title: String(first?.title || '').trim(),
+    metadata: { provider: 'driftbot' }
   };
 }
 
@@ -393,6 +595,316 @@ function resolveInventTemperature(config) {
   const raw = Number(config?.generation?.invent_temperature);
   if (!Number.isFinite(raw)) return 0.95;
   return Math.max(0, Math.min(2, raw));
+}
+
+function splitPromptWords(text) {
+  return String(text || '')
+    .trim()
+    .split(/\s+/)
+    .map((v) => String(v || '').trim())
+    .filter(Boolean);
+}
+
+function extractSeedEntities(seedText, config) {
+  const words = splitPromptWords(seedText);
+  const threshold = Math.max(1, resolveShortPromptWordThreshold(config));
+  const stopWords = new Set([
+    'a', 'an', 'the', 'and', 'or', 'to', 'for', 'of', 'in', 'on', 'at', 'with',
+    'story', 'write', 'make', 'invent', 'about', 'from', 'short'
+  ]);
+  const out = [];
+  for (const rawWord of words) {
+    const token = String(rawWord || '').replace(/[^\p{L}\p{N}_-]/gu, '').trim();
+    if (!token) continue;
+    if (token.length <= 1) continue;
+    if (stopWords.has(token.toLowerCase())) continue;
+    out.push(token);
+    if (out.length >= threshold) break;
+  }
+  return out;
+}
+
+function isShortStoryPrompt(seedText, config) {
+  const seed = String(seedText || '').trim();
+  if (!seed) return false;
+  const words = splitPromptWords(seed);
+  const threshold = resolveShortPromptWordThreshold(config);
+  if (words.length <= threshold) return true;
+  const hasSentenceEnding = /[.!?]/.test(seed);
+  const entities = extractSeedEntities(seed, config);
+  if (!hasSentenceEnding && words.length <= Math.max(threshold + 2, 12) && entities.length >= 1) {
+    return true;
+  }
+  return false;
+}
+
+function parseJsonLoose(text) {
+  try {
+    return JSON.parse(String(text || '').trim());
+  } catch (_) {
+    return null;
+  }
+}
+
+function boundedText(value, maxChars) {
+  const text = String(value || '').replace(/\s+/g, ' ').trim();
+  if (!text) return '';
+  if (text.length <= maxChars) return text;
+  return `${text.slice(0, Math.max(0, maxChars - 3)).trim()}...`;
+}
+
+function buildEnrichedSeedText(seed, enrichment, config) {
+  const maxChars = resolveMaxEnrichmentChars(config);
+  const maxItems = resolveMaxContextItems(config);
+  const includeSources = resolveIncludeSources(config);
+  const facts = Array.isArray(enrichment?.items) ? enrichment.items : [];
+  const related = Array.isArray(enrichment?.related) ? enrichment.related : [];
+  const sources = Array.isArray(enrichment?.sources) ? enrichment.sources : [];
+  const factLines = facts
+    .map((v) => boundedText(v, 220))
+    .filter(Boolean)
+    .slice(0, maxItems);
+  const relatedLines = related
+    .map((v) => boundedText(v, 120))
+    .filter(Boolean)
+    .slice(0, maxItems);
+
+  const lines = [
+    'Original user prompt:',
+    String(seed || '').trim(),
+    '',
+    'Retrieved context:',
+    ...(factLines.length ? factLines.map((v) => `- ${v}`) : ['- (none)']),
+    '',
+    'Related entities or concepts:',
+    ...(relatedLines.length ? relatedLines.map((v) => `- ${v}`) : ['- (none)']),
+    '',
+    'Instruction:',
+    'Use the above only as grounding and inspiration. Generate an original fictional story.'
+  ];
+
+  if (includeSources && sources.length) {
+    const sourceLines = sources
+      .map((s) => String(s || '').trim())
+      .filter(Boolean)
+      .slice(0, maxItems);
+    if (sourceLines.length) {
+      lines.push('');
+      lines.push('Sources:');
+      sourceLines.forEach((s) => lines.push(`- ${s}`));
+    }
+  }
+
+  return boundedText(lines.join('\n'), maxChars);
+}
+
+async function fetchWikipediaEnrichment(seed, config, runtime, fetchImpl = fetch) {
+  const maxItems = resolveMaxContextItems(config);
+  const timeoutMs = Math.max(5000, Number(runtime?.fetchTimeoutMs || 45000));
+  const query = encodeURIComponent(String(seed || '').trim());
+  const searchUrl = `https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${query}&srlimit=${maxItems}&format=json&utf8=1&origin=*`;
+  const searchRes = await fetchImpl(searchUrl, { method: 'GET', signal: AbortSignal.timeout(timeoutMs) });
+  if (!searchRes.ok) throw new Error(`Wikipedia search failed (${searchRes.status})`);
+  const searchJson = parseJsonLoose(await searchRes.text()) || {};
+  const rows = Array.isArray(searchJson?.query?.search) ? searchJson.query.search.slice(0, maxItems) : [];
+  if (!rows.length) throw new Error('Wikipedia enrichment returned no matches');
+  const items = [];
+  const related = [];
+  const sources = [];
+  for (const row of rows) {
+    const title = String(row?.title || '').trim();
+    if (!title) continue;
+    const summaryUrl = `https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(title)}`;
+    try {
+      const sRes = await fetchImpl(summaryUrl, { method: 'GET', signal: AbortSignal.timeout(timeoutMs) });
+      if (!sRes.ok) continue;
+      const sJson = parseJsonLoose(await sRes.text()) || {};
+      const extract = String(sJson?.extract || '').trim();
+      if (extract) items.push(extract);
+      related.push(title);
+      sources.push(String(sJson?.content_urls?.desktop?.page || `https://en.wikipedia.org/wiki/${encodeURIComponent(title)}`));
+    } catch (_) {}
+  }
+  if (!items.length) throw new Error('Wikipedia enrichment returned empty summaries');
+  return { provider: 'wikipedia', items, related, sources };
+}
+
+async function fetchJinaEnrichment(seed, config, runtime, fetchImpl = fetch) {
+  const maxItems = resolveMaxContextItems(config);
+  const timeoutMs = Math.max(5000, Number(runtime?.fetchTimeoutMs || 45000));
+  const endpoint = `https://s.jina.ai/${encodeURIComponent(String(seed || '').trim())}`;
+  const headers = {
+    Accept: 'text/plain',
+    'X-No-Cache': 'true'
+  };
+  const key = String(process.env.JINA_API_KEY || '').trim();
+  if (key) headers.Authorization = `Bearer ${key}`;
+  const res = await fetchImpl(endpoint, {
+    method: 'GET',
+    headers,
+    signal: AbortSignal.timeout(timeoutMs)
+  });
+  if (!res.ok) throw new Error(`Jina enrichment failed (${res.status})`);
+  const raw = String(await res.text() || '').trim();
+  if (!raw) throw new Error('Jina enrichment returned empty text');
+  const lines = raw
+    .split(/\r?\n/)
+    .map((v) => String(v || '').trim())
+    .filter((v) => v && !/^https?:\/\//i.test(v))
+    .slice(0, maxItems);
+  if (!lines.length) throw new Error('Jina enrichment has no usable lines');
+  return { provider: 'jina', items: lines, related: extractSeedEntities(seed, config), sources: [endpoint] };
+}
+
+async function fetchGeminiEnrichment(seed, config, runtime, fetchImpl = fetch) {
+  const apiKey = getGeminiApiKey();
+  const maxItems = resolveMaxContextItems(config);
+  const timeoutMs = Math.max(5000, Number(runtime?.fetchTimeoutMs || 45000));
+  const model = String(config?.generation?.enrichment_gemini_model || GEMINI_ENRICH_MODEL).trim();
+  const prompt = [
+    'Return JSON only with keys: items (string[]), related (string[]), sources (string[]).',
+    `Provide up to ${maxItems} concise factual context items for creative grounding.`,
+    'Do not write a story.',
+    `Seed: ${String(seed || '').trim()}`
+  ].join('\n');
+  const res = await fetchImpl(
+    `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ role: 'user', parts: [{ text: prompt }] }],
+        generationConfig: { temperature: 0.2, maxOutputTokens: 1024 }
+      }),
+      signal: AbortSignal.timeout(timeoutMs)
+    }
+  );
+  const raw = await res.text();
+  if (!res.ok) throw new Error(`Gemini enrichment failed (${res.status})`);
+  const parsed = parseJsonLoose(parseGeminiTextResponse(parseJsonLoose(raw) || {})) || parseJsonLoose(raw) || {};
+  const items = Array.isArray(parsed?.items) ? parsed.items.map((v) => String(v || '').trim()).filter(Boolean).slice(0, maxItems) : [];
+  const related = Array.isArray(parsed?.related) ? parsed.related.map((v) => String(v || '').trim()).filter(Boolean).slice(0, maxItems) : [];
+  const sources = Array.isArray(parsed?.sources) ? parsed.sources.map((v) => String(v || '').trim()).filter(Boolean).slice(0, maxItems) : [];
+  if (!items.length) throw new Error('Gemini enrichment returned no items');
+  return { provider: 'gemini', items, related, sources };
+}
+
+async function fetchFirecrawlEnrichment(seed, config, runtime, fetchImpl = fetch) {
+  const key = getFirecrawlApiKey();
+  const maxItems = resolveMaxContextItems(config);
+  const timeoutMs = Math.max(5000, Number(runtime?.fetchTimeoutMs || 45000));
+  const res = await fetchImpl('https://api.firecrawl.dev/v1/search', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${key}`
+    },
+    body: JSON.stringify({
+      query: String(seed || '').trim(),
+      limit: maxItems
+    }),
+    signal: AbortSignal.timeout(timeoutMs)
+  });
+  const raw = await res.text();
+  const json = parseJsonLoose(raw) || {};
+  if (!res.ok) throw new Error(`Firecrawl enrichment failed (${res.status})`);
+  const rows = Array.isArray(json?.data) ? json.data.slice(0, maxItems) : [];
+  const items = rows
+    .map((r) => String(r?.snippet || r?.description || r?.markdown || '').trim())
+    .filter(Boolean);
+  const related = rows
+    .map((r) => String(r?.title || '').trim())
+    .filter(Boolean);
+  const sources = rows
+    .map((r) => String(r?.url || '').trim())
+    .filter(Boolean);
+  if (!items.length) throw new Error('Firecrawl enrichment returned no items');
+  return { provider: 'firecrawl', items, related, sources };
+}
+
+async function fetchDriftbotEnrichment(seed, config, runtime, fetchImpl = fetch) {
+  const key = getDriftbotApiKey();
+  const maxItems = resolveMaxContextItems(config);
+  const timeoutMs = Math.max(5000, Number(runtime?.fetchTimeoutMs || 45000));
+  const sanitizedSeed = String(seed || '').replace(/"/g, '').trim();
+  const entities = extractSeedEntities(sanitizedSeed, config);
+  const primary = entities[0] || sanitizedSeed;
+  const dqlQueries = [
+    `strict:name:"${primary}"`,
+    `name:"${primary}"`,
+    `allDescriptions:"${sanitizedSeed}"`
+  ];
+  const errors = [];
+  let rows = [];
+
+  for (const dql of dqlQueries) {
+    const endpoint = `https://kg.diffbot.com/kg/v3/dql?token=${encodeURIComponent(key)}&query=${encodeURIComponent(dql)}&size=${maxItems}`;
+    const res = await fetchImpl(endpoint, { method: 'GET', headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(timeoutMs) });
+    const raw = await res.text();
+    const json = parseJsonLoose(raw) || {};
+    if (!res.ok) {
+      const msg = String(json?.message || raw || `HTTP ${res.status}`).slice(0, 300);
+      errors.push(`${dql}: ${res.status} ${msg}`);
+      continue;
+    }
+    rows = Array.isArray(json?.data) ? json.data.slice(0, maxItems) : [];
+    if (rows.length) break;
+  }
+
+  const items = rows
+    .map((r) => {
+      const entity = r?.entity || r || {};
+      const allDescriptions = Array.isArray(entity?.allDescriptions) ? entity.allDescriptions : [];
+      const firstAllDescription = String(allDescriptions[0] || '').trim();
+      return String(entity?.summary || entity?.description || firstAllDescription || r?.description || '').trim();
+    })
+    .filter(Boolean);
+  const related = rows
+    .map((r) => {
+      const entity = r?.entity || r || {};
+      const allNames = Array.isArray(entity?.allNames) ? entity.allNames : [];
+      return String(entity?.name || allNames[0] || r?.name || '').trim();
+    })
+    .filter(Boolean);
+  const sources = rows
+    .map((r) => {
+      const entity = r?.entity || r || {};
+      return String(entity?.homepageUri || entity?.wikipediaUri || entity?.siteUri || r?.diffbotUri || entity?.id || '').trim();
+    })
+    .filter(Boolean);
+  if (!items.length) {
+    const details = errors.length ? ` (${errors.join(' | ')})` : '';
+    throw new Error(`Driftbot enrichment returned no items${details}`);
+  }
+  return { provider: 'driftbot', items, related, sources };
+}
+
+async function runStoryEnrichment(seedText, config, runtime, options = {}) {
+  const selected = normalizeEnrichmentProvider(config?.generation?.enrichment_provider || 'wikipedia');
+  const fallback = normalizeEnrichmentProvider(config?.generation?.enrichment_fallback_provider || 'gemini');
+  const order = [selected, fallback].filter((v, i, arr) => v && arr.indexOf(v) === i);
+  const fetchImpl = typeof options.fetchImpl === 'function' ? options.fetchImpl : fetch;
+  const errors = [];
+
+  for (const provider of order) {
+    try {
+      if (provider === 'wikipedia') return { selectedProvider: selected, usedProvider: provider, ...await fetchWikipediaEnrichment(seedText, config, runtime, fetchImpl) };
+      if (provider === 'jina') return { selectedProvider: selected, usedProvider: provider, ...await fetchJinaEnrichment(seedText, config, runtime, fetchImpl) };
+      if (provider === 'firecrawl') return { selectedProvider: selected, usedProvider: provider, ...await fetchFirecrawlEnrichment(seedText, config, runtime, fetchImpl) };
+      if (provider === 'driftbot') return { selectedProvider: selected, usedProvider: provider, ...await fetchDriftbotEnrichment(seedText, config, runtime, fetchImpl) };
+      if (provider === 'gemini') return { selectedProvider: selected, usedProvider: provider, ...await fetchGeminiEnrichment(seedText, config, runtime, fetchImpl) };
+    } catch (error) {
+      errors.push(`${provider}: ${String(error?.message || error)}`);
+    }
+  }
+  return {
+    selectedProvider: selected,
+    usedProvider: '',
+    items: [],
+    related: [],
+    sources: [],
+    error: errors.join(' | ')
+  };
 }
 
 function buildInventStoryPrompt(config, seedText) {
@@ -674,9 +1186,7 @@ async function prepareInput(text, runtime, config = {}, options = {}) {
 
   if (parsed.kind === 'url') {
     const selectedExtractor = getConfiguredUrlExtractor(config);
-    const attemptOrder = selectedExtractor === 'chromium'
-      ? ['chromium']
-      : [selectedExtractor, 'chromium'];
+    const attemptOrder = getUrlExtractorAttemptOrder(selectedExtractor);
     console.log('[render-bot] url_input_detected', JSON.stringify({
       url: trimForLog(parsed.value, 500),
       fetchTimeoutMs: Number(runtime.fetchTimeoutMs || 0),
@@ -684,167 +1194,28 @@ async function prepareInput(text, runtime, config = {}, options = {}) {
       extractorAttemptOrder: attemptOrder.join('->')
     }));
     const outputPath = path.join(runtime.outDir, `render-url-${ts}.png`);
-    let lastError = null;
-    for (const extractor of attemptOrder) {
-      try {
-        if (extractor === 'gemini') {
-          const extracted = await extractStoryViaGeminiUrlContext(parsed.value, runtime, config);
-          const extractedText = String(extracted?.text || '').trim();
-          if (extractedText.length < URL_EXTRACT_MIN_CHARS) {
-            throw new Error(`URL extraction failed: not enough readable story text extracted (${extractedText.length} chars)`);
-          }
-          const inputPath = path.join(runtime.outDir, `render-url-gemini-${ts}.txt`);
-          await fs.promises.writeFile(inputPath, extractedText, 'utf8');
-          if (selectedExtractor !== extractor && typeof options.onExtractorFallback === 'function') {
-            await options.onExtractorFallback({ from: selectedExtractor, to: extractor, reason: 'extractor_failure' });
-          }
-          console.log('[render-bot] url_extractor_success', JSON.stringify({
-            inputUrl: trimForLog(parsed.value, 500),
-            extractorSelected: selectedExtractor,
-            extractorUsed: extractor,
-            extractedChars: extractedText.length
-          }));
-          return {
-            kind: 'url',
-            inputPath,
-            outputPath,
-            titleOverride: `Render Comic: ${new URL(parsed.value).hostname}`,
-            summary: parsed.value,
-            sourceText: extractedText,
-            extractorSelected: selectedExtractor,
-            extractorUsed: extractor
-          };
-        }
-
-        if (extractor === 'firecrawl') {
-          const extracted = await extractStoryViaFirecrawl(parsed.value, runtime);
-          const extractedText = String(extracted?.text || '').trim();
-          if (extractedText.length < URL_EXTRACT_MIN_CHARS) {
-            throw new Error(`URL extraction failed: not enough readable story text extracted (${extractedText.length} chars)`);
-          }
-          const inputPath = path.join(runtime.outDir, `render-url-firecrawl-${ts}.txt`);
-          await fs.promises.writeFile(inputPath, extractedText, 'utf8');
-          if (selectedExtractor !== extractor && typeof options.onExtractorFallback === 'function') {
-            await options.onExtractorFallback({ from: selectedExtractor, to: extractor, reason: 'extractor_failure' });
-          }
-          console.log('[render-bot] url_extractor_success', JSON.stringify({
-            inputUrl: trimForLog(parsed.value, 500),
-            extractorSelected: selectedExtractor,
-            extractorUsed: extractor,
-            extractedChars: extractedText.length
-          }));
-          return {
-            kind: 'url',
-            inputPath,
-            outputPath,
-            titleOverride: `Render Comic: ${new URL(parsed.value).hostname}`,
-            summary: parsed.value,
-            sourceText: extractedText,
-            extractorSelected: selectedExtractor,
-            extractorUsed: extractor
-          };
-        }
-
-        if (extractor === 'jina') {
-          const extracted = await extractStoryViaJina(parsed.value, runtime);
-          const extractedText = String(extracted?.text || '').trim();
-          if (extractedText.length < URL_EXTRACT_MIN_CHARS) {
-            throw new Error(`URL extraction failed: not enough readable story text extracted (${extractedText.length} chars)`);
-          }
-          const inputPath = path.join(runtime.outDir, `render-url-jina-${ts}.txt`);
-          await fs.promises.writeFile(inputPath, extractedText, 'utf8');
-          if (selectedExtractor !== extractor && typeof options.onExtractorFallback === 'function') {
-            await options.onExtractorFallback({ from: selectedExtractor, to: extractor, reason: 'extractor_failure' });
-          }
-          console.log('[render-bot] url_extractor_success', JSON.stringify({
-            inputUrl: trimForLog(parsed.value, 500),
-            extractorSelected: selectedExtractor,
-            extractorUsed: extractor,
-            extractedChars: extractedText.length
-          }));
-          return {
-            kind: 'url',
-            inputPath,
-            outputPath,
-            titleOverride: `Render Comic: ${new URL(parsed.value).hostname}`,
-            summary: parsed.value,
-            sourceText: extractedText,
-            extractorSelected: selectedExtractor,
-            extractorUsed: extractor
-          };
-        }
-
-        const snapshotPath = buildSnapshotPath(parsed.value, outputPath, '');
-        let snap;
-        try {
-          snap = await fetchUrlToHtmlSnapshot(parsed.value, snapshotPath, {
-            timeoutMs: runtime.fetchTimeoutMs,
-            waitUntil: 'domcontentloaded'
-          });
-        } catch (error) {
-          if (!shouldInstallPlaywrightBrowser(error)) throw error;
-          console.warn('[render-bot] playwright_missing_browser_install', JSON.stringify({
-            url: trimForLog(parsed.value, 500),
-        message: trimForLog(error && error.message ? error.message : String(error), 800)
-      }));
-      await ensurePlaywrightChromiumInstalledAsync('url_request_missing_browser');
-      snap = await fetchUrlToHtmlSnapshot(parsed.value, snapshotPath, {
-        timeoutMs: runtime.fetchTimeoutMs,
-        waitUntil: 'domcontentloaded'
-      });
-        }
-        let snapshotBytes = 0;
-        let extractedChars = 0;
-        let extractedTitle = '';
-        try {
-          const stats = await fs.promises.stat(snap.snapshotPath);
-          snapshotBytes = Number(stats.size || 0);
-        } catch (_) {}
-        let extractionFailureReason = '';
-        try {
-          const html = await fs.promises.readFile(snap.snapshotPath, 'utf8');
-          const extracted = extractFromHtml(html, {});
-          extractedChars = Number(String(extracted?.text || '').length || 0);
-          extractedTitle = String(extracted?.title || '').trim();
-          extractionFailureReason = getUrlExtractionFailureReason(extracted);
-        } catch (_) {}
-        if (extractionFailureReason) {
-          throw new Error(`URL extraction failed: ${extractionFailureReason}`);
-        }
-        if (selectedExtractor !== extractor && typeof options.onExtractorFallback === 'function') {
-          await options.onExtractorFallback({ from: selectedExtractor, to: extractor, reason: 'extractor_failure' });
-        }
-        console.log('[render-bot] url_snapshot_ready', JSON.stringify({
-          inputUrl: trimForLog(parsed.value, 500),
-          finalUrl: trimForLog(snap.finalUrl || parsed.value, 500),
-          title: trimForLog(snap.title || '', 160),
-          snapshotPath: snap.snapshotPath,
-          snapshotBytes,
-          extractedChars,
-          extractedTitle: trimForLog(extractedTitle, 160),
-          extractorSelected: selectedExtractor,
-          extractorUsed: extractor
-        }));
-        return {
-          kind: 'url',
-          inputPath: snap.snapshotPath,
-          outputPath,
-          titleOverride: `Render Comic: ${new URL(snap.finalUrl || parsed.value).hostname}`,
-          summary: snap.finalUrl || parsed.value,
-          sourceText: '',
-          extractorSelected: selectedExtractor,
-          extractorUsed: extractor
-        };
-      } catch (error) {
-        lastError = error;
-        console.warn('[render-bot] url_extractor_failed', JSON.stringify({
-          inputUrl: trimForLog(parsed.value, 500),
-          extractor,
-          message: trimForLog(error && error.message ? error.message : String(error), 800)
-        }));
-      }
-    }
-    throw lastError || new Error('URL extraction failed');
+    const extracted = await extractStoryFromUrlText(parsed.value, runtime, config, {
+      onExtractorFallback: options.onExtractorFallback
+    });
+    const extractedText = String(extracted?.text || '').trim();
+    const inputPath = path.join(runtime.outDir, `render-url-${sanitizePathPart(extracted?.extractorUsed, 'extractor')}-${ts}.txt`);
+    await fs.promises.writeFile(inputPath, extractedText, 'utf8');
+    console.log('[render-bot] url_extractor_success', JSON.stringify({
+      inputUrl: trimForLog(parsed.value, 500),
+      extractorSelected: selectedExtractor,
+      extractorUsed: String(extracted?.extractorUsed || '').trim(),
+      extractedChars: extractedText.length
+    }));
+    return {
+      kind: 'url',
+      inputPath,
+      outputPath,
+      titleOverride: `Render Comic: ${new URL(parsed.value).hostname}`,
+      summary: parsed.value,
+      sourceText: extractedText,
+      extractorSelected: String(extracted?.extractorSelected || selectedExtractor).trim(),
+      extractorUsed: String(extracted?.extractorUsed || selectedExtractor).trim()
+    };
   }
 
   const inputPath = path.join(runtime.outDir, `render-text-${ts}.txt`);
@@ -1138,7 +1509,52 @@ async function inventStoryText(seedText, effectiveConfigPath, options = {}) {
   const loaded = loadConfig(effectiveConfigPath);
   const config = loaded.config;
   const inventTemperature = resolveInventTemperature(config);
-  const prompt = buildInventStoryPrompt(config, seed);
+  const autoEnrichEnabled = resolveAutoEnrichEnabled(config);
+  const shouldEnrich = autoEnrichEnabled && isShortStoryPrompt(seed, config);
+  let promptSeed = seed;
+  let enrichmentInfo = null;
+
+  if (shouldEnrich) {
+    const enrichment = await runStoryEnrichment(seed, config, config?.runtime || {}, options);
+    if (Array.isArray(enrichment?.items) && enrichment.items.length) {
+      promptSeed = buildEnrichedSeedText(seed, enrichment, config);
+      enrichmentInfo = {
+        enabled: true,
+        selectedProvider: String(enrichment?.selectedProvider || '').trim(),
+        usedProvider: String(enrichment?.usedProvider || '').trim(),
+        contextItems: enrichment.items.length,
+        fallback: String(enrichment?.selectedProvider || '') !== String(enrichment?.usedProvider || ''),
+        reason: enrichment?.error ? String(enrichment.error) : ''
+      };
+      if (typeof options.onEnrichment === 'function') {
+        await options.onEnrichment(enrichmentInfo);
+      }
+      console.log('[render-bot] story_enrichment_used', JSON.stringify({
+        selectedProvider: enrichmentInfo.selectedProvider,
+        usedProvider: enrichmentInfo.usedProvider,
+        contextItems: enrichmentInfo.contextItems,
+        fallback: enrichmentInfo.fallback
+      }));
+    } else {
+      enrichmentInfo = {
+        enabled: true,
+        selectedProvider: String(enrichment?.selectedProvider || '').trim(),
+        usedProvider: '',
+        contextItems: 0,
+        fallback: false,
+        reason: String(enrichment?.error || 'no_context')
+      };
+      if (typeof options.onEnrichment === 'function') {
+        await options.onEnrichment(enrichmentInfo);
+      }
+      console.warn('[render-bot] story_enrichment_unavailable', JSON.stringify({
+        selectedProvider: enrichmentInfo.selectedProvider,
+        reason: enrichmentInfo.reason
+      }));
+    }
+  }
+
+  const prompt = buildInventStoryPrompt(config, promptSeed);
 
   const runtimeConfig = {
     ...(config.runtime || {}),
@@ -1175,6 +1591,10 @@ module.exports = {
   resolveOutputLanguage,
   resolveInventLanguage,
   resolveInventTemperature,
+  isShortStoryPrompt,
+  runStoryEnrichment,
+  buildEnrichedSeedText,
+  normalizeEnrichmentProvider,
   buildInventStoryPrompt,
   resolvePanelWatermarkEnabled,
   isProviderOrModelFailure,
@@ -1185,6 +1605,8 @@ module.exports = {
   applyPanelWatermark,
   shouldInstallPlaywrightBrowser,
   inventStoryText,
+  extractStoryFromUrlText,
+  getUrlExtractorAttemptOrder,
   normalizeUrlExtractor,
   warmupPlaywrightChromiumInBackground
 };

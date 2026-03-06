@@ -11,6 +11,10 @@ const {
   resolveOutputLanguage,
   resolveInventLanguage,
   resolveInventTemperature,
+  isShortStoryPrompt,
+  runStoryEnrichment,
+  buildEnrichedSeedText,
+  normalizeEnrichmentProvider,
   resolvePanelWatermarkEnabled,
   isProviderOrModelFailure,
   shouldFallbackToGemini,
@@ -18,6 +22,7 @@ const {
   getUrlExtractionFailureReason,
   sanitizeInventedStoryText,
   applyPanelWatermark,
+  getUrlExtractorAttemptOrder,
   normalizeUrlExtractor
 } = require('../src/generate');
 
@@ -285,6 +290,149 @@ describe('render generate helpers', () => {
     expect(normalizeUrlExtractor('chromium')).toBe('chromium');
     expect(normalizeUrlExtractor('firecrawl')).toBe('firecrawl');
     expect(normalizeUrlExtractor('jina')).toBe('jina');
+    expect(normalizeUrlExtractor('driftbot')).toBe('driftbot');
     expect(normalizeUrlExtractor('unknown')).toBe('gemini');
+  });
+
+  it('builds URL extractor failover order with selected provider first', () => {
+    expect(getUrlExtractorAttemptOrder('chromium')).toEqual(['chromium', 'gemini', 'firecrawl', 'jina', 'driftbot']);
+    expect(getUrlExtractorAttemptOrder('gemini')).toEqual(['gemini', 'firecrawl', 'jina', 'driftbot', 'chromium']);
+    expect(getUrlExtractorAttemptOrder('jina')).toEqual(['jina', 'gemini', 'firecrawl', 'driftbot', 'chromium']);
+  });
+
+  it('detects short prompts for enrichment by word threshold', () => {
+    expect(isShortStoryPrompt('Tokyo 2100', { generation: { short_prompt_word_threshold: 10 } })).toBe(true);
+    expect(isShortStoryPrompt('This is a detailed prompt with many concrete narrative constraints and style notes.', { generation: { short_prompt_word_threshold: 6 } })).toBe(false);
+  });
+
+  it('normalizes enrichment provider names with safe default', () => {
+    expect(normalizeEnrichmentProvider('jina')).toBe('jina');
+    expect(normalizeEnrichmentProvider('wikipedia')).toBe('wikipedia');
+    expect(normalizeEnrichmentProvider('')).toBe('wikipedia');
+    expect(normalizeEnrichmentProvider('unknown')).toBe('wikipedia');
+  });
+
+  it('builds bounded enriched seed text with template sections', () => {
+    const out = buildEnrichedSeedText(
+      'Tokyo 2100',
+      {
+        items: ['Tokyo is a megacity with advanced transit and robotics.'],
+        related: ['Tokyo', 'Japan', 'future city'],
+        sources: ['https://example.com/tokyo']
+      },
+      { generation: { max_enrichment_chars: 800, max_context_items: 5, include_sources: true } }
+    );
+    expect(out).toContain('Original user prompt:');
+    expect(out).toContain('Retrieved context:');
+    expect(out).toContain('Related entities or concepts:');
+    expect(out).toContain('Instruction:');
+  });
+
+  it('falls back to second enrichment provider when selected provider fails', async () => {
+    const fetchImpl = async (url) => {
+      const u = String(url || '');
+      if (u.includes('api.firecrawl.dev')) {
+        return {
+          ok: false,
+          status: 401,
+          async text() { return '{"error":"unauthorized"}'; }
+        };
+      }
+      if (u.includes('wikipedia.org/w/api.php')) {
+        return {
+          ok: true,
+          status: 200,
+          async text() {
+            return JSON.stringify({
+              query: {
+                search: [{ title: 'Tokyo' }]
+              }
+            });
+          }
+        };
+      }
+      if (u.includes('wikipedia.org/api/rest_v1/page/summary/')) {
+        return {
+          ok: true,
+          status: 200,
+          async text() {
+            return JSON.stringify({
+              extract: 'Tokyo is the capital of Japan with advanced infrastructure.',
+              content_urls: { desktop: { page: 'https://en.wikipedia.org/wiki/Tokyo' } }
+            });
+          }
+        };
+      }
+      throw new Error(`Unexpected URL ${u}`);
+    };
+
+    const result = await runStoryEnrichment(
+      'Tokyo 2100',
+      { generation: { enrichment_provider: 'firecrawl', enrichment_fallback_provider: 'wikipedia', max_context_items: 3 } },
+      { fetchTimeoutMs: 5000 },
+      { fetchImpl }
+    );
+
+    expect(result.selectedProvider).toBe('firecrawl');
+    expect(result.usedProvider).toBe('wikipedia');
+    expect(Array.isArray(result.items)).toBe(true);
+    expect(result.items.length).toBeGreaterThan(0);
+  });
+
+  it('uses fallback DQL query variants for driftbot enrichment', async () => {
+    const prev = process.env.DRIFTBOT_API_KEY;
+    process.env.DRIFTBOT_API_KEY = 'test-driftbot-key';
+    try {
+      const requests = [];
+      const fetchImpl = async (url) => {
+        const u = String(url || '');
+        requests.push(u);
+        if (u.includes('strict%3Aname')) {
+          return {
+            ok: false,
+            status: 400,
+            async text() { return '{"message":"bad dql"}'; }
+          };
+        }
+        if (u.includes('name%3A%22Tokyo%22')) {
+          return {
+            ok: true,
+            status: 200,
+            async text() {
+              return JSON.stringify({
+                data: [
+                  {
+                    name: 'Tokyo',
+                    description: 'Tokyo is a major city with advanced infrastructure.',
+                    diffbotUri: 'http://diffbot.com/entity/Tokyo'
+                  }
+                ]
+              });
+            }
+          };
+        }
+        return {
+          ok: true,
+          status: 200,
+          async text() { return '{"data":[]}'; }
+        };
+      };
+
+      const result = await runStoryEnrichment(
+        'Tokyo 2100',
+        { generation: { enrichment_provider: 'driftbot', enrichment_fallback_provider: 'wikipedia', max_context_items: 3 } },
+        { fetchTimeoutMs: 5000 },
+        { fetchImpl }
+      );
+
+      expect(result.selectedProvider).toBe('driftbot');
+      expect(result.usedProvider).toBe('driftbot');
+      expect(result.items.length).toBeGreaterThan(0);
+      expect(requests.some((u) => u.includes('strict%3Aname'))).toBe(true);
+      expect(requests.some((u) => u.includes('name%3A%22Tokyo%22'))).toBe(true);
+    } finally {
+      if (prev == null) delete process.env.DRIFTBOT_API_KEY;
+      else process.env.DRIFTBOT_API_KEY = prev;
+    }
   });
 });
