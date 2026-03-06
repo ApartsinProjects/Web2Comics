@@ -1,4 +1,4 @@
-# Web2Comics: AI-Powered Chrome Extension That Turns Any Web Page Into a Comic-Strip Summary
+# Web2Comics: AI-Powered Chrome Extension & Telegram Bot That Turn Any Web Page Into a Comic-Strip Summary
 
 ![Status](https://img.shields.io/badge/status-experimental-orange)
 ![Platform](https://img.shields.io/badge/platform-chrome%20extension-blue)
