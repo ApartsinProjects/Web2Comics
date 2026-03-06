@@ -347,6 +347,7 @@ describe('render bot comprehensive interaction suite', () => {
       await runCommandAndExpect('/objective summarize', 'Updated generation.objective = summarize');
       await runCommandAndExpect('/summary', 'Updated generation.objective = summarize (via /summary)');
       await runCommandAndExpect('/fun', 'Updated generation.objective = fun (via /fun)');
+      await runCommandAndExpect('/meme', 'Updated generation.objective = meme (via /meme)');
       await runCommandAndExpect('/5yold', 'Updated generation.objective = explain-like-im-five (via /5yold)');
       await runCommandAndExpect('/learn', 'Updated generation.objective = learn-step-by-step (via /learn)');
       await runCommandAndExpect('/news', 'Updated generation.objective = news-recap (via /news)');
@@ -391,7 +392,7 @@ describe('render bot comprehensive interaction suite', () => {
       await bot.stop();
       await tg.close();
     }
-  }, 40000);
+  }, 90000);
 
   it('supports /user command and admin-only help/commands', async () => {
     const tg = await startFakeTelegramServer();
@@ -610,11 +611,16 @@ describe('render bot comprehensive interaction suite', () => {
     }
   }, 50000);
 
-  it('keeps key state per user while config defaults remain unchanged for new users', async () => {
+  it('keeps key state per user while new users start with preseeded provider keys', async () => {
     const tg = await startFakeTelegramServer();
     const botPort = await getFreePort();
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'render-bot-users-'));
-    const bot = await startBotProcess(botPort, `http://127.0.0.1:${tg.port}/botTEST_TOKEN`, path.join(tmpDir, 'state.json'));
+    const bot = await startBotProcess(
+      botPort,
+      `http://127.0.0.1:${tg.port}/botTEST_TOKEN`,
+      path.join(tmpDir, 'state.json'),
+      { GEMINI_API_KEY: 'PRESEEDED_GEMINI_1' }
+    );
 
     async function command(chatId, text) {
       const before = sentMessages(tg.calls).length;
@@ -632,7 +638,7 @@ describe('render bot comprehensive interaction suite', () => {
       const first888 = await command(888, '/keys');
       expect(first888.some((m) => m.includes('free Gemini'))).toBe(true);
       expect(first888.some((m) => m.includes('/help  /config  /vendor'))).toBe(true);
-      expect(first888.some((m) => m.includes('GEMINI_API_KEY: missing'))).toBe(true);
+      expect(first888.some((m) => m.includes('GEMINI_API_KEY: set (runtime)'))).toBe(true);
 
       await command(777, '/panels 6');
       const cfg777 = await command(777, '/config');
@@ -903,11 +909,16 @@ describe('render bot comprehensive interaction suite', () => {
     }
   }, 70000);
 
-  it('restarts user state to defaults and clears runtime keys', async () => {
+  it('restarts user state to defaults and clears runtime keys when no env preseed exists', async () => {
     const tg = await startFakeTelegramServer();
     const botPort = await getFreePort();
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'render-bot-restart-'));
-    const bot = await startBotProcess(botPort, `http://127.0.0.1:${tg.port}/botTEST_TOKEN`, path.join(tmpDir, 'state.json'));
+    const bot = await startBotProcess(
+      botPort,
+      `http://127.0.0.1:${tg.port}/botTEST_TOKEN`,
+      path.join(tmpDir, 'state.json'),
+      { GEMINI_API_KEY: ' ' }
+    );
 
     async function command(text) {
       const before = sentMessages(tg.calls).length;

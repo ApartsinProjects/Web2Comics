@@ -18,6 +18,22 @@ generation:
   style_name: Classic
   style_description: clean illustrated art, readable characters, coherent scene progression
   style_prompt: clean illustrated art, readable characters, coherent scene progression
+  url_extractor: jina
+  url_extractor_gemini_model: gemini-3-flash-preview
+  pdf_extractor: llamaparse
+  pdf_extractor_unstructured_strategy: auto
+  image_extractor: gemini
+  image_extractor_gemini_model: gemini-2.5-flash
+  image_extractor_openai_model: gpt-4.1-mini
+  voice_extractor: assemblyai
+  voice_extractor_assemblyai_model: best
+  auto_enrich_short_story_prompts: true
+  short_prompt_word_threshold: 10
+  enrichment_provider: wikipedia
+  enrichment_fallback_provider: gemini
+  max_context_items: 5
+  max_enrichment_chars: 800
+  include_sources: true
   consistency: true
   panel_watermark: true
   debug_prompts: false

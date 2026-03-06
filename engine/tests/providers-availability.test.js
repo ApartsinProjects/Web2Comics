@@ -31,6 +31,7 @@ describe('provider availability coverage', () => {
     delete process.env.CLOUDFLARE_ACCOUNT_ID;
     delete process.env.CLOUDFLARE_API_TOKEN;
     delete process.env.HUGGINGFACE_INFERENCE_API_TOKEN;
+    delete process.env.COHERE_API_KEY;
     delete process.env.HUGGINGFACE_BASE_URL;
   });
 
@@ -41,6 +42,7 @@ describe('provider availability coverage', () => {
     process.env.CLOUDFLARE_ACCOUNT_ID = 'cf-acc';
     process.env.CLOUDFLARE_API_TOKEN = 'cf-key';
     process.env.HUGGINGFACE_INFERENCE_API_TOKEN = 'hf-key';
+    process.env.COHERE_API_KEY = 'co-key';
 
     const fetchMock = vi.fn(async (url) => {
       const u = String(url);
@@ -65,6 +67,9 @@ describe('provider availability coverage', () => {
       if (u.includes('router.huggingface.co/hf-inference/models/')) {
         return jsonResponse({ generated_text: 'huggingface ok' });
       }
+      if (u === 'https://api.cohere.com/v2/chat') {
+        return jsonResponse({ message: { content: [{ text: 'cohere ok' }] } });
+      }
       return jsonResponse({ message: `unexpected ${u}` }, 404);
     });
     global.fetch = fetchMock;
@@ -75,7 +80,8 @@ describe('provider availability coverage', () => {
       { provider: 'openai', model: 'gpt-4o-mini', expected: 'openai ok' },
       { provider: 'openrouter', model: 'openai/gpt-4o-mini', expected: 'openrouter ok' },
       { provider: 'cloudflare', model: '@cf/meta/llama-3.1-8b-instruct', expected: 'cloudflare ok' },
-      { provider: 'huggingface', model: 'mistralai/Mistral-7B-Instruct-v0.2', expected: 'huggingface ok' }
+      { provider: 'huggingface', model: 'mistralai/Mistral-7B-Instruct-v0.2', expected: 'huggingface ok' },
+      { provider: 'cohere', model: 'command-r-plus', expected: 'cohere ok' }
     ];
 
     for (const row of rows) {

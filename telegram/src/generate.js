@@ -18,18 +18,24 @@ const GEMINI_TEXT_MODEL = 'gemini-2.5-flash';
 const GEMINI_IMAGE_MODEL = 'gemini-2.0-flash-exp-image-generation';
 const GEMINI_URL_EXTRACT_MODEL = 'gemini-3-flash-preview';
 const GEMINI_ENRICH_MODEL = 'gemini-2.5-flash';
-const URL_EXTRACTOR_VALUES = new Set(['gemini', 'chromium', 'firecrawl', 'jina', 'driftbot']);
+const URL_EXTRACTOR_VALUES = new Set(['gemini', 'chromium', 'firecrawl', 'jina', 'driftbot', 'diffbot']);
 const URL_EXTRACTOR_PRIORITY = ['gemini', 'firecrawl', 'jina', 'driftbot', 'chromium'];
-const ENRICHMENT_PROVIDER_VALUES = new Set(['wikipedia', 'jina', 'firecrawl', 'driftbot', 'gemini']);
+const ENRICHMENT_PROVIDER_VALUES = new Set([
+  'wikipedia', 'wikidata', 'dbpedia', 'gdelt', 'googlekg',
+  'jina', 'firecrawl', 'driftbot', 'gemini',
+  'brave', 'tavily', 'exa', 'serper', 'serpapi'
+]);
 let playwrightInstallPromise = null;
 let playwrightChromiumReady = false;
 
 const PROVIDER_REQUIRED_ENV = {
   gemini: ['GEMINI_API_KEY'],
   openai: ['OPENAI_API_KEY'],
+  groq: ['GROQ_API_KEY'],
   openrouter: ['OPENROUTER_API_KEY'],
   cloudflare: ['CLOUDFLARE_ACCOUNT_ID', 'CLOUDFLARE_API_TOKEN'],
-  huggingface: ['HUGGINGFACE_INFERENCE_API_TOKEN']
+  huggingface: ['HUGGINGFACE_INFERENCE_API_TOKEN'],
+  cohere: ['COHERE_API_KEY']
 };
 
 function trimForLog(value, maxLen = 300) {
@@ -43,6 +49,7 @@ function normalizeUrlExtractor(raw) {
   if (!value) return 'gemini';
   if (value === 'ai') return 'gemini';
   if (value === 'browser') return 'chromium';
+  if (value === 'diffbot') return 'driftbot';
   if (URL_EXTRACTOR_VALUES.has(value)) return value;
   return 'gemini';
 }
@@ -59,6 +66,7 @@ function getUrlExtractorAttemptOrder(selectedExtractor) {
 function normalizeEnrichmentProvider(raw) {
   const value = String(raw || '').trim().toLowerCase();
   if (!value) return 'wikipedia';
+  if (value === 'diffbot') return 'driftbot';
   if (ENRICHMENT_PROVIDER_VALUES.has(value)) return value;
   return 'wikipedia';
 }
@@ -242,8 +250,44 @@ function getJinaApiKey() {
 }
 
 function getDriftbotApiKey() {
-  const key = String(process.env.DRIFTBOT_API_KEY || '').trim();
+  const key = String(process.env.DRIFTBOT_API_KEY || process.env.DIFFBOT_API_KEY || '').trim();
   if (!key) throw new Error('Missing DRIFTBOT_API_KEY for Driftbot URL extractor');
+  return key;
+}
+
+function getBraveSearchApiKey() {
+  const key = String(process.env.BRAVE_SEARCH_API_KEY || '').trim();
+  if (!key) throw new Error('Missing BRAVE_SEARCH_API_KEY for Brave enrichment');
+  return key;
+}
+
+function getTavilyApiKey() {
+  const key = String(process.env.TAVILY_API_KEY || '').trim();
+  if (!key) throw new Error('Missing TAVILY_API_KEY for Tavily enrichment');
+  return key;
+}
+
+function getExaApiKey() {
+  const key = String(process.env.EXA_API_KEY || '').trim();
+  if (!key) throw new Error('Missing EXA_API_KEY for Exa enrichment');
+  return key;
+}
+
+function getSerperApiKey() {
+  const key = String(process.env.SERPER_API_KEY || '').trim();
+  if (!key) throw new Error('Missing SERPER_API_KEY for Serper enrichment');
+  return key;
+}
+
+function getSerpApiKey() {
+  const key = String(process.env.SERPAPI_API_KEY || '').trim();
+  if (!key) throw new Error('Missing SERPAPI_API_KEY for SerpAPI enrichment');
+  return key;
+}
+
+function getGoogleKgApiKey() {
+  const key = String(process.env.GOOGLE_KG_API_KEY || '').trim();
+  if (!key) throw new Error('Missing GOOGLE_KG_API_KEY for Google KG enrichment');
   return key;
 }
 
@@ -879,20 +923,220 @@ async function fetchDriftbotEnrichment(seed, config, runtime, fetchImpl = fetch)
   return { provider: 'driftbot', items, related, sources };
 }
 
+async function fetchWikidataEnrichment(seed, config, runtime, fetchImpl = fetch) {
+  const maxItems = resolveMaxContextItems(config);
+  const timeoutMs = Math.max(5000, Number(runtime?.fetchTimeoutMs || 45000));
+  const query = encodeURIComponent(String(seed || '').trim());
+  const endpoint = `https://www.wikidata.org/w/api.php?action=wbsearchentities&language=en&format=json&limit=${maxItems}&search=${query}&origin=*`;
+  const res = await fetchImpl(endpoint, { method: 'GET', signal: AbortSignal.timeout(timeoutMs) });
+  const raw = await res.text();
+  const json = parseJsonLoose(raw) || {};
+  if (!res.ok) throw new Error(`Wikidata enrichment failed (${res.status})`);
+  const rows = Array.isArray(json?.search) ? json.search.slice(0, maxItems) : [];
+  const items = rows.map((r) => String(r?.description || '').trim()).filter(Boolean);
+  const related = rows.map((r) => String(r?.label || '').trim()).filter(Boolean);
+  const sources = rows.map((r) => String(r?.concepturi || '').trim()).filter(Boolean);
+  if (!items.length) throw new Error('Wikidata enrichment returned no items');
+  return { provider: 'wikidata', items, related, sources };
+}
+
+async function fetchDbpediaEnrichment(seed, config, runtime, fetchImpl = fetch) {
+  const maxItems = resolveMaxContextItems(config);
+  const timeoutMs = Math.max(5000, Number(runtime?.fetchTimeoutMs || 45000));
+  const query = encodeURIComponent(String(seed || '').trim());
+  const endpoint = `https://lookup.dbpedia.org/api/search?query=${query}&maxResults=${maxItems}`;
+  const res = await fetchImpl(endpoint, {
+    method: 'GET',
+    headers: { Accept: 'application/json' },
+    signal: AbortSignal.timeout(timeoutMs)
+  });
+  const raw = await res.text();
+  const json = parseJsonLoose(raw) || {};
+  if (!res.ok) throw new Error(`DBpedia enrichment failed (${res.status})`);
+  const rows = Array.isArray(json?.docs) ? json.docs.slice(0, maxItems) : [];
+  const items = rows.map((r) => String(r?.comment?.[0] || '').trim()).filter(Boolean);
+  const related = rows.map((r) => String(r?.label?.[0] || '').trim()).filter(Boolean);
+  const sources = rows.map((r) => String(r?.resource?.[0] || '').trim()).filter(Boolean);
+  if (!items.length) throw new Error('DBpedia enrichment returned no items');
+  return { provider: 'dbpedia', items, related, sources };
+}
+
+async function fetchGdeltEnrichment(seed, config, runtime, fetchImpl = fetch) {
+  const maxItems = resolveMaxContextItems(config);
+  const timeoutMs = Math.max(5000, Number(runtime?.fetchTimeoutMs || 45000));
+  const query = encodeURIComponent(String(seed || '').trim());
+  const endpoint = `https://api.gdeltproject.org/api/v2/doc/doc?query=${query}&mode=ArtList&format=json&maxrecords=${maxItems}`;
+  const res = await fetchImpl(endpoint, { method: 'GET', signal: AbortSignal.timeout(timeoutMs) });
+  const raw = await res.text();
+  const json = parseJsonLoose(raw) || {};
+  if (!res.ok) throw new Error(`GDELT enrichment failed (${res.status})`);
+  const rows = Array.isArray(json?.articles) ? json.articles.slice(0, maxItems) : [];
+  const items = rows.map((r) => String(r?.seendate || '').trim() ? `${String(r?.seendate || '').trim()}: ${String(r?.title || '').trim()}` : String(r?.title || '').trim()).filter(Boolean);
+  const related = rows.map((r) => String(r?.sourcecountry || r?.domain || '').trim()).filter(Boolean);
+  const sources = rows.map((r) => String(r?.url || '').trim()).filter(Boolean);
+  if (!items.length) throw new Error('GDELT enrichment returned no items');
+  return { provider: 'gdelt', items, related, sources };
+}
+
+async function fetchGoogleKgEnrichment(seed, config, runtime, fetchImpl = fetch) {
+  const key = getGoogleKgApiKey();
+  const maxItems = resolveMaxContextItems(config);
+  const timeoutMs = Math.max(5000, Number(runtime?.fetchTimeoutMs || 45000));
+  const query = encodeURIComponent(String(seed || '').trim());
+  const endpoint = `https://kgsearch.googleapis.com/v1/entities:search?query=${query}&limit=${maxItems}&languages=en&key=${encodeURIComponent(key)}`;
+  const res = await fetchImpl(endpoint, { method: 'GET', signal: AbortSignal.timeout(timeoutMs) });
+  const raw = await res.text();
+  const json = parseJsonLoose(raw) || {};
+  if (!res.ok) throw new Error(`Google KG enrichment failed (${res.status})`);
+  const rows = Array.isArray(json?.itemListElement) ? json.itemListElement.slice(0, maxItems) : [];
+  const items = rows
+    .map((r) => String(r?.result?.description || r?.result?.detailedDescription?.articleBody || '').trim())
+    .filter(Boolean);
+  const related = rows.map((r) => String(r?.result?.name || '').trim()).filter(Boolean);
+  const sources = rows.map((r) => String(r?.result?.detailedDescription?.url || '').trim()).filter(Boolean);
+  if (!items.length) throw new Error('Google KG enrichment returned no items');
+  return { provider: 'googlekg', items, related, sources };
+}
+
+async function fetchBraveEnrichment(seed, config, runtime, fetchImpl = fetch) {
+  const key = getBraveSearchApiKey();
+  const maxItems = resolveMaxContextItems(config);
+  const timeoutMs = Math.max(5000, Number(runtime?.fetchTimeoutMs || 45000));
+  const endpoint = `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(String(seed || '').trim())}&count=${maxItems}`;
+  const res = await fetchImpl(endpoint, {
+    method: 'GET',
+    headers: { 'X-Subscription-Token': key, Accept: 'application/json' },
+    signal: AbortSignal.timeout(timeoutMs)
+  });
+  const raw = await res.text();
+  const json = parseJsonLoose(raw) || {};
+  if (!res.ok) throw new Error(`Brave enrichment failed (${res.status})`);
+  const rows = Array.isArray(json?.web?.results) ? json.web.results.slice(0, maxItems) : [];
+  const items = rows.map((r) => String(r?.description || r?.title || '').trim()).filter(Boolean);
+  const related = rows.map((r) => String(r?.title || '').trim()).filter(Boolean);
+  const sources = rows.map((r) => String(r?.url || '').trim()).filter(Boolean);
+  if (!items.length) throw new Error('Brave enrichment returned no items');
+  return { provider: 'brave', items, related, sources };
+}
+
+async function fetchTavilyEnrichment(seed, config, runtime, fetchImpl = fetch) {
+  const key = getTavilyApiKey();
+  const maxItems = resolveMaxContextItems(config);
+  const timeoutMs = Math.max(5000, Number(runtime?.fetchTimeoutMs || 45000));
+  const res = await fetchImpl('https://api.tavily.com/search', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      api_key: key,
+      query: String(seed || '').trim(),
+      max_results: maxItems,
+      include_answer: false
+    }),
+    signal: AbortSignal.timeout(timeoutMs)
+  });
+  const raw = await res.text();
+  const json = parseJsonLoose(raw) || {};
+  if (!res.ok) throw new Error(`Tavily enrichment failed (${res.status})`);
+  const rows = Array.isArray(json?.results) ? json.results.slice(0, maxItems) : [];
+  const items = rows.map((r) => String(r?.content || r?.title || '').trim()).filter(Boolean);
+  const related = rows.map((r) => String(r?.title || '').trim()).filter(Boolean);
+  const sources = rows.map((r) => String(r?.url || '').trim()).filter(Boolean);
+  if (!items.length) throw new Error('Tavily enrichment returned no items');
+  return { provider: 'tavily', items, related, sources };
+}
+
+async function fetchExaEnrichment(seed, config, runtime, fetchImpl = fetch) {
+  const key = getExaApiKey();
+  const maxItems = resolveMaxContextItems(config);
+  const timeoutMs = Math.max(5000, Number(runtime?.fetchTimeoutMs || 45000));
+  const res = await fetchImpl('https://api.exa.ai/search', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-api-key': key },
+    body: JSON.stringify({
+      query: String(seed || '').trim(),
+      numResults: maxItems,
+      useAutoprompt: true
+    }),
+    signal: AbortSignal.timeout(timeoutMs)
+  });
+  const raw = await res.text();
+  const json = parseJsonLoose(raw) || {};
+  if (!res.ok) throw new Error(`Exa enrichment failed (${res.status})`);
+  const rows = Array.isArray(json?.results) ? json.results.slice(0, maxItems) : [];
+  const items = rows.map((r) => String(r?.text || r?.title || '').trim()).filter(Boolean);
+  const related = rows.map((r) => String(r?.title || '').trim()).filter(Boolean);
+  const sources = rows.map((r) => String(r?.url || '').trim()).filter(Boolean);
+  if (!items.length) throw new Error('Exa enrichment returned no items');
+  return { provider: 'exa', items, related, sources };
+}
+
+async function fetchSerperEnrichment(seed, config, runtime, fetchImpl = fetch) {
+  const key = getSerperApiKey();
+  const maxItems = resolveMaxContextItems(config);
+  const timeoutMs = Math.max(5000, Number(runtime?.fetchTimeoutMs || 45000));
+  const res = await fetchImpl('https://google.serper.dev/search', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-API-KEY': key },
+    body: JSON.stringify({ q: String(seed || '').trim(), num: maxItems }),
+    signal: AbortSignal.timeout(timeoutMs)
+  });
+  const raw = await res.text();
+  const json = parseJsonLoose(raw) || {};
+  if (!res.ok) throw new Error(`Serper enrichment failed (${res.status})`);
+  const rows = Array.isArray(json?.organic) ? json.organic.slice(0, maxItems) : [];
+  const items = rows.map((r) => String(r?.snippet || r?.title || '').trim()).filter(Boolean);
+  const related = rows.map((r) => String(r?.title || '').trim()).filter(Boolean);
+  const sources = rows.map((r) => String(r?.link || '').trim()).filter(Boolean);
+  if (!items.length) throw new Error('Serper enrichment returned no items');
+  return { provider: 'serper', items, related, sources };
+}
+
+async function fetchSerpApiEnrichment(seed, config, runtime, fetchImpl = fetch) {
+  const key = getSerpApiKey();
+  const maxItems = resolveMaxContextItems(config);
+  const timeoutMs = Math.max(5000, Number(runtime?.fetchTimeoutMs || 45000));
+  const endpoint = `https://serpapi.com/search.json?q=${encodeURIComponent(String(seed || '').trim())}&num=${maxItems}&api_key=${encodeURIComponent(key)}`;
+  const res = await fetchImpl(endpoint, { method: 'GET', signal: AbortSignal.timeout(timeoutMs) });
+  const raw = await res.text();
+  const json = parseJsonLoose(raw) || {};
+  if (!res.ok) throw new Error(`SerpAPI enrichment failed (${res.status})`);
+  const rows = Array.isArray(json?.organic_results) ? json.organic_results.slice(0, maxItems) : [];
+  const items = rows.map((r) => String(r?.snippet || r?.title || '').trim()).filter(Boolean);
+  const related = rows.map((r) => String(r?.title || '').trim()).filter(Boolean);
+  const sources = rows.map((r) => String(r?.link || '').trim()).filter(Boolean);
+  if (!items.length) throw new Error('SerpAPI enrichment returned no items');
+  return { provider: 'serpapi', items, related, sources };
+}
+
 async function runStoryEnrichment(seedText, config, runtime, options = {}) {
   const selected = normalizeEnrichmentProvider(config?.generation?.enrichment_provider || 'wikipedia');
   const fallback = normalizeEnrichmentProvider(config?.generation?.enrichment_fallback_provider || 'gemini');
-  const order = [selected, fallback].filter((v, i, arr) => v && arr.indexOf(v) === i);
+  const preferred = [
+    'wikipedia', 'wikidata', 'dbpedia', 'gdelt', 'googlekg',
+    'jina', 'firecrawl', 'driftbot', 'gemini', 'brave', 'tavily', 'exa', 'serper', 'serpapi'
+  ];
+  const order = [selected, fallback, ...preferred].filter((v, i, arr) => v && arr.indexOf(v) === i);
   const fetchImpl = typeof options.fetchImpl === 'function' ? options.fetchImpl : fetch;
   const errors = [];
+  const attemptedProviders = [];
 
   for (const provider of order) {
+    attemptedProviders.push(provider);
     try {
-      if (provider === 'wikipedia') return { selectedProvider: selected, usedProvider: provider, ...await fetchWikipediaEnrichment(seedText, config, runtime, fetchImpl) };
-      if (provider === 'jina') return { selectedProvider: selected, usedProvider: provider, ...await fetchJinaEnrichment(seedText, config, runtime, fetchImpl) };
-      if (provider === 'firecrawl') return { selectedProvider: selected, usedProvider: provider, ...await fetchFirecrawlEnrichment(seedText, config, runtime, fetchImpl) };
-      if (provider === 'driftbot') return { selectedProvider: selected, usedProvider: provider, ...await fetchDriftbotEnrichment(seedText, config, runtime, fetchImpl) };
-      if (provider === 'gemini') return { selectedProvider: selected, usedProvider: provider, ...await fetchGeminiEnrichment(seedText, config, runtime, fetchImpl) };
+      if (provider === 'wikipedia') return { selectedProvider: selected, usedProvider: provider, attemptedProviders, ...await fetchWikipediaEnrichment(seedText, config, runtime, fetchImpl) };
+      if (provider === 'wikidata') return { selectedProvider: selected, usedProvider: provider, attemptedProviders, ...await fetchWikidataEnrichment(seedText, config, runtime, fetchImpl) };
+      if (provider === 'dbpedia') return { selectedProvider: selected, usedProvider: provider, attemptedProviders, ...await fetchDbpediaEnrichment(seedText, config, runtime, fetchImpl) };
+      if (provider === 'gdelt') return { selectedProvider: selected, usedProvider: provider, attemptedProviders, ...await fetchGdeltEnrichment(seedText, config, runtime, fetchImpl) };
+      if (provider === 'googlekg') return { selectedProvider: selected, usedProvider: provider, attemptedProviders, ...await fetchGoogleKgEnrichment(seedText, config, runtime, fetchImpl) };
+      if (provider === 'jina') return { selectedProvider: selected, usedProvider: provider, attemptedProviders, ...await fetchJinaEnrichment(seedText, config, runtime, fetchImpl) };
+      if (provider === 'firecrawl') return { selectedProvider: selected, usedProvider: provider, attemptedProviders, ...await fetchFirecrawlEnrichment(seedText, config, runtime, fetchImpl) };
+      if (provider === 'brave') return { selectedProvider: selected, usedProvider: provider, attemptedProviders, ...await fetchBraveEnrichment(seedText, config, runtime, fetchImpl) };
+      if (provider === 'tavily') return { selectedProvider: selected, usedProvider: provider, attemptedProviders, ...await fetchTavilyEnrichment(seedText, config, runtime, fetchImpl) };
+      if (provider === 'exa') return { selectedProvider: selected, usedProvider: provider, attemptedProviders, ...await fetchExaEnrichment(seedText, config, runtime, fetchImpl) };
+      if (provider === 'serper') return { selectedProvider: selected, usedProvider: provider, attemptedProviders, ...await fetchSerperEnrichment(seedText, config, runtime, fetchImpl) };
+      if (provider === 'serpapi') return { selectedProvider: selected, usedProvider: provider, attemptedProviders, ...await fetchSerpApiEnrichment(seedText, config, runtime, fetchImpl) };
+      if (provider === 'driftbot') return { selectedProvider: selected, usedProvider: provider, attemptedProviders, ...await fetchDriftbotEnrichment(seedText, config, runtime, fetchImpl) };
+      if (provider === 'gemini') return { selectedProvider: selected, usedProvider: provider, attemptedProviders, ...await fetchGeminiEnrichment(seedText, config, runtime, fetchImpl) };
     } catch (error) {
       errors.push(`${provider}: ${String(error?.message || error)}`);
     }
@@ -900,6 +1144,7 @@ async function runStoryEnrichment(seedText, config, runtime, options = {}) {
   return {
     selectedProvider: selected,
     usedProvider: '',
+    attemptedProviders,
     items: [],
     related: [],
     sources: [],

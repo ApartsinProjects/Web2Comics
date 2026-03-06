@@ -3,7 +3,11 @@ const {
   extractFirstUrl,
   inferLikelyWebUrlFromText,
   extractMessageInputText,
-  extractFirstUrlLikeToken
+  extractFirstUrlLikeToken,
+  isLikelyPdfUrl,
+  extractFirstPdfUrlLikeToken,
+  isLikelyAudioUrl,
+  extractFirstAudioUrlLikeToken
 } = require('../src/message-utils');
 
 describe('message utils URL parsing', () => {
@@ -93,6 +97,20 @@ describe('message utils URL parsing', () => {
     const out = classifyMessageInput('go to https:\\\\cnn.com/world');
     expect(out.kind).toBe('url');
     expect(out.value).toBe('https://cnn.com/world');
+  });
+
+  it('detects PDF links with and without protocol', () => {
+    expect(isLikelyPdfUrl('https://example.com/files/guide.pdf')).toBe(true);
+    expect(isLikelyPdfUrl('https://example.com/download?file=guide.pdf')).toBe(true);
+    expect(isLikelyPdfUrl('https://example.com/article')).toBe(false);
+    expect(extractFirstPdfUrlLikeToken('please parse www.example.com/docs/file.pdf now')).toBe('https://www.example.com/docs/file.pdf');
+  });
+
+  it('detects audio links with and without protocol', () => {
+    expect(isLikelyAudioUrl('https://example.com/audio/clip.mp3')).toBe(true);
+    expect(isLikelyAudioUrl('https://example.com/audio/clip.ogg?x=1')).toBe(true);
+    expect(isLikelyAudioUrl('https://example.com/article')).toBe(false);
+    expect(extractFirstAudioUrlLikeToken('please use www.example.com/audio/clip.wav now')).toBe('https://www.example.com/audio/clip.wav');
   });
 
   it('extracts and merges multiple telegram text fields', () => {

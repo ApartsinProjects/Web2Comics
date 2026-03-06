@@ -14,6 +14,14 @@ generation:
   objective: explain-like-im-five
   output_language: en
   url_extractor: gemini
+  url_extractor_gemini_model: gemini-3-flash-preview
+  pdf_extractor: llamaparse
+  pdf_extractor_unstructured_strategy: auto
+  image_extractor: gemini
+  image_extractor_gemini_model: gemini-2.5-flash
+  image_extractor_openai_model: gpt-4.1-mini
+  voice_extractor: assemblyai
+  voice_extractor_assemblyai_model: best
   detail_level: low
   style_prompt: "clean comic panel art, readable characters, coherent scene progression"
 

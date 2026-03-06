@@ -290,6 +290,7 @@ describe('render generate helpers', () => {
     expect(normalizeUrlExtractor('chromium')).toBe('chromium');
     expect(normalizeUrlExtractor('firecrawl')).toBe('firecrawl');
     expect(normalizeUrlExtractor('jina')).toBe('jina');
+    expect(normalizeUrlExtractor('diffbot')).toBe('driftbot');
     expect(normalizeUrlExtractor('driftbot')).toBe('driftbot');
     expect(normalizeUrlExtractor('unknown')).toBe('gemini');
   });
@@ -308,8 +309,53 @@ describe('render generate helpers', () => {
   it('normalizes enrichment provider names with safe default', () => {
     expect(normalizeEnrichmentProvider('jina')).toBe('jina');
     expect(normalizeEnrichmentProvider('wikipedia')).toBe('wikipedia');
+    expect(normalizeEnrichmentProvider('diffbot')).toBe('driftbot');
+    expect(normalizeEnrichmentProvider('brave')).toBe('brave');
+    expect(normalizeEnrichmentProvider('tavily')).toBe('tavily');
+    expect(normalizeEnrichmentProvider('exa')).toBe('exa');
+    expect(normalizeEnrichmentProvider('serper')).toBe('serper');
+    expect(normalizeEnrichmentProvider('serpapi')).toBe('serpapi');
+    expect(normalizeEnrichmentProvider('wikidata')).toBe('wikidata');
+    expect(normalizeEnrichmentProvider('dbpedia')).toBe('dbpedia');
+    expect(normalizeEnrichmentProvider('gdelt')).toBe('gdelt');
+    expect(normalizeEnrichmentProvider('googlekg')).toBe('googlekg');
     expect(normalizeEnrichmentProvider('')).toBe('wikipedia');
     expect(normalizeEnrichmentProvider('unknown')).toBe('wikipedia');
+  });
+
+  it('supports wikidata enrichment provider', async () => {
+    const fetchImpl = async (url) => {
+      const u = String(url || '');
+      if (!u.includes('wikidata.org/w/api.php')) throw new Error(`Unexpected URL ${u}`);
+      return {
+        ok: true,
+        status: 200,
+        async text() {
+          return JSON.stringify({
+            search: [
+              {
+                id: 'Q1490',
+                label: 'Tokyo',
+                description: 'capital city of Japan',
+                concepturi: 'http://www.wikidata.org/entity/Q1490'
+              }
+            ]
+          });
+        }
+      };
+    };
+
+    const result = await runStoryEnrichment(
+      'Tokyo 2100',
+      { generation: { enrichment_provider: 'wikidata', enrichment_fallback_provider: 'wikipedia', max_context_items: 3 } },
+      { fetchTimeoutMs: 5000 },
+      { fetchImpl }
+    );
+
+    expect(result.selectedProvider).toBe('wikidata');
+    expect(result.usedProvider).toBe('wikidata');
+    expect(Array.isArray(result.items)).toBe(true);
+    expect(result.items[0]).toContain('capital city');
   });
 
   it('builds bounded enriched seed text with template sections', () => {
@@ -375,7 +421,63 @@ describe('render generate helpers', () => {
 
     expect(result.selectedProvider).toBe('firecrawl');
     expect(result.usedProvider).toBe('wikipedia');
+    expect(Array.isArray(result.attemptedProviders)).toBe(true);
+    expect(result.attemptedProviders.slice(0, 2)).toEqual(['firecrawl', 'wikipedia']);
     expect(Array.isArray(result.items)).toBe(true);
+    expect(result.items.length).toBeGreaterThan(0);
+  });
+
+  it('falls through to additional enrichment providers when selected and fallback both fail', async () => {
+    const fetchImpl = async (url) => {
+      const u = String(url || '');
+      if (u.includes('api.firecrawl.dev')) {
+        return {
+          ok: false,
+          status: 401,
+          async text() { return '{"error":"firecrawl auth failed"}'; }
+        };
+      }
+      if (u.includes('wikidata.org/w/api.php')) {
+        return {
+          ok: false,
+          status: 500,
+          async text() { return '{"error":"wikidata down"}'; }
+        };
+      }
+      if (u.includes('wikipedia.org/w/api.php')) {
+        return {
+          ok: true,
+          status: 200,
+          async text() {
+            return JSON.stringify({ query: { search: [{ title: 'Tokyo' }] } });
+          }
+        };
+      }
+      if (u.includes('wikipedia.org/api/rest_v1/page/summary/')) {
+        return {
+          ok: true,
+          status: 200,
+          async text() {
+            return JSON.stringify({
+              extract: 'Tokyo has dense transit, robotics, and layered urban culture.',
+              content_urls: { desktop: { page: 'https://en.wikipedia.org/wiki/Tokyo' } }
+            });
+          }
+        };
+      }
+      throw new Error(`Unexpected URL ${u}`);
+    };
+
+    const result = await runStoryEnrichment(
+      'Tokyo 2100',
+      { generation: { enrichment_provider: 'firecrawl', enrichment_fallback_provider: 'wikidata', max_context_items: 3 } },
+      { fetchTimeoutMs: 5000 },
+      { fetchImpl }
+    );
+
+    expect(result.selectedProvider).toBe('firecrawl');
+    expect(result.usedProvider).toBe('wikipedia');
+    expect(result.attemptedProviders.slice(0, 3)).toEqual(['firecrawl', 'wikidata', 'wikipedia']);
     expect(result.items.length).toBeGreaterThan(0);
   });
 

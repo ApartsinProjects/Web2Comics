@@ -7,6 +7,10 @@ const OBJECTIVE_DEFINITIONS = {
     name: 'Fun',
     description: 'Make it playful, surprising, and entertaining while keeping the main facts accurate.'
   },
+  meme: {
+    name: 'Meme Viral',
+    description: 'Craft each panel as punchy, relatable, and instantly shareable meme content with a strong setup-payoff rhythm, high emotional contrast, and visual hooks people want to repost.'
+  },
   'learn-step-by-step': {
     name: 'Learn Step By Step',
     description: 'Teach progressively from basics to advanced points, with clear transitions between steps.'
@@ -46,6 +50,46 @@ const OBJECTIVE_DEFINITIONS = {
   'debate-map': {
     name: 'Debate Map',
     description: 'Map claims, counter-claims, and supporting evidence with logical structure and balance.'
+  },
+  'scientific-paper-comics': {
+    name: 'Scientific Paper Comics',
+    description: 'Turn research papers into clear visual summaries emphasizing problem, method, results, limitations, and practical impact.'
+  },
+  'legal-contract-visualization': {
+    name: 'Legal Contract Visualization',
+    description: 'Present obligations, responsibilities, timelines, exceptions, and risk points as an easy-to-follow legal narrative.'
+  },
+  'corporate-meeting-summaries': {
+    name: 'Corporate Meeting Summaries',
+    description: 'Condense meeting discussions into decisions, owners, disagreements, action items, deadlines, and next steps.'
+  },
+  'software-documentation-comics': {
+    name: 'Software Documentation Comics',
+    description: 'Explain setup flow, architecture, APIs, and onboarding sequence as practical step-by-step technical visuals.'
+  },
+  'customer-support-conversation-comics': {
+    name: 'Customer Support Conversation Comics',
+    description: 'Reconstruct support interactions into issue timeline, troubleshooting attempts, root cause, escalation, and resolution.'
+  },
+  'historical-story-mode': {
+    name: 'Historical Story Mode',
+    description: 'Depict historical events and biographies with chronological accuracy, context, and engaging narrative continuity.'
+  },
+  'therapy-reflection-journals': {
+    name: 'Therapy / Reflection Journals',
+    description: 'Transform reflection text into gentle narrative scenes that highlight emotions, triggers, coping choices, and growth.'
+  },
+  'children-learning-mode': {
+    name: 'Children Learning Mode',
+    description: 'Explain concepts using age-appropriate language, friendly examples, and memorable educational storytelling.'
+  },
+  'debate-visualization': {
+    name: 'Debate Visualization',
+    description: 'Represent opposing viewpoints as clear scenes showing positions, tradeoffs, evidence, and potential compromise.'
+  },
+  'investor-narrative-mode': {
+    name: 'Investor Narrative Mode',
+    description: 'Translate financial and company updates into clear cause-effect narratives about risks, drivers, and market implications.'
   }
 };
 
@@ -128,6 +172,7 @@ const STYLE_SHORTCUTS = Object.fromEntries(
 const OBJECTIVE_SHORTCUTS = {
   '/summary': 'summarize',
   '/fun': 'fun',
+  '/meme': 'meme',
   '/learn': 'learn-step-by-step',
   '/news': 'news-recap',
   '/timeline': 'timeline',

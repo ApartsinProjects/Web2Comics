@@ -45,6 +45,8 @@
     "test:telegram:r2-real": "vitest run -c telegram/vitest.config.js telegram/tests/r2-crash-log.e2e.test.js telegram/tests/image-r2.e2e.test.js",
     "test:telegram:full-stack": "vitest run -c telegram/vitest.config.js telegram/tests/full-stack.interfaces.e2e.test.js",
     "test:telegram:predeploy": "node telegram/scripts/predeploy-check.js",
+    "test:vendor:preflight": "set PREDEPLOY_SKIP_TESTS=true&& node telegram/scripts/predeploy-check.js",
+    "test:vendor:matrix:local": "node telegram/scripts/vendor-local-matrix.js",
     "test:render": "npm run test:telegram",
     "test:render:local": "npm run test:telegram:local",
     "test:render:gemini-real": "npm run test:telegram:gemini-real",

@@ -3,6 +3,7 @@ const { loadEnvFiles } = require('./env');
 
 const repoRoot = path.resolve(__dirname, '../..');
 loadEnvFiles([
+  path.join(repoRoot, '.env.all'),
   path.join(repoRoot, '.env.e2e.local'),
   path.join(repoRoot, '.env.local'),
   path.join(repoRoot, 'comicbot/.env'),

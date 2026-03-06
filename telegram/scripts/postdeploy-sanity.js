@@ -199,6 +199,7 @@ async function main() {
   const args = parseArgs(process.argv.slice(2));
   const envOnly = parseBool(args['env-only'] || process.env.BOT_SECRETS_ENV_ONLY);
   loadEnvFiles([
+    path.join(repoRoot, '.env.all'),
     path.join(repoRoot, '.env.local'),
     path.join(repoRoot, '.env.e2e.local'),
     path.join(repoRoot, 'comicbot/.env'),
