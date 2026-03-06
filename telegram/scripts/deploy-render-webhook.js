@@ -938,11 +938,19 @@ async function main() {
 
   globalStage = 'resolve-owner';
   let ownerId = ownerIdArg;
+  const owners = await render.listOwners();
+  if (!owners.length) throw new Error('No Render owners/workspaces found for this API key.');
+  const ownerIds = owners
+    .map((row) => String((row?.owner && row.owner.id) || row?.id || '').trim())
+    .filter(Boolean);
   if (!ownerId) {
-    const owners = await render.listOwners();
-    if (!owners.length) throw new Error('No Render owners/workspaces found for this API key.');
-    ownerId = String((owners[0].owner && owners[0].owner.id) || owners[0].id || '');
+    ownerId = ownerIds[0] || '';
     if (!ownerId) throw new Error('Unable to resolve ownerId from Render API.');
+  } else if (!ownerIds.includes(String(ownerId).trim())) {
+    const fallbackOwnerId = ownerIds[0] || '';
+    if (!fallbackOwnerId) throw new Error(`Configured ownerId '${ownerId}' is invalid and no fallback owner is available.`);
+    console.log(`[deploy] warning: configured ownerId '${ownerId}' is invalid for this API key; using '${fallbackOwnerId}'`);
+    ownerId = fallbackOwnerId;
   }
 
   globalOwnerId = ownerId;
