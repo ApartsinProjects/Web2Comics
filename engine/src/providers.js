@@ -141,6 +141,18 @@ function decodeDataUri(value) {
   return Buffer.from(match[1], 'base64');
 }
 
+function normalizeBaseUrl(value, fallback) {
+  const raw = String(value || fallback || '').trim();
+  if (!raw) return '';
+  return raw.replace(/\/+$/, '');
+}
+
+function buildHuggingFaceModelUrl(providerConfig, model) {
+  const configuredBase = resolveProviderValue(providerConfig, 'base_url', 'HUGGINGFACE_BASE_URL');
+  const base = normalizeBaseUrl(configuredBase, 'https://router.huggingface.co/hf-inference');
+  return `${base}/models/${encodeURIComponent(String(model || '').trim())}`;
+}
+
 const NO_TEXT_IMAGE_SUFFIX = [
   'STRICT NO-TEXT RULE:',
   'Do not render any words, letters, numbers, symbols, labels, signs, logos, UI text, speech bubbles, subtitles, captions, or watermarks.',
@@ -266,7 +278,7 @@ async function generateTextWithProvider(providerConfig, prompt, runtimeConfig) {
   if (provider === 'huggingface') {
     const apiKey = resolveProviderValue(providerConfig, 'api_key', 'HUGGINGFACE_INFERENCE_API_TOKEN') || process.env.HUGGINGFACE_API_KEY || '';
     if (!apiKey) throw new Error('Missing HUGGINGFACE_INFERENCE_API_TOKEN for Hugging Face text provider');
-    const { json } = await fetchJson(`https://api-inference.huggingface.co/models/${model}`, {
+    const { json } = await fetchJson(buildHuggingFaceModelUrl(providerConfig, model), {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${apiKey}`,
@@ -449,7 +461,7 @@ async function generateImageWithProvider(providerConfig, prompt, runtimeConfig, 
   if (provider === 'huggingface') {
     const apiKey = resolveProviderValue(providerConfig, 'api_key', 'HUGGINGFACE_INFERENCE_API_TOKEN') || process.env.HUGGINGFACE_API_KEY || '';
     if (!apiKey) throw new Error('Missing HUGGINGFACE_INFERENCE_API_TOKEN for Hugging Face image provider');
-    const response = await withTimeout(fetch(`https://api-inference.huggingface.co/models/${model}`, {
+    const response = await withTimeout(fetch(buildHuggingFaceModelUrl(providerConfig, model), {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${apiKey}`,

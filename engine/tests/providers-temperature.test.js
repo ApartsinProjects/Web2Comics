@@ -67,8 +67,10 @@ describe('provider text temperature wiring', () => {
       { timeout_ms: 1000, text_temperature: 1.1 }
     );
 
+    const url = String(fetchMock.mock.calls[0][0] || '');
     const init = fetchMock.mock.calls[0][1];
     const body = JSON.parse(String(init.body || '{}'));
+    expect(url).toContain('router.huggingface.co/hf-inference/models/');
     expect(body.inputs).toBe('hello');
     expect(body.parameters.max_new_tokens).toBe(512);
     expect(body.parameters.temperature).toBe(1.1);
