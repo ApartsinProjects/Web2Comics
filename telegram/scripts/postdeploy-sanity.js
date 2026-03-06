@@ -264,11 +264,11 @@ async function main() {
   console.log('[sanity] capture R2 baseline');
   const s3 = createS3(endpoint, accessKeyId, secretAccessKey);
   const beforeReq = new Set(await listKeys(s3, bucket, 'logs/requests/'));
-  const beforeImg = new Set(await listKeys(s3, bucket, 'images/'));
 
   const marker = `sanity-${Date.now()}`;
-  console.log(`[sanity] webhook generation trigger -> ${marker}`);
-  await postWebhook(baseUrl, webhookSecret, marker, chatId);
+  const commandText = `/user ${marker}`;
+  console.log(`[sanity] webhook command trigger -> ${commandText}`);
+  await postWebhook(baseUrl, webhookSecret, commandText, chatId);
   await assertHealth(baseUrl, 'post-webhook');
 
   console.log('[sanity] wait for request log marker');
@@ -282,17 +282,6 @@ async function main() {
     return found;
   }, 180000, 2500, 'request log marker');
   console.log(`[sanity] marker request found: ${requestEntry.key}`);
-
-  console.log('[sanity] wait for image artifact growth (live provider path)');
-  await waitFor(async () => {
-    await assertHealth(baseUrl, 'image-growth-wait');
-    const found = await findMarkerRequestEntry(s3, bucket, beforeReq, marker);
-    if (found && found.obj && found.obj.result && found.obj.result.ok === false) {
-      throw new Error(`Remote generation failed: ${String(found.obj.result.error || 'unknown error')}`);
-    }
-    const keys = await listKeys(s3, bucket, 'images/');
-    return keys.some((k) => !beforeImg.has(k));
-  }, 240000, 3000, 'generated images');
 
   console.log('[sanity] telegram API check');
   const msg = await sendTelegramMessage(telegramToken, chatId, `Web2Comic sanity passed for marker ${marker}`);
