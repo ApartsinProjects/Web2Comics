@@ -13,6 +13,7 @@ generation:
   panel_count: 3
   objective: explain-like-im-five
   output_language: en
+  url_extractor: gemini
   detail_level: low
   style_prompt: "clean comic panel art, readable characters, coherent scene progression"
 

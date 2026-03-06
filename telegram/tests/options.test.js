@@ -16,5 +16,7 @@ describe('render options', () => {
     expect(getOptions('generation.invent_temperature').includes('0.95')).toBe(true);
     expect(getOptions('generation.delivery_mode').includes('media_group')).toBe(true);
     expect(getOptions('generation.consistency').includes('on')).toBe(true);
+    expect(getOptions('generation.url_extractor').includes('firecrawl')).toBe(true);
+    expect(getOptions('generation.url_extractor').includes('jina')).toBe(true);
   });
 });

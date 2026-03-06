@@ -448,6 +448,7 @@ describe('render webhook bot REST + telegram flow', () => {
         '/newspaper -',
         '/new_style <name> <text> -',
         '/language <code> -',
+        '/extractor <gemini|firecrawl|jina|chromium> -',
         '/mode <default|media_group|single> -',
         '/consistency <on|off> -',
         '/crazyness <0..2> -',
@@ -500,6 +501,58 @@ describe('render webhook bot REST + telegram flow', () => {
       expect(texts.some((t) => t.includes('Unrecognized command.'))).toBe(true);
       expect(texts.some((t) => t.includes('Confirmed changes: none.'))).toBe(true);
       expect(texts.some((t) => t.includes('Done:'))).toBe(false);
+    } finally {
+      await bot.stop();
+      await tg.close();
+    }
+  }, 20000);
+
+  it('supports /extractor command and stores selected URL extractor vendor', async () => {
+    const tg = await startFakeTelegramServer();
+    const botPort = await getFreePort();
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'render-bot-extractor-command-'));
+    const statePath = path.join(tmpDir, 'runtime-state.json');
+    const bot = await startBotProcess(
+      botPort,
+      `http://127.0.0.1:${tg.port}/botTEST_TOKEN`,
+      statePath
+    );
+
+    try {
+      const res = await postUpdate(botPort, { chat: { id: 777 }, text: '/extractor firecrawl' });
+      expect(res.status).toBe(200);
+      await waitFor(() => tg.calls.some((c) =>
+        c.url.endsWith('/sendMessage') && String(c.body.text || '').includes('Updated generation.url_extractor = firecrawl')
+      ), 8000, 100);
+      const stateRaw = fs.readFileSync(statePath, 'utf8');
+      const state = JSON.parse(stateRaw);
+      expect(state?.users?.['777']?.overrides?.generation?.url_extractor).toBe('firecrawl');
+    } finally {
+      await bot.stop();
+      await tg.close();
+    }
+  }, 20000);
+
+  it('supports /extractor jina', async () => {
+    const tg = await startFakeTelegramServer();
+    const botPort = await getFreePort();
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'render-bot-extractor-jina-'));
+    const statePath = path.join(tmpDir, 'runtime-state.json');
+    const bot = await startBotProcess(
+      botPort,
+      `http://127.0.0.1:${tg.port}/botTEST_TOKEN`,
+      statePath
+    );
+
+    try {
+      const res = await postUpdate(botPort, { chat: { id: 777 }, text: '/extractor jina' });
+      expect(res.status).toBe(200);
+      await waitFor(() => tg.calls.some((c) =>
+        c.url.endsWith('/sendMessage') && String(c.body.text || '').includes('Updated generation.url_extractor = jina')
+      ), 8000, 100);
+      const stateRaw = fs.readFileSync(statePath, 'utf8');
+      const state = JSON.parse(stateRaw);
+      expect(state?.users?.['777']?.overrides?.generation?.url_extractor).toBe('jina');
     } finally {
       await bot.stop();
       await tg.close();
@@ -1403,6 +1456,45 @@ describe('render webhook bot REST + telegram flow', () => {
         chat: { id: 777 },
         from: { id: 777, username: 'url_only_fail_user', first_name: 'UrlOnly' },
         text: 'https://example.com/article'
+      });
+      expect(res.status).toBe(200);
+
+      await waitFor(() => tg.calls
+        .slice(before)
+        .filter((c) => c.url.endsWith('/sendMessage'))
+        .map((c) => String(c.body.text || ''))
+        .some((m) => m.includes("Can't extract story from this link.")), 12000, 100);
+
+      const chunk = tg.calls.slice(before);
+      const msgTexts = chunk.filter((c) => c.url.endsWith('/sendMessage')).map((c) => String(c.body.text || ''));
+      expect(msgTexts.some((m) => m.includes("Can't extract story from this link."))).toBe(true);
+      expect(msgTexts.some((m) => m.includes('Invented story'))).toBe(false);
+      expect(chunk.some((c) => c.url.endsWith('/sendPhoto'))).toBe(false);
+    } finally {
+      await bot.stop();
+      await tg.close();
+    }
+  }, 30000);
+
+  it('stops gracefully for URL-like dot notation when extraction fails (no invent fallback)', async () => {
+    const tg = await startFakeTelegramServer();
+    const botPort = await getFreePort();
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'render-bot-webhook-'));
+    const bot = await startBotProcess(
+      botPort,
+      `http://127.0.0.1:${tg.port}/botTEST_TOKEN`,
+      path.join(tmpDir, 'runtime-state.json'),
+      {
+        RENDER_BOT_FAKE_URL_FETCH_FAIL: 'true'
+      }
+    );
+
+    try {
+      const before = tg.calls.length;
+      const res = await postUpdate(botPort, {
+        chat: { id: 777 },
+        from: { id: 777, username: 'url_only_dot_user', first_name: 'UrlDot' },
+        text: 'www.cnn.com'
       });
       expect(res.status).toBe(200);
 

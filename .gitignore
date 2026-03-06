@@ -1,8 +1,12 @@
 .env.local
 .env.e2e.local
 .env.local
+.secrets/
+.crawler
+telegram/.crawler
 shared/recommended-model-set.local.json
 .telegram.yaml
+.telegram.stage.yaml
 telegram/.env
 telegram/data/runtime-state.json
 

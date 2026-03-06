@@ -5,6 +5,7 @@ const OPTION_MAP = {
   'generation.panel_count': ['3', '4', '5', '6', '8', '10', '12'],
   'generation.objective': OBJECTIVE_VALUES.slice(),
   'generation.output_language': ['en', 'auto', 'es', 'fr', 'de', 'it', 'pt', 'ru', 'ja', 'ko', 'zh', 'he'],
+  'generation.url_extractor': ['gemini', 'firecrawl', 'jina', 'chromium'],
   'generation.consistency': ['off', 'on'],
   'generation.invent_temperature': ['0.3', '0.5', '0.7', '0.95', '1.2', '1.5'],
   'generation.delivery_mode': ['default', 'media_group', 'single'],
@@ -29,7 +30,9 @@ const SECRET_KEYS = [
   'OPENROUTER_API_KEY',
   'HUGGINGFACE_INFERENCE_API_TOKEN',
   'CLOUDFLARE_ACCOUNT_ID',
-  'CLOUDFLARE_API_TOKEN'
+  'CLOUDFLARE_API_TOKEN',
+  'FIRECRAWL_API_KEY',
+  'JINA_API_KEY'
 ];
 
 module.exports = {

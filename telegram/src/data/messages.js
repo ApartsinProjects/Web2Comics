@@ -62,6 +62,7 @@ function buildHelpMessage(chatId, options = {}) {
     ...styleShortcutLines,
     '/new_style <name> <text> - save a custom named style.',
     '/language <code> - set output language.',
+    '/extractor <gemini|firecrawl|jina|chromium> - set URL story extraction vendor.',
     '/mode <default|media_group|single> - set delivery mode.',
     '/consistency <on|off> - toggle reference-style consistency flow.',
     '/detail <low|medium|high> - set output detail level.',

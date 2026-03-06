@@ -94,9 +94,16 @@ function inferLikelyWebUrlFromText(value) {
 function extractTextFallbackFromUrlMessage(value) {
   const raw = String(value || '').trim();
   if (!raw) return '';
-  const withoutUrls = raw.replace(/https?:\/\/[^\s<>"'`]+/gi, ' ').replace(/\s+/g, ' ').trim();
-  if (withoutUrls) return withoutUrls;
-  return raw;
+  let candidate = raw
+    .replace(/https?:\/\/[^\s<>"'`]+/gi, ' ')
+    .replace(/\bwww\.[^\s<>"'`]+\b/gi, ' ');
+
+  // Remove plain domain tokens (with optional path) so URL-only messages like
+  // "cnn.com" or "cnn.com/news" don't get treated as fallback story text.
+  const tokens = candidate.split(/\s+/).filter(Boolean);
+  const kept = tokens.filter((t) => !inferLikelyWebUrlFromText(t));
+  candidate = kept.join(' ').replace(/\s+/g, ' ').trim();
+  return candidate;
 }
 
 function extractLinksFromEntities(baseText, entities) {

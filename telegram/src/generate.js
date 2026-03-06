@@ -16,6 +16,10 @@ const SUPPORTED_OUTPUT_LANGS = new Set(['en', 'auto', 'es', 'fr', 'de', 'it', 'p
 const PANEL_WATERMARK_TEXT = 'made with Web2Comics';
 const GEMINI_TEXT_MODEL = 'gemini-2.5-flash';
 const GEMINI_IMAGE_MODEL = 'gemini-2.0-flash-exp-image-generation';
+const GEMINI_URL_EXTRACT_MODEL = 'gemini-3-flash-preview';
+const URL_EXTRACTOR_VALUES = new Set(['gemini', 'chromium', 'firecrawl', 'jina']);
+let playwrightInstallPromise = null;
+let playwrightChromiumReady = false;
 
 const PROVIDER_REQUIRED_ENV = {
   gemini: ['GEMINI_API_KEY'],
@@ -29,6 +33,19 @@ function trimForLog(value, maxLen = 300) {
   const raw = String(value == null ? '' : value);
   if (raw.length <= maxLen) return raw;
   return `${raw.slice(0, maxLen)}...`;
+}
+
+function normalizeUrlExtractor(raw) {
+  const value = String(raw || '').trim().toLowerCase();
+  if (!value) return 'gemini';
+  if (value === 'ai') return 'gemini';
+  if (value === 'browser') return 'chromium';
+  if (URL_EXTRACTOR_VALUES.has(value)) return value;
+  return 'gemini';
+}
+
+function getConfiguredUrlExtractor(config) {
+  return normalizeUrlExtractor(config?.generation?.url_extractor || config?.generation?.extractor || 'gemini');
 }
 
 function getUrlExtractionFailureReason(extracted) {
@@ -45,6 +62,148 @@ function getUrlExtractionFailureReason(extracted) {
     return 'page appears gated and not readable without browser/session access';
   }
   return '';
+}
+
+function getGeminiApiKey() {
+  const key = String(process.env.GEMINI_API_KEY || '').trim();
+  if (!key) throw new Error('Missing GEMINI_API_KEY for Gemini URL extractor');
+  return key;
+}
+
+function getFirecrawlApiKey() {
+  const key = String(process.env.FIRECRAWL_API_KEY || '').trim();
+  if (!key) throw new Error('Missing FIRECRAWL_API_KEY for Firecrawl URL extractor');
+  return key;
+}
+
+function getJinaApiKey() {
+  const key = String(process.env.JINA_API_KEY || '').trim();
+  if (!key) throw new Error('Missing JINA_API_KEY for Jina URL extractor');
+  return key;
+}
+
+function parseGeminiTextResponse(json) {
+  const parts = json?.candidates?.[0]?.content?.parts || [];
+  return parts.map((p) => String(p?.text || '')).filter(Boolean).join('\n').trim();
+}
+
+async function extractStoryViaGeminiUrlContext(url, runtime, config) {
+  const apiKey = getGeminiApiKey();
+  const model = String(config?.generation?.url_extractor_gemini_model || GEMINI_URL_EXTRACT_MODEL).trim();
+  const prompt = [
+    'Use URL context tool to read the page and extract the most interesting story from it.',
+    'Return detailed narrative text only (no markdown, no JSON, no bullets, no section titles).',
+    'Preserve important facts, sequence, actors, and context.',
+    `URL: ${url}`
+  ].join('\n');
+  const timeoutMs = Math.max(5000, Number(runtime?.fetchTimeoutMs || 45000));
+  const response = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ role: 'user', parts: [{ text: prompt }] }],
+        tools: [{ url_context: {} }],
+        generationConfig: { temperature: 0.2, maxOutputTokens: 4096 }
+      }),
+      signal: AbortSignal.timeout(timeoutMs)
+    }
+  );
+  const raw = await response.text();
+  let json = null;
+  try {
+    json = raw ? JSON.parse(raw) : null;
+  } catch (_) {}
+  if (!response.ok) {
+    const reason = String(json?.error?.message || raw || `HTTP ${response.status}`).slice(0, 800);
+    throw new Error(`Gemini URL extractor failed (${response.status}): ${reason}`);
+  }
+  const extractedText = parseGeminiTextResponse(json);
+  if (!extractedText) throw new Error('Gemini URL extractor returned empty text');
+  return {
+    text: extractedText,
+    title: String(json?.candidates?.[0]?.content?.parts?.[0]?.title || '').trim(),
+    metadata: { provider: 'gemini', model }
+  };
+}
+
+async function extractStoryViaFirecrawl(url, runtime) {
+  const apiKey = getFirecrawlApiKey();
+  const timeoutMs = Math.max(5000, Number(runtime?.fetchTimeoutMs || 45000));
+  const response = await fetch('https://api.firecrawl.dev/v1/scrape', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${apiKey}`
+    },
+    body: JSON.stringify({
+      url,
+      formats: ['markdown'],
+      onlyMainContent: true
+    }),
+    signal: AbortSignal.timeout(timeoutMs)
+  });
+  const raw = await response.text();
+  let json = null;
+  try {
+    json = raw ? JSON.parse(raw) : null;
+  } catch (_) {}
+  if (!response.ok) {
+    const reason = String(json?.error || json?.message || raw || `HTTP ${response.status}`).slice(0, 800);
+    throw new Error(`Firecrawl URL extractor failed (${response.status}): ${reason}`);
+  }
+  if (json && json.success === false) {
+    const reason = String(json?.error || json?.message || 'request failed').slice(0, 800);
+    throw new Error(`Firecrawl URL extractor failed: ${reason}`);
+  }
+  const extractedText = String(
+    json?.data?.markdown
+    || json?.data?.content
+    || json?.data?.text
+    || ''
+  ).trim();
+  if (!extractedText) throw new Error('Firecrawl URL extractor returned empty text');
+  return {
+    text: extractedText,
+    title: String(json?.data?.metadata?.title || json?.data?.title || '').trim(),
+    metadata: { provider: 'firecrawl' }
+  };
+}
+
+async function extractStoryViaJina(url, runtime) {
+  const apiKey = getJinaApiKey();
+  const timeoutMs = Math.max(5000, Number(runtime?.fetchTimeoutMs || 45000));
+  const endpoint = `https://r.jina.ai/${String(url || '').trim()}`;
+  const response = await fetch(endpoint, {
+    method: 'GET',
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      Accept: 'application/json',
+      'X-No-Cache': 'true'
+    },
+    signal: AbortSignal.timeout(timeoutMs)
+  });
+  const raw = await response.text();
+  if (!response.ok) {
+    const reason = String(raw || `HTTP ${response.status}`).slice(0, 800);
+    throw new Error(`Jina URL extractor failed (${response.status}): ${reason}`);
+  }
+  let title = '';
+  let extractedText = '';
+  try {
+    const json = raw ? JSON.parse(raw) : null;
+    title = String(json?.data?.title || json?.title || '').trim();
+    extractedText = String(json?.data?.content || json?.data?.text || json?.content || json?.text || '').trim();
+  } catch (_) {
+    extractedText = String(raw || '').trim();
+  }
+  if (!extractedText) throw new Error('Jina URL extractor returned empty text');
+  return {
+    text: extractedText,
+    title,
+    metadata: { provider: 'jina' }
+  };
 }
 
 function isFakeGeneratorEnabled() {
@@ -300,6 +459,35 @@ function installPlaywrightChromium() {
   });
 }
 
+async function ensurePlaywrightChromiumInstalledAsync(reason = 'runtime') {
+  if (playwrightChromiumReady) return;
+  if (playwrightInstallPromise) return playwrightInstallPromise;
+  playwrightInstallPromise = (async () => {
+    const startedAt = Date.now();
+    console.log('[render-bot] playwright_install_start', JSON.stringify({ reason }));
+    try {
+      installPlaywrightChromium();
+      playwrightChromiumReady = true;
+      console.log('[render-bot] playwright_install_done', JSON.stringify({
+        reason,
+        elapsedMs: Date.now() - startedAt
+      }));
+    } finally {
+      playwrightInstallPromise = null;
+    }
+  })();
+  return playwrightInstallPromise;
+}
+
+function warmupPlaywrightChromiumInBackground(reason = 'startup') {
+  ensurePlaywrightChromiumInstalledAsync(reason).catch((error) => {
+    console.warn('[render-bot] playwright_warmup_failed', JSON.stringify({
+      reason,
+      message: trimForLog(error && error.message ? error.message : String(error), 800)
+    }));
+  });
+}
+
 function hasGeminiKey() {
   return Boolean(String(process.env.GEMINI_API_KEY || '').trim());
 }
@@ -475,7 +663,7 @@ async function applyPanelWatermark(imageBuffer) {
     .toBuffer();
 }
 
-async function prepareInput(text, runtime) {
+async function prepareInput(text, runtime, config = {}, options = {}) {
   const parsed = classifyMessageInput(text);
   const ts = new Date().toISOString().replace(/[:.]/g, '-');
   await fs.promises.mkdir(runtime.outDir, { recursive: true });
@@ -485,65 +673,178 @@ async function prepareInput(text, runtime) {
   }
 
   if (parsed.kind === 'url') {
+    const selectedExtractor = getConfiguredUrlExtractor(config);
+    const attemptOrder = selectedExtractor === 'chromium'
+      ? ['chromium']
+      : [selectedExtractor, 'chromium'];
     console.log('[render-bot] url_input_detected', JSON.stringify({
       url: trimForLog(parsed.value, 500),
-      fetchTimeoutMs: Number(runtime.fetchTimeoutMs || 0)
+      fetchTimeoutMs: Number(runtime.fetchTimeoutMs || 0),
+      extractorSelected: selectedExtractor,
+      extractorAttemptOrder: attemptOrder.join('->')
     }));
     const outputPath = path.join(runtime.outDir, `render-url-${ts}.png`);
-    const snapshotPath = buildSnapshotPath(parsed.value, outputPath, '');
-    let snap;
-    try {
-      snap = await fetchUrlToHtmlSnapshot(parsed.value, snapshotPath, {
-        timeoutMs: runtime.fetchTimeoutMs,
-        waitUntil: 'domcontentloaded'
-      });
-    } catch (error) {
-      if (!shouldInstallPlaywrightBrowser(error)) throw error;
-      console.warn('[render-bot] playwright_missing_browser_install', JSON.stringify({
-        url: trimForLog(parsed.value, 500),
+    let lastError = null;
+    for (const extractor of attemptOrder) {
+      try {
+        if (extractor === 'gemini') {
+          const extracted = await extractStoryViaGeminiUrlContext(parsed.value, runtime, config);
+          const extractedText = String(extracted?.text || '').trim();
+          if (extractedText.length < URL_EXTRACT_MIN_CHARS) {
+            throw new Error(`URL extraction failed: not enough readable story text extracted (${extractedText.length} chars)`);
+          }
+          const inputPath = path.join(runtime.outDir, `render-url-gemini-${ts}.txt`);
+          await fs.promises.writeFile(inputPath, extractedText, 'utf8');
+          if (selectedExtractor !== extractor && typeof options.onExtractorFallback === 'function') {
+            await options.onExtractorFallback({ from: selectedExtractor, to: extractor, reason: 'extractor_failure' });
+          }
+          console.log('[render-bot] url_extractor_success', JSON.stringify({
+            inputUrl: trimForLog(parsed.value, 500),
+            extractorSelected: selectedExtractor,
+            extractorUsed: extractor,
+            extractedChars: extractedText.length
+          }));
+          return {
+            kind: 'url',
+            inputPath,
+            outputPath,
+            titleOverride: `Render Comic: ${new URL(parsed.value).hostname}`,
+            summary: parsed.value,
+            sourceText: extractedText,
+            extractorSelected: selectedExtractor,
+            extractorUsed: extractor
+          };
+        }
+
+        if (extractor === 'firecrawl') {
+          const extracted = await extractStoryViaFirecrawl(parsed.value, runtime);
+          const extractedText = String(extracted?.text || '').trim();
+          if (extractedText.length < URL_EXTRACT_MIN_CHARS) {
+            throw new Error(`URL extraction failed: not enough readable story text extracted (${extractedText.length} chars)`);
+          }
+          const inputPath = path.join(runtime.outDir, `render-url-firecrawl-${ts}.txt`);
+          await fs.promises.writeFile(inputPath, extractedText, 'utf8');
+          if (selectedExtractor !== extractor && typeof options.onExtractorFallback === 'function') {
+            await options.onExtractorFallback({ from: selectedExtractor, to: extractor, reason: 'extractor_failure' });
+          }
+          console.log('[render-bot] url_extractor_success', JSON.stringify({
+            inputUrl: trimForLog(parsed.value, 500),
+            extractorSelected: selectedExtractor,
+            extractorUsed: extractor,
+            extractedChars: extractedText.length
+          }));
+          return {
+            kind: 'url',
+            inputPath,
+            outputPath,
+            titleOverride: `Render Comic: ${new URL(parsed.value).hostname}`,
+            summary: parsed.value,
+            sourceText: extractedText,
+            extractorSelected: selectedExtractor,
+            extractorUsed: extractor
+          };
+        }
+
+        if (extractor === 'jina') {
+          const extracted = await extractStoryViaJina(parsed.value, runtime);
+          const extractedText = String(extracted?.text || '').trim();
+          if (extractedText.length < URL_EXTRACT_MIN_CHARS) {
+            throw new Error(`URL extraction failed: not enough readable story text extracted (${extractedText.length} chars)`);
+          }
+          const inputPath = path.join(runtime.outDir, `render-url-jina-${ts}.txt`);
+          await fs.promises.writeFile(inputPath, extractedText, 'utf8');
+          if (selectedExtractor !== extractor && typeof options.onExtractorFallback === 'function') {
+            await options.onExtractorFallback({ from: selectedExtractor, to: extractor, reason: 'extractor_failure' });
+          }
+          console.log('[render-bot] url_extractor_success', JSON.stringify({
+            inputUrl: trimForLog(parsed.value, 500),
+            extractorSelected: selectedExtractor,
+            extractorUsed: extractor,
+            extractedChars: extractedText.length
+          }));
+          return {
+            kind: 'url',
+            inputPath,
+            outputPath,
+            titleOverride: `Render Comic: ${new URL(parsed.value).hostname}`,
+            summary: parsed.value,
+            sourceText: extractedText,
+            extractorSelected: selectedExtractor,
+            extractorUsed: extractor
+          };
+        }
+
+        const snapshotPath = buildSnapshotPath(parsed.value, outputPath, '');
+        let snap;
+        try {
+          snap = await fetchUrlToHtmlSnapshot(parsed.value, snapshotPath, {
+            timeoutMs: runtime.fetchTimeoutMs,
+            waitUntil: 'domcontentloaded'
+          });
+        } catch (error) {
+          if (!shouldInstallPlaywrightBrowser(error)) throw error;
+          console.warn('[render-bot] playwright_missing_browser_install', JSON.stringify({
+            url: trimForLog(parsed.value, 500),
         message: trimForLog(error && error.message ? error.message : String(error), 800)
       }));
-      installPlaywrightChromium();
+      await ensurePlaywrightChromiumInstalledAsync('url_request_missing_browser');
       snap = await fetchUrlToHtmlSnapshot(parsed.value, snapshotPath, {
         timeoutMs: runtime.fetchTimeoutMs,
         waitUntil: 'domcontentloaded'
       });
+        }
+        let snapshotBytes = 0;
+        let extractedChars = 0;
+        let extractedTitle = '';
+        try {
+          const stats = await fs.promises.stat(snap.snapshotPath);
+          snapshotBytes = Number(stats.size || 0);
+        } catch (_) {}
+        let extractionFailureReason = '';
+        try {
+          const html = await fs.promises.readFile(snap.snapshotPath, 'utf8');
+          const extracted = extractFromHtml(html, {});
+          extractedChars = Number(String(extracted?.text || '').length || 0);
+          extractedTitle = String(extracted?.title || '').trim();
+          extractionFailureReason = getUrlExtractionFailureReason(extracted);
+        } catch (_) {}
+        if (extractionFailureReason) {
+          throw new Error(`URL extraction failed: ${extractionFailureReason}`);
+        }
+        if (selectedExtractor !== extractor && typeof options.onExtractorFallback === 'function') {
+          await options.onExtractorFallback({ from: selectedExtractor, to: extractor, reason: 'extractor_failure' });
+        }
+        console.log('[render-bot] url_snapshot_ready', JSON.stringify({
+          inputUrl: trimForLog(parsed.value, 500),
+          finalUrl: trimForLog(snap.finalUrl || parsed.value, 500),
+          title: trimForLog(snap.title || '', 160),
+          snapshotPath: snap.snapshotPath,
+          snapshotBytes,
+          extractedChars,
+          extractedTitle: trimForLog(extractedTitle, 160),
+          extractorSelected: selectedExtractor,
+          extractorUsed: extractor
+        }));
+        return {
+          kind: 'url',
+          inputPath: snap.snapshotPath,
+          outputPath,
+          titleOverride: `Render Comic: ${new URL(snap.finalUrl || parsed.value).hostname}`,
+          summary: snap.finalUrl || parsed.value,
+          sourceText: '',
+          extractorSelected: selectedExtractor,
+          extractorUsed: extractor
+        };
+      } catch (error) {
+        lastError = error;
+        console.warn('[render-bot] url_extractor_failed', JSON.stringify({
+          inputUrl: trimForLog(parsed.value, 500),
+          extractor,
+          message: trimForLog(error && error.message ? error.message : String(error), 800)
+        }));
+      }
     }
-    let snapshotBytes = 0;
-    let extractedChars = 0;
-    let extractedTitle = '';
-    try {
-      const stats = await fs.promises.stat(snap.snapshotPath);
-      snapshotBytes = Number(stats.size || 0);
-    } catch (_) {}
-    let extractionFailureReason = '';
-    try {
-      const html = await fs.promises.readFile(snap.snapshotPath, 'utf8');
-      const extracted = extractFromHtml(html, {});
-      extractedChars = Number(String(extracted?.text || '').length || 0);
-      extractedTitle = String(extracted?.title || '').trim();
-      extractionFailureReason = getUrlExtractionFailureReason(extracted);
-    } catch (_) {}
-    if (extractionFailureReason) {
-      throw new Error(`URL extraction failed: ${extractionFailureReason}`);
-    }
-    console.log('[render-bot] url_snapshot_ready', JSON.stringify({
-      inputUrl: trimForLog(parsed.value, 500),
-      finalUrl: trimForLog(snap.finalUrl || parsed.value, 500),
-      title: trimForLog(snap.title || '', 160),
-      snapshotPath: snap.snapshotPath,
-      snapshotBytes,
-      extractedChars,
-      extractedTitle: trimForLog(extractedTitle, 160)
-    }));
-    return {
-      kind: 'url',
-      inputPath: snap.snapshotPath,
-      outputPath,
-      titleOverride: `Render Comic: ${new URL(snap.finalUrl || parsed.value).hostname}`,
-      summary: snap.finalUrl || parsed.value,
-      sourceText: ''
-    };
+    throw lastError || new Error('URL extraction failed');
   }
 
   const inputPath = path.join(runtime.outDir, `render-text-${ts}.txt`);
@@ -585,8 +886,8 @@ async function generateWithRuntimeConfig(text, runtime, effectiveConfigPath) {
     };
   }
 
-  const prep = await prepareInput(text, runtime);
   const loaded = loadConfig(effectiveConfigPath);
+  const prep = await prepareInput(text, runtime, loaded.config);
   const resolvedLanguage = resolveOutputLanguage(text, prep, loaded.config);
   const runtimeConfigPath = (normalizeLanguageCode(loaded.config?.generation?.output_language || '') === 'auto')
     ? buildConfigPathForResolvedLanguage(effectiveConfigPath, loaded.config, resolvedLanguage)
@@ -628,7 +929,9 @@ async function generateWithRuntimeConfig(text, runtime, effectiveConfigPath) {
     ...result,
     outputLanguage: resolvedLanguage,
     kind: prep.kind,
-    summary: prep.summary
+    summary: prep.summary,
+    extractorSelected: prep.extractorSelected || '',
+    extractorUsed: prep.extractorUsed || ''
   };
 }
 
@@ -705,7 +1008,7 @@ async function generatePanelsWithRuntimeConfig(text, runtime, effectiveConfigPat
     };
   }
 
-  const prep = await prepareInput(text, runtime);
+  const prep = await prepareInput(text, runtime, loadedConfig.config, options);
   if (prep.kind === 'url') {
     console.log('[render-bot] panel_generation_from_url', JSON.stringify({
       urlSummary: trimForLog(prep.summary, 500),
@@ -812,7 +1115,9 @@ async function generatePanelsWithRuntimeConfig(text, runtime, effectiveConfigPat
     panelMessages: panelMessages.filter(Boolean),
     storyboard: detailed.storyboard || null,
     consistency: detailed.consistency || { enabled: false, used: false, reason: '' },
-    consistencyReferenceImagePath
+    consistencyReferenceImagePath,
+    extractorSelected: prep.extractorSelected || '',
+    extractorUsed: prep.extractorUsed || ''
   };
 }
 
@@ -879,5 +1184,7 @@ module.exports = {
   sanitizeInventedStoryText,
   applyPanelWatermark,
   shouldInstallPlaywrightBrowser,
-  inventStoryText
+  inventStoryText,
+  normalizeUrlExtractor,
+  warmupPlaywrightChromiumInBackground
 };

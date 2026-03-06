@@ -17,7 +17,8 @@ const {
   shouldPreemptiveFallbackToGemini,
   getUrlExtractionFailureReason,
   sanitizeInventedStoryText,
-  applyPanelWatermark
+  applyPanelWatermark,
+  normalizeUrlExtractor
 } = require('../src/generate');
 
 describe('render generate helpers', () => {
@@ -275,5 +276,15 @@ describe('render generate helpers', () => {
       title: 'Readable article',
       text: 'A'.repeat(220)
     })).toBe('');
+  });
+
+  it('normalizes URL extractor aliases and defaults', () => {
+    expect(normalizeUrlExtractor('')).toBe('gemini');
+    expect(normalizeUrlExtractor('ai')).toBe('gemini');
+    expect(normalizeUrlExtractor('browser')).toBe('chromium');
+    expect(normalizeUrlExtractor('chromium')).toBe('chromium');
+    expect(normalizeUrlExtractor('firecrawl')).toBe('firecrawl');
+    expect(normalizeUrlExtractor('jina')).toBe('jina');
+    expect(normalizeUrlExtractor('unknown')).toBe('gemini');
   });
 });

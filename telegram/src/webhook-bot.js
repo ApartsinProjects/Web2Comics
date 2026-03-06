@@ -5,13 +5,19 @@ const { loadEnvFiles, loadSecretValues } = require('./env');
 const { TelegramApi } = require('./telegram-api');
 const { RuntimeConfigStore } = require('./config-store');
 const { allOptionPaths, getOptions, parseUserValue, formatOptionsMessage, SECRET_KEYS } = require('./options');
-const { generatePanelsWithRuntimeConfig, inventStoryText } = require('./generate');
+const {
+  generatePanelsWithRuntimeConfig,
+  inventStoryText,
+  normalizeUrlExtractor,
+  warmupPlaywrightChromiumInBackground
+} = require('./generate');
 const { createPersistence } = require('./persistence');
 const { createBlacklistStoreFromEnv } = require('./blacklist-store');
 const { createKnownUsersStoreFromEnv } = require('./known-users-store');
 const { redactSensitiveText } = require('./redact');
 const { createCrashLogStoreFromEnv, FileCrashLogStore } = require('./crash-log-store');
 const { createRequestLogStoreFromEnv } = require('./request-log-store');
+const { createRuntimeLogStoreFromEnv } = require('./runtime-log-store');
 const { normalizeCloudflareR2Endpoint } = require('./r2-endpoint');
 const {
   classifyMessageInput,
@@ -54,8 +60,10 @@ const repoRoot = path.resolve(__dirname, '../..');
 loadEnvFiles([
   path.join(repoRoot, '.env.e2e.local'),
   path.join(repoRoot, '.env.local'),
+  path.join(repoRoot, '.crawler'),
   path.join(repoRoot, 'comicbot/.env'),
-  path.join(repoRoot, 'telegram/.env')
+  path.join(repoRoot, 'telegram/.env'),
+  path.join(repoRoot, 'telegram/.crawler')
 ]);
 loadSecretValues([
   'TELEGRAM_BOT_TOKEN',
@@ -67,6 +75,8 @@ loadSecretValues([
   'CLOUDFLARE_WORKERS_AI_TOKEN',
   'CLOUDFLARE_ACCOUNT_API_TOKEN',
   'CLOUDFLARE_API_TOKEN',
+  'FIRECRAWL_API_KEY',
+  'JINA_API_KEY',
   'R2_ACCESS_KEY_ID',
   'R2_SECRET_ACCESS_KEY'
 ]);
@@ -134,8 +144,16 @@ const api = new TelegramApi(token, process.env.TELEGRAM_API_BASE_URL || '');
 let configStore = null;
 let requestLogStore = null;
 let requestLogStoreMode = 'unknown';
+let runtimeLogStore = null;
+let runtimeLogStoreMode = 'unknown';
 let blacklistStoreMode = 'unknown';
 let knownUsersStoreMode = 'unknown';
+const originalConsole = {
+  log: console.log.bind(console),
+  warn: console.warn.bind(console),
+  error: console.error.bind(console)
+};
+let runtimeLogConsoleTeeInstalled = false;
 const rawSendMessage = api.sendMessage.bind(api);
 const jobTimeoutMs = Math.max(100, Number(process.env.RENDER_BOT_JOB_TIMEOUT_MS || 300000));
 const processedUpdates = new Map();
@@ -271,6 +289,44 @@ function collectSensitiveValues(chatId) {
   }
 
   return values;
+}
+
+function formatConsoleArgs(args) {
+  return (Array.isArray(args) ? args : [])
+    .map((item) => {
+      if (typeof item === 'string') return item;
+      if (item instanceof Error) {
+        return item.stack || item.message || String(item);
+      }
+      try {
+        return JSON.stringify(item);
+      } catch (_) {
+        return String(item);
+      }
+    })
+    .join(' ');
+}
+
+function installRuntimeLogConsoleTee() {
+  if (runtimeLogConsoleTeeInstalled) return;
+  if (!runtimeLogStore || typeof runtimeLogStore.append !== 'function') return;
+  runtimeLogConsoleTeeInstalled = true;
+  const makeTee = (level, originalFn) => (...args) => {
+    originalFn(...args);
+    try {
+      const text = formatConsoleArgs(args);
+      const redacted = redactSensitiveText(text, collectSensitiveValues(0));
+      runtimeLogStore.append({
+        timestamp: new Date().toISOString(),
+        level,
+        event: 'console',
+        message: String(redacted || '').slice(0, 8000)
+      });
+    } catch (_) {}
+  };
+  console.log = makeTee('info', originalConsole.log);
+  console.warn = makeTee('warn', originalConsole.warn);
+  console.error = makeTee('error', originalConsole.error);
 }
 
 api.sendMessage = async (chatId, text, extra) => {
@@ -568,6 +624,12 @@ function formatProviderFallbackMessage(info) {
   const reason = String(info?.reason || 'provider_failure').trim();
   const shortReason = reason === 'missing_credentials' ? 'missing credentials' : 'provider/model failure';
   return `Provider issue detected (${shortReason}). Switched from ${from} to ${to}.`;
+}
+
+function formatExtractorFallbackMessage(info) {
+  const from = String(info?.from || 'unknown').trim();
+  const to = String(info?.to || 'chromium').trim();
+  return `URL extractor issue detected. Switched from ${from} to ${to}.`;
 }
 
 function isShortTextPrompt(text) {
@@ -935,6 +997,7 @@ function summarizeConfig(cfg) {
     `panels=${cfg?.generation?.panel_count}`,
     `obj=${cfg?.generation?.objective}`,
     `lang=${cfg?.generation?.output_language}`,
+    `extractor=${normalizeUrlExtractor(cfg?.generation?.url_extractor || 'gemini')}`,
     `text=${cfg?.providers?.text?.provider}/${cfg?.providers?.text?.model}`,
     `image=${cfg?.providers?.image?.provider}/${cfg?.providers?.image?.model}`
   ];
@@ -959,6 +1022,7 @@ function compactConfigString(cfg) {
     `s:${styleShort}`,
     `l:${cfg?.generation?.output_language || '-'}`,
     `m:${cfg?.generation?.delivery_mode || 'default'}`,
+    `x:${normalizeUrlExtractor(cfg?.generation?.url_extractor || 'gemini')}`,
     `d:${cfg?.generation?.detail_level || '-'}`,
     `c:${cfg?.runtime?.image_concurrency ?? '-'}`,
     `r:${cfg?.runtime?.retries ?? '-'}`
@@ -975,6 +1039,7 @@ function explainSummaryLineMessage() {
     's:<style_key_or_short_style>',
     'l:<output_language>',
     'm:<delivery_mode>',
+    'x:<url_extractor>',
     'd:<detail_level>',
     'c:<image_concurrency>',
     'r:<retries>',
@@ -1561,6 +1626,25 @@ async function handleCommand(chatId, text) {
     }
     const current = await setConfigPathValue(chatId, 'generation.output_language', value);
     await api.sendMessage(chatId, `Updated generation.output_language = ${current}`);
+    return true;
+  }
+
+  if (command === '/extractor' || command === '/exractor') {
+    const raw = String(parts[1] || '').trim().toLowerCase();
+    const options = getOptions('generation.url_extractor');
+    const current = normalizeUrlExtractor(configStore.getCurrent(chatId, 'generation.url_extractor'));
+    if (!raw || !valueExists(options, raw)) {
+      await api.sendMessage(chatId, [
+        'Usage: /extractor <gemini|firecrawl|jina|chromium>',
+        'Explanation: choose URL story extraction vendor.',
+        `Allowed: ${options.join(', ')}`,
+        `Current: ${current}`
+      ].join('\n'));
+      return true;
+    }
+    const next = normalizeUrlExtractor(raw);
+    const updated = await setConfigPathValue(chatId, 'generation.url_extractor', next);
+    await api.sendMessage(chatId, `Updated generation.url_extractor = ${updated}`);
     return true;
   }
 
@@ -2229,6 +2313,9 @@ async function processMessage(message, context = {}) {
         onFallback: async (info) => {
           await safeNotifyUser(chatId, formatProviderFallbackMessage(info));
         },
+        onExtractorFallback: async (info) => {
+          await safeNotifyUser(chatId, formatExtractorFallbackMessage(info));
+        },
         onPanelReady: (deliveryMode === 'default')
           ? async (panelMessage) => {
               await orderedSender(panelMessage);
@@ -2343,6 +2430,9 @@ async function processMessage(message, context = {}) {
         onFallback: async (info) => {
           await safeNotifyUser(chatId, formatProviderFallbackMessage(info));
         },
+        onExtractorFallback: async (info) => {
+          await safeNotifyUser(chatId, formatExtractorFallbackMessage(info));
+        },
         onPanelReady: (deliveryMode === 'default')
           ? async (panelMessage) => {
               await orderedSender(panelMessage);
@@ -2356,7 +2446,8 @@ async function processMessage(message, context = {}) {
         message: String(firstError?.message || firstError || '')
       }));
       if (!hasWebPageUrl) throw firstError;
-      const fallbackText = extractTextFallbackFromUrlMessage(generationInput);
+      const originalInputText = String(text || '').trim();
+      const fallbackText = extractTextFallbackFromUrlMessage(originalInputText);
       const fallbackParsed = classifyMessageInput(fallbackText);
       if (fallbackText && fallbackParsed.kind !== 'url') {
         console.log('[render-bot] html_fallback_to_text', JSON.stringify({
@@ -2371,6 +2462,9 @@ async function processMessage(message, context = {}) {
           onFallback: async (info) => {
             await safeNotifyUser(chatId, formatProviderFallbackMessage(info));
           },
+          onExtractorFallback: async (info) => {
+            await safeNotifyUser(chatId, formatExtractorFallbackMessage(info));
+          },
           onPanelReady: (deliveryMode === 'default')
             ? async (panelMessage) => {
                 await orderedSender(panelMessage);
@@ -2378,12 +2472,7 @@ async function processMessage(message, context = {}) {
             : undefined
         });
       } else {
-        const rawInputForUrlFallback = String(text || generationInput || '').trim();
-        const strippedNonUrlText = rawInputForUrlFallback
-          .replace(/https?:\/\/[^\s<>"'`]+/gi, ' ')
-          .replace(/\s+/g, ' ')
-          .trim();
-        if (!strippedNonUrlText) {
+        if (!fallbackText) {
           const rawReason = String(firstError?.message || '').trim();
           const shortReason = rawReason
             .replace(/^URL extraction failed:\s*/i, '')
@@ -2421,6 +2510,9 @@ async function processMessage(message, context = {}) {
           generationId: createGenerationId(chatId),
           onFallback: async (info) => {
             await safeNotifyUser(chatId, formatProviderFallbackMessage(info));
+          },
+          onExtractorFallback: async (info) => {
+            await safeNotifyUser(chatId, formatExtractorFallbackMessage(info));
           },
           onPanelReady: (deliveryMode === 'default')
             ? async (panelMessage) => {
@@ -2591,6 +2683,18 @@ async function startServer() {
   if (!token) throw new Error('Missing TELEGRAM_BOT_TOKEN');
   if (!webhookSecret) throw new Error('Missing TELEGRAM_WEBHOOK_SECRET');
 
+  try {
+    const runtimeLogSelected = createRuntimeLogStoreFromEnv();
+    runtimeLogStore = runtimeLogSelected.impl;
+    runtimeLogStoreMode = runtimeLogSelected.mode;
+    if (runtimeLogStore && typeof runtimeLogStore.start === 'function') runtimeLogStore.start();
+    installRuntimeLogConsoleTee();
+  } catch (error) {
+    originalConsole.error('[render-bot] runtime log store init failed:', error && error.message ? error.message : String(error));
+    runtimeLogStore = null;
+    runtimeLogStoreMode = 'disabled';
+  }
+
   const persistenceMode = createPersistence({
     mode: process.env.RENDER_BOT_PERSISTENCE_MODE || '',
     pgUrl: process.env.RENDER_BOT_PG_URL || process.env.DATABASE_URL || '',
@@ -2655,22 +2759,43 @@ async function startServer() {
   requestLogStoreMode = requestStore.mode;
 
   async function runStartupSelfChecks() {
-    if (String(crashStoreMode || '').toLowerCase() !== 'r2') return;
-    if (!crashStore || typeof crashStore.healthCheck !== 'function') {
-      await notifyAdmins('[alert] crash-log storage self-check unavailable (r2 mode without healthCheck).');
-      return;
+    if (String(crashStoreMode || '').toLowerCase() === 'r2') {
+      if (!crashStore || typeof crashStore.healthCheck !== 'function') {
+        await notifyAdmins('[alert] crash-log storage self-check unavailable (r2 mode without healthCheck).');
+      } else {
+        const health = await crashStore.healthCheck();
+        if (!health || !health.ok) {
+          const lines = [
+            '[alert] crash-log storage is unreachable.',
+            `mode: ${crashStoreMode}`,
+            `endpoint: ${String(process.env.R2_S3_ENDPOINT || '').trim() || '-'}`,
+            `bucket: ${String(process.env.R2_BUCKET || '').trim() || '-'}`,
+            `error: ${String(health?.error || 'unknown')}`
+          ];
+          if (health?.code) lines.push(`code: ${String(health.code)}`);
+          await notifyAdmins(lines.join('\n'));
+        }
+      }
     }
-    const health = await crashStore.healthCheck();
-    if (health && health.ok) return;
-    const lines = [
-      '[alert] crash-log storage is unreachable.',
-      `mode: ${crashStoreMode}`,
-      `endpoint: ${String(process.env.R2_S3_ENDPOINT || '').trim() || '-'}`,
-      `bucket: ${String(process.env.R2_BUCKET || '').trim() || '-'}`,
-      `error: ${String(health?.error || 'unknown')}`
-    ];
-    if (health?.code) lines.push(`code: ${String(health.code)}`);
-    await notifyAdmins(lines.join('\n'));
+
+    if (String(runtimeLogStoreMode || '').toLowerCase() === 'r2') {
+      if (!runtimeLogStore || typeof runtimeLogStore.healthCheck !== 'function') {
+        await notifyAdmins('[alert] runtime-log storage self-check unavailable (r2 mode without healthCheck).');
+      } else {
+        const runtimeHealth = await runtimeLogStore.healthCheck();
+        if (!runtimeHealth || !runtimeHealth.ok) {
+          const rtLines = [
+            '[alert] runtime-log storage is unreachable.',
+            `mode: ${runtimeLogStoreMode}`,
+            `endpoint: ${String(process.env.R2_S3_ENDPOINT || '').trim() || '-'}`,
+            `bucket: ${String(process.env.R2_BUCKET || '').trim() || '-'}`,
+            `error: ${String(runtimeHealth?.error || 'unknown')}`
+          ];
+          if (runtimeHealth?.code) rtLines.push(`code: ${String(runtimeHealth.code)}`);
+          await notifyAdmins(rtLines.join('\n'));
+        }
+      }
+    }
   }
 
   const server = http.createServer(async (req, res) => {
@@ -2681,6 +2806,7 @@ async function startServer() {
           service: 'render-telegram-bot',
           persistence: persistenceMode.mode,
           requestLogs: requestLogStoreMode,
+          runtimeLogs: runtimeLogStoreMode,
           crashLogs: crashStoreMode,
           r2: {
             endpointConfigured: Boolean(String(process.env.R2_S3_ENDPOINT || '').trim()),
@@ -2729,6 +2855,7 @@ async function startServer() {
     console.log(`[render-bot] crash logs: ${crashStoreMode}`);
     console.log(`[render-bot] local crash diagnostics: ${localCrashLogDir}`);
     console.log(`[render-bot] request logs: ${requestLogStoreMode}`);
+    console.log(`[render-bot] runtime logs: ${runtimeLogStoreMode}`);
     console.log(`[render-bot] request logs config: prefix=${String(process.env.R2_REQUEST_LOG_PREFIX || 'logs/requests').trim() || '-'} statusKey=${String(process.env.R2_REQUEST_LOG_STATUS_KEY || 'logs/requests/status.json').trim() || '-'} bucket=${String(process.env.R2_BUCKET || '').trim() || '-'}`);
     console.log(`[render-bot] blacklist store: ${blacklistStoreMode}`);
     console.log(`[render-bot] known users store: ${knownUsersStoreMode}`);
@@ -2740,6 +2867,12 @@ async function startServer() {
     runStartupSelfChecks().catch((error) => {
       console.error('[render-bot] startup self-check failed:', error && error.message ? error.message : String(error));
     });
+    const chromiumWarmupEnabled = String(process.env.RENDER_BOT_ASYNC_CHROMIUM_WARMUP || 'true').trim().toLowerCase() === 'true';
+    if (chromiumWarmupEnabled) {
+      runBackgroundTask('playwright chromium warmup', async () => {
+        warmupPlaywrightChromiumInBackground('post_boot');
+      });
+    }
   });
 }
 
@@ -2750,7 +2883,22 @@ async function handleFatalEvent(event, errorLike) {
   const message = errorLike && errorLike.message ? errorLike.message : String(errorLike || '');
   console.error(`[render-bot] fatal ${event}:`, message);
   await persistCrash(event, errorLike);
+  try {
+    if (runtimeLogStore && typeof runtimeLogStore.stop === 'function') {
+      await runtimeLogStore.stop();
+    }
+  } catch (_) {}
   process.exit(1);
+}
+
+async function gracefulShutdown(signal) {
+  try {
+    console.log(`[render-bot] received ${signal}, flushing runtime logs...`);
+    if (runtimeLogStore && typeof runtimeLogStore.stop === 'function') {
+      await runtimeLogStore.stop();
+    }
+  } catch (_) {}
+  process.exit(0);
 }
 
 process.on('uncaughtException', (error) => {
@@ -2759,6 +2907,14 @@ process.on('uncaughtException', (error) => {
 
 process.on('unhandledRejection', (reason) => {
   handleFatalEvent('unhandledRejection', reason);
+});
+
+process.on('SIGTERM', () => {
+  gracefulShutdown('SIGTERM');
+});
+
+process.on('SIGINT', () => {
+  gracefulShutdown('SIGINT');
 });
 
 startServer().catch((error) => {

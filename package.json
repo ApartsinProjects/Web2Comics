@@ -15,6 +15,7 @@
     "probe:providers:extension": "node scripts/provider-model-probe-extension.js",
     "test:e2e:headed": "playwright test --headed",
     "test:all": "npm run test && npm run test:e2e",
+    "release:telegram-bot": "pwsh -NoProfile -File ./scripts/package-telegram-bot-release.ps1",
     "docs:build": "pwsh -NoProfile -File ./scripts/convert-docs-md-to-html.ps1",
     "docs:build:keep-badges": "pwsh -NoProfile -File ./scripts/convert-docs-md-to-html.ps1 -PreserveBadges",
     "engine:comicify": "node engine/cli/comic-engine-cli.js",

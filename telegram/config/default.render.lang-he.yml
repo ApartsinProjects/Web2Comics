@@ -8,24 +8,21 @@ input:
     - nav
     - footer
     - aside
-
 generation:
   panel_count: 8
   objective: explain-like-im-five
-  objective_name: "Explain Like I Am Five"
-  objective_description: "Use simple words, short sentences, and relatable examples suitable for a young audience."
-  output_language: auto
-  url_extractor: gemini
+  objective_name: Explain Like I Am Five
+  objective_description: Use simple words, short sentences, and relatable examples suitable for a young audience.
+  output_language: he
+  detail_level: low
+  style_name: Classic
+  style_description: clean illustrated art, readable characters, coherent scene progression
+  style_prompt: clean illustrated art, readable characters, coherent scene progression
   consistency: true
   panel_watermark: true
   debug_prompts: false
   invent_temperature: 0.95
   delivery_mode: default
-  detail_level: low
-  style_name: "Classic"
-  style_description: "clean illustrated art, readable characters, coherent scene progression"
-  style_prompt: "clean illustrated art, readable characters, coherent scene progression"
-
 providers:
   text:
     provider: gemini
@@ -35,19 +32,17 @@ providers:
     provider: gemini
     model: gemini-2.0-flash-exp-image-generation
     api_key_env: GEMINI_API_KEY
-
 runtime:
   timeout_ms: 120000
   image_concurrency: 3
   retries: 1
-
 output:
   width: 1400
   panel_height: 700
   caption_height: 120
-  header_height: 120
-  footer_height: 34
   padding: 24
   gap: 16
-  background: "#f8fafc"
-  brand: "Made with Web2Comics Engine"
+  header_height: 120
+  footer_height: 34
+  background: '#f8fafc'
+  brand: Made with Web2Comics Engine
