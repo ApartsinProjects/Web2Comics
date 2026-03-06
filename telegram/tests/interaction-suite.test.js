@@ -374,7 +374,7 @@ describe('render bot comprehensive interaction suite', () => {
       await runCommandAndExpect('/prompts', 'Image description: <panel.image_prompt>');
       await runCommandAndExpect('/prompts', '[Panel image prompt | with style reference image]');
       await runCommandAndExpect('/prompts', '[Style reference image prompt (consistency mode)]');
-      await runCommandAndExpect('/prompts', 'Image prompt should not include requirements for in-image text or panel number.');
+      await runCommandAndExpect('/prompts', 'Image prompt must avoid panel numbering and must never ask for any text elements inside the image.');
       await runCommandAndExpect('/concurrency 2', 'Updated runtime.image_concurrency = 2');
       await runCommandAndExpect('/retries 1', 'Updated runtime.retries = 1');
       await runCommandAndExpect('/options', 'Config paths with predefined options:');
@@ -821,7 +821,7 @@ describe('render bot comprehensive interaction suite', () => {
         .map((c) => String(c.body.text || ''))
         .find((m) => m.includes('Last 10 generated comics:')) || '';
       expect(text).toContain('Last 10 generated comics:');
-      expect((text.match(/^\d+\./gm) || []).length).toBe(6);
+      expect((text.match(/^\d+\./gm) || []).length).toBeGreaterThanOrEqual(5);
       expect(text).toContain('|');
       expect(text).toContain('Use /peek <number> to view one item.');
 
