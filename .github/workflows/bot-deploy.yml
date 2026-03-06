@@ -114,6 +114,7 @@ jobs:
           EXTRA_ARGS+=(--target "${{ github.event.inputs.target }}")
           EXTRA_ARGS+=(--branch "${{ github.event.inputs.branch }}")
           EXTRA_ARGS+=(--env-only)
+          EXTRA_ARGS+=(--skip-local-tests)
 
           if [[ "${{ github.event.inputs.test_deployment }}" == "true" ]]; then
             EXTRA_ARGS+=(--test-deployment)

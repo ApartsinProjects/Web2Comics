@@ -96,6 +96,7 @@ function buildRenderDeployArgs(args) {
     'test-deployment',
     'require-all-keys',
     'allow-partial-keys',
+    'dry-run',
     'env-only',
     'gemini-key',
     'openai-key',
@@ -146,6 +147,7 @@ function targetList(rawTarget) {
 function printSummary(args, targets) {
   console.log('[deploy:auto] config');
   console.log(`- targets: ${targets.join(', ')}`);
+  console.log(`- dry run: ${asBool(args['dry-run'], false)}`);
   console.log(`- skip prechecks: ${asBool(args['skip-prechecks'], false)}`);
   console.log(`- skip local tests: ${asBool(args['skip-local-tests'], false)}`);
   console.log(`- render smoke: ${shouldRunRenderSmoke(args)}`);
@@ -155,6 +157,7 @@ function printSummary(args, targets) {
 
 function main() {
   const args = parseArgs(process.argv.slice(2));
+  const dryRun = asBool(args['dry-run'], false);
   const botEnv = String(args.env || process.env.BOT_ENV || 'staging').trim().toLowerCase() || 'staging';
   if (Object.prototype.hasOwnProperty.call(args, 'cloudflare-api-token')) {
     throw new Error('Deprecated --cloudflare-api-token is not supported. Use --cloudflare-ai-token and --cloudflare-account-api-token.');
@@ -166,14 +169,14 @@ function main() {
     runStep('predeploy-checks', ['run', 'test:telegram:predeploy']);
   }
 
-  if (!asBool(args['skip-local-tests'], false)) {
+  if (!asBool(args['skip-local-tests'], false) && !dryRun) {
     runStep('local-tests', ['run', 'test:telegram:local']);
   }
 
   if (targets.includes('render')) {
     const renderDeployArgs = buildRenderDeployArgs(args);
     runStep('render-deploy', ['run', 'telegram:deploy:auto', '--', ...renderDeployArgs]);
-    if (shouldRunRenderSanity(args)) {
+    if (shouldRunRenderSanity(args) && !dryRun) {
       const sanityArgs = ['run', 'telegram:deploy:sanity', '--', '--env', botEnv];
       const metadataIn = String(
         args['metadata-in']
@@ -185,14 +188,14 @@ function main() {
       }
       runStep('render-sanity-e2e', sanityArgs);
     }
-    if (shouldRunRenderSmoke(args)) {
+    if (shouldRunRenderSmoke(args) && !dryRun) {
       runStep('render-full-stack-smoke', ['run', 'test:telegram:full-stack'], { RUN_FULL_STACK_E2E: 'true' });
     }
   }
 
   if (targets.includes('cloudflare')) {
     runStep('cloudflare-deploy', ['run', 'deploy:cloudflare']);
-    if (shouldRunCloudflareSmoke(args)) {
+    if (shouldRunCloudflareSmoke(args) && !dryRun) {
       runStep('cloudflare-smoke', ['run', 'test:cloudflare:smoke']);
     }
   }
