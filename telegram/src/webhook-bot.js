@@ -2338,10 +2338,20 @@ async function processMessage(message, context = {}) {
           : undefined
       });
     } catch (firstError) {
+      console.warn('[render-bot] html_extraction_or_url_generation_failed', JSON.stringify({
+        chatId,
+        sourceUrl: hasWebPageUrl ? String(parsedInput.value || '') : '',
+        message: String(firstError?.message || firstError || '')
+      }));
       if (!hasWebPageUrl) throw firstError;
       const fallbackText = extractTextFallbackFromUrlMessage(generationInput);
       const fallbackParsed = classifyMessageInput(fallbackText);
       if (fallbackText && fallbackParsed.kind !== 'url') {
+        console.log('[render-bot] html_fallback_to_text', JSON.stringify({
+          chatId,
+          sourceUrl: String(parsedInput.value || ''),
+          fallbackTextLength: Number(String(fallbackText || '').length || 0)
+        }));
         await api.sendMessage(chatId, "Can't extract from HTML, trying text.");
         result = await generatePanelsWithRuntimeConfig(fallbackText, runtime, effectiveConfigPath, {
           userId: chatId,
@@ -2356,6 +2366,27 @@ async function processMessage(message, context = {}) {
             : undefined
         });
       } else {
+        const rawInputForUrlFallback = String(text || generationInput || '').trim();
+        const strippedNonUrlText = rawInputForUrlFallback
+          .replace(/https?:\/\/[^\s<>"'`]+/gi, ' ')
+          .replace(/\s+/g, ' ')
+          .trim();
+        if (!strippedNonUrlText) {
+          await api.sendMessage(chatId, "Can't extract story from this link. Please send another URL or paste the story text.");
+          runBackgroundTask('record generation failure', () => safeRecordInteraction(chatId, {
+            kind: incoming.kind,
+            command: incoming.command,
+            requestText: text,
+            result: { ok: false, type: 'generation', error: 'url_extraction_failed_no_text_fallback' },
+            config: configStore.getEffectiveConfig(chatId)
+          }, userMeta));
+          return;
+        }
+        console.log('[render-bot] html_fallback_to_invent_story', JSON.stringify({
+          chatId,
+          sourceUrl: String(parsedInput.value || ''),
+          seedLength: Number(String(text || generationInput || '').trim().length || 0)
+        }));
         await api.sendMessage(chatId, "Can't extract from HTML, inventing a story from your input.");
         const seed = String(text || generationInput || '').trim() || String(parsedInput.value || '').trim();
         const inventedStory = await inventStoryText(seed, effectiveConfigPath, {

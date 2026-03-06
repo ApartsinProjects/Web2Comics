@@ -1384,6 +1384,45 @@ describe('render webhook bot REST + telegram flow', () => {
     }
   }, 30000);
 
+  it('stops gracefully when URL-only extraction fails (no invent fallback)', async () => {
+    const tg = await startFakeTelegramServer();
+    const botPort = await getFreePort();
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'render-bot-webhook-'));
+    const bot = await startBotProcess(
+      botPort,
+      `http://127.0.0.1:${tg.port}/botTEST_TOKEN`,
+      path.join(tmpDir, 'runtime-state.json'),
+      {
+        RENDER_BOT_FAKE_URL_FETCH_FAIL: 'true'
+      }
+    );
+
+    try {
+      const before = tg.calls.length;
+      const res = await postUpdate(botPort, {
+        chat: { id: 777 },
+        from: { id: 777, username: 'url_only_fail_user', first_name: 'UrlOnly' },
+        text: 'https://example.com/article'
+      });
+      expect(res.status).toBe(200);
+
+      await waitFor(() => tg.calls
+        .slice(before)
+        .filter((c) => c.url.endsWith('/sendMessage'))
+        .map((c) => String(c.body.text || ''))
+        .some((m) => m.includes("Can't extract story from this link.")), 12000, 100);
+
+      const chunk = tg.calls.slice(before);
+      const msgTexts = chunk.filter((c) => c.url.endsWith('/sendMessage')).map((c) => String(c.body.text || ''));
+      expect(msgTexts.some((m) => m.includes("Can't extract story from this link."))).toBe(true);
+      expect(msgTexts.some((m) => m.includes('Invented story'))).toBe(false);
+      expect(chunk.some((c) => c.url.endsWith('/sendPhoto'))).toBe(false);
+    } finally {
+      await bot.stop();
+      await tg.close();
+    }
+  }, 30000);
+
   it('handles video message with URL in caption (ignores video payload)', async () => {
     const tg = await startFakeTelegramServer();
     const botPort = await getFreePort();

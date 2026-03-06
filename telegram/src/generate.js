@@ -5,6 +5,7 @@ const sharp = require('sharp');
 const { execSync } = require('child_process');
 const { runComicEngine, runComicEnginePanels, withRetries } = require('../../engine/src');
 const { loadConfig } = require('../../engine/src/config');
+const { extractFromHtml } = require('../../engine/src/input');
 const { generateTextWithProvider } = require('../../engine/src/providers');
 const { fetchUrlToHtmlSnapshot, buildSnapshotPath } = require('../../engine/src/url-fetch');
 const { classifyMessageInput } = require('./message-utils');
@@ -22,6 +23,12 @@ const PROVIDER_REQUIRED_ENV = {
   cloudflare: ['CLOUDFLARE_ACCOUNT_ID', 'CLOUDFLARE_API_TOKEN'],
   huggingface: ['HUGGINGFACE_INFERENCE_API_TOKEN']
 };
+
+function trimForLog(value, maxLen = 300) {
+  const raw = String(value == null ? '' : value);
+  if (raw.length <= maxLen) return raw;
+  return `${raw.slice(0, maxLen)}...`;
+}
 
 function isFakeGeneratorEnabled() {
   return String(process.env.RENDER_BOT_FAKE_GENERATOR || '').trim().toLowerCase() === 'true';
@@ -454,6 +461,10 @@ async function prepareInput(text, runtime) {
   }
 
   if (parsed.kind === 'url') {
+    console.log('[render-bot] url_input_detected', JSON.stringify({
+      url: trimForLog(parsed.value, 500),
+      fetchTimeoutMs: Number(runtime.fetchTimeoutMs || 0)
+    }));
     const outputPath = path.join(runtime.outDir, `render-url-${ts}.png`);
     const snapshotPath = buildSnapshotPath(parsed.value, outputPath, '');
     let snap;
@@ -464,12 +475,38 @@ async function prepareInput(text, runtime) {
       });
     } catch (error) {
       if (!shouldInstallPlaywrightBrowser(error)) throw error;
+      console.warn('[render-bot] playwright_missing_browser_install', JSON.stringify({
+        url: trimForLog(parsed.value, 500),
+        message: trimForLog(error && error.message ? error.message : String(error), 800)
+      }));
       installPlaywrightChromium();
       snap = await fetchUrlToHtmlSnapshot(parsed.value, snapshotPath, {
         timeoutMs: runtime.fetchTimeoutMs,
         waitUntil: 'domcontentloaded'
       });
     }
+    let snapshotBytes = 0;
+    let extractedChars = 0;
+    let extractedTitle = '';
+    try {
+      const stats = await fs.promises.stat(snap.snapshotPath);
+      snapshotBytes = Number(stats.size || 0);
+    } catch (_) {}
+    try {
+      const html = await fs.promises.readFile(snap.snapshotPath, 'utf8');
+      const extracted = extractFromHtml(html, {});
+      extractedChars = Number(String(extracted?.text || '').length || 0);
+      extractedTitle = String(extracted?.title || '').trim();
+    } catch (_) {}
+    console.log('[render-bot] url_snapshot_ready', JSON.stringify({
+      inputUrl: trimForLog(parsed.value, 500),
+      finalUrl: trimForLog(snap.finalUrl || parsed.value, 500),
+      title: trimForLog(snap.title || '', 160),
+      snapshotPath: snap.snapshotPath,
+      snapshotBytes,
+      extractedChars,
+      extractedTitle: trimForLog(extractedTitle, 160)
+    }));
     return {
       kind: 'url',
       inputPath: snap.snapshotPath,
@@ -640,6 +677,12 @@ async function generatePanelsWithRuntimeConfig(text, runtime, effectiveConfigPat
   }
 
   const prep = await prepareInput(text, runtime);
+  if (prep.kind === 'url') {
+    console.log('[render-bot] panel_generation_from_url', JSON.stringify({
+      urlSummary: trimForLog(prep.summary, 500),
+      inputPath: prep.inputPath
+    }));
+  }
   const resolvedLanguage = resolveOutputLanguage(text, prep, loadedConfig.config);
   const runtimeConfigPath = (normalizeLanguageCode(loadedConfig.config?.generation?.output_language || '') === 'auto')
     ? buildConfigPathForResolvedLanguage(effectiveConfigPath, loadedConfig.config, resolvedLanguage)
