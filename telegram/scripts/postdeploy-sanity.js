@@ -266,7 +266,7 @@ async function main() {
   const beforeReq = new Set(await listKeys(s3, bucket, 'logs/requests/'));
 
   const marker = `sanity-${Date.now()}`;
-  const commandText = `/user ${marker}`;
+  const commandText = `/__${marker}`;
   console.log(`[sanity] webhook command trigger -> ${commandText}`);
   await postWebhook(baseUrl, webhookSecret, commandText, chatId);
   await assertHealth(baseUrl, 'post-webhook');
