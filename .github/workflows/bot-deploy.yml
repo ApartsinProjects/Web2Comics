@@ -28,7 +28,7 @@ on:
       test_deployment:
         description: Deploy Render test service name
         required: true
-        default: true
+        default: false
         type: boolean
       with_render_smoke:
         description: Run Render full-stack smoke after deploy
