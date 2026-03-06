@@ -314,10 +314,10 @@ async function safeRecordInteraction(chatId, payload, userMeta = {}) {
       storyboard: (requestPayload.result && requestPayload.result.storyboard) || null
     };
     const tasks = [
-      configStore.recordInteraction(chatId, payload)
+      { label: 'configStore.recordInteraction', run: () => configStore.recordInteraction(chatId, payload) }
     ];
     if (requestLogStore && typeof requestLogStore.append === 'function') {
-      tasks.push(requestLogStore.append({
+      tasks.push({ label: 'requestLogStore.append', run: () => requestLogStore.append({
         chatId: Number(chatId || 0),
         user: {
           id: Number(userMeta?.id || chatId || 0),
@@ -325,9 +325,21 @@ async function safeRecordInteraction(chatId, payload, userMeta = {}) {
         },
         ...requestPayload,
         metadata
-      }));
+      }) });
     }
-    await Promise.allSettled(tasks);
+    const settled = await Promise.allSettled(tasks.map((t) => t.run()));
+    settled.forEach((result, idx) => {
+      const taskLabel = String(tasks[idx]?.label || `task-${idx}`);
+      if (result.status === 'rejected') {
+        const reason = result.reason && result.reason.message ? result.reason.message : String(result.reason || '');
+        console.error(`[render-bot] interaction persistence failed: ${taskLabel}: ${reason}`);
+      } else if (taskLabel === 'requestLogStore.append') {
+        const key = String(result.value && result.value.key ? result.value.key : '').trim();
+        if (key) {
+          console.log(`[render-bot] interaction logged to request store: ${key}`);
+        }
+      }
+    });
   } catch (error) {
     console.error('[render-bot] recordInteraction failed:', error && error.message ? error.message : String(error));
   }
@@ -2372,7 +2384,13 @@ async function processMessage(message, context = {}) {
           .replace(/\s+/g, ' ')
           .trim();
         if (!strippedNonUrlText) {
-          await api.sendMessage(chatId, "Can't extract story from this link. Please send another URL or paste the story text.");
+          const rawReason = String(firstError?.message || '').trim();
+          const shortReason = rawReason
+            .replace(/^URL extraction failed:\s*/i, '')
+            .replace(/^Error:\s*/i, '')
+            .slice(0, 180);
+          const reasonLine = shortReason ? ` Reason: ${shortReason}.` : '';
+          await api.sendMessage(chatId, `Can't extract story from this link.${reasonLine} Please send another URL or paste the story text.`);
           runBackgroundTask('record generation failure', () => safeRecordInteraction(chatId, {
             kind: incoming.kind,
             command: incoming.command,
@@ -2644,7 +2662,17 @@ async function startServer() {
   const server = http.createServer(async (req, res) => {
     try {
       if (req.method === 'GET' && req.url === '/healthz') {
-        return sendJson(res, 200, { ok: true, service: 'render-telegram-bot', persistence: persistenceMode.mode });
+        return sendJson(res, 200, {
+          ok: true,
+          service: 'render-telegram-bot',
+          persistence: persistenceMode.mode,
+          requestLogs: requestLogStoreMode,
+          crashLogs: crashStoreMode,
+          r2: {
+            endpointConfigured: Boolean(String(process.env.R2_S3_ENDPOINT || '').trim()),
+            bucket: String(process.env.R2_BUCKET || '').trim() || ''
+          }
+        });
       }
 
       if (req.method === 'POST' && req.url === webhookPath) {
@@ -2687,6 +2715,7 @@ async function startServer() {
     console.log(`[render-bot] crash logs: ${crashStoreMode}`);
     console.log(`[render-bot] local crash diagnostics: ${localCrashLogDir}`);
     console.log(`[render-bot] request logs: ${requestLogStoreMode}`);
+    console.log(`[render-bot] request logs config: prefix=${String(process.env.R2_REQUEST_LOG_PREFIX || 'logs/requests').trim() || '-'} statusKey=${String(process.env.R2_REQUEST_LOG_STATUS_KEY || 'logs/requests/status.json').trim() || '-'} bucket=${String(process.env.R2_BUCKET || '').trim() || '-'}`);
     console.log(`[render-bot] blacklist store: ${blacklistStoreMode}`);
     console.log(`[render-bot] known users store: ${knownUsersStoreMode}`);
     console.log(`[render-bot] image storage: ${runtime.r2Endpoint && runtime.r2Bucket ? 'r2' : 'file'}`);

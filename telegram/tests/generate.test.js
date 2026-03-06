@@ -15,6 +15,7 @@ const {
   isProviderOrModelFailure,
   shouldFallbackToGemini,
   shouldPreemptiveFallbackToGemini,
+  getUrlExtractionFailureReason,
   sanitizeInventedStoryText,
   applyPanelWatermark
 } = require('../src/generate');
@@ -256,5 +257,23 @@ describe('render generate helpers', () => {
       if (prevCfTok == null) delete process.env.CLOUDFLARE_API_TOKEN;
       else process.env.CLOUDFLARE_API_TOKEN = prevCfTok;
     }
+  });
+
+  it('detects early URL extraction failure reasons', () => {
+    expect(getUrlExtractionFailureReason({
+      title: 'Just a moment...',
+      text: 'Checking if the site connection is secure',
+      blockedReason: '/just a moment/i'
+    })).toContain('blocked or gated');
+
+    expect(getUrlExtractionFailureReason({
+      title: 'Example',
+      text: 'Short text only'
+    })).toContain('not enough readable story text extracted');
+
+    expect(getUrlExtractionFailureReason({
+      title: 'Readable article',
+      text: 'A'.repeat(220)
+    })).toBe('');
   });
 });

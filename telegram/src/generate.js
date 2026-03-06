@@ -10,6 +10,7 @@ const { generateTextWithProvider } = require('../../engine/src/providers');
 const { fetchUrlToHtmlSnapshot, buildSnapshotPath } = require('../../engine/src/url-fetch');
 const { classifyMessageInput } = require('./message-utils');
 const { createImageStorageManagerFromEnv } = require('./image-storage');
+const { URL_EXTRACT_MIN_CHARS } = require('./data/thresholds');
 
 const SUPPORTED_OUTPUT_LANGS = new Set(['en', 'auto', 'es', 'fr', 'de', 'it', 'pt', 'ru', 'ja', 'ko', 'zh', 'he']);
 const PANEL_WATERMARK_TEXT = 'made with Web2Comics';
@@ -28,6 +29,22 @@ function trimForLog(value, maxLen = 300) {
   const raw = String(value == null ? '' : value);
   if (raw.length <= maxLen) return raw;
   return `${raw.slice(0, maxLen)}...`;
+}
+
+function getUrlExtractionFailureReason(extracted) {
+  const title = String(extracted?.title || '').trim();
+  const text = String(extracted?.text || '').trim();
+  const blockedReason = String(extracted?.blockedReason || '').trim();
+  if (blockedReason) {
+    return `web page is blocked or gated (${blockedReason})`;
+  }
+  if (text.length < URL_EXTRACT_MIN_CHARS) {
+    return `not enough readable story text extracted (${text.length} chars)`;
+  }
+  if (/^(just a moment|access denied|please enable javascript)/i.test(`${title} ${text}`)) {
+    return 'page appears gated and not readable without browser/session access';
+  }
+  return '';
 }
 
 function isFakeGeneratorEnabled() {
@@ -384,7 +401,14 @@ async function recordGeneratedImages(runtime, imagePaths) {
     r2StatusKey: runtime.r2ImageStatusKey
   });
   try {
-    await storage.recordImages(imagePaths);
+    const status = await storage.recordImages(imagePaths);
+    const count = Array.isArray(imagePaths) ? imagePaths.length : 0;
+    const totalBytes = Number(status && status.totalBytes ? status.totalBytes : 0);
+    console.log('[render-bot] image bookkeeping saved', JSON.stringify({
+      count,
+      totalBytes,
+      firstPath: count ? String(imagePaths[0] || '') : ''
+    }));
   } catch (error) {
     console.error('[render-bot] image storage write failed:', error && error.message ? error.message : String(error));
   }
@@ -492,12 +516,17 @@ async function prepareInput(text, runtime) {
       const stats = await fs.promises.stat(snap.snapshotPath);
       snapshotBytes = Number(stats.size || 0);
     } catch (_) {}
+    let extractionFailureReason = '';
     try {
       const html = await fs.promises.readFile(snap.snapshotPath, 'utf8');
       const extracted = extractFromHtml(html, {});
       extractedChars = Number(String(extracted?.text || '').length || 0);
       extractedTitle = String(extracted?.title || '').trim();
+      extractionFailureReason = getUrlExtractionFailureReason(extracted);
     } catch (_) {}
+    if (extractionFailureReason) {
+      throw new Error(`URL extraction failed: ${extractionFailureReason}`);
+    }
     console.log('[render-bot] url_snapshot_ready', JSON.stringify({
       inputUrl: trimForLog(parsed.value, 500),
       finalUrl: trimForLog(snap.finalUrl || parsed.value, 500),
@@ -846,6 +875,7 @@ module.exports = {
   isProviderOrModelFailure,
   shouldFallbackToGemini,
   shouldPreemptiveFallbackToGemini,
+  getUrlExtractionFailureReason,
   sanitizeInventedStoryText,
   applyPanelWatermark,
   shouldInstallPlaywrightBrowser,
