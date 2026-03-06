@@ -5,6 +5,14 @@ const { S3Client, ListObjectsV2Command, GetObjectCommand } = require('@aws-sdk/c
 const { loadEnvFiles } = require('../src/env');
 const { parseArgs, readCloudflareYaml, readAwsYaml } = require('./lib');
 
+function resolveBotEnvironment(raw) {
+  const value = String(raw || '').trim().toLowerCase();
+  if (!value) return 'staging';
+  if (value === 'staging' || value === 'stage' || value === 'test') return 'staging';
+  if (value === 'production' || value === 'prod' || value === 'live') return 'production';
+  throw new Error(`Invalid --env value '${raw}'. Use staging or production.`);
+}
+
 function firstNonEmpty(...values) {
   for (const v of values) {
     const s = String(v == null ? '' : v).trim();
@@ -135,8 +143,13 @@ async function findRequestByMarker(s3, bucket, marker, options = {}) {
 async function main() {
   const repoRoot = path.resolve(__dirname, '../..');
   const args = parseArgs(process.argv.slice(2));
-  const metadataPath = path.resolve(args['metadata-in'] || path.join(repoRoot, 'telegram/out/deploy-render-metadata.json'));
+  const botEnv = resolveBotEnvironment(args.env || process.env.BOT_ENV);
+  const metadataPath = path.resolve(args['metadata-in'] || path.join(repoRoot, `telegram/out/deploy-render-metadata.${botEnv}.json`));
   const metadata = fs.existsSync(metadataPath) ? JSON.parse(fs.readFileSync(metadataPath, 'utf8')) : {};
+  const metadataEnv = String(metadata.environment || '').trim().toLowerCase();
+  if (metadataEnv && metadataEnv !== botEnv) {
+    throw new Error(`Metadata environment mismatch: expected ${botEnv}, got ${metadataEnv}`);
+  }
 
   loadEnvFiles([
     path.join(repoRoot, '.env.all'),
@@ -155,7 +168,7 @@ async function main() {
 
   const baseUrl = firstNonEmpty(args['service-url'], process.env.RENDER_PUBLIC_BASE_URL, metadata.publicUrl);
   const webhookSecret = firstNonEmpty(args['webhook-secret'], process.env.TELEGRAM_WEBHOOK_SECRET, metadata.webhookSecret);
-  const chatId = Number(firstNonEmpty(args['chat-id'], process.env.TELEGRAM_TEST_CHAT_ID, metadata.telegramTestChatId, '1796415913'));
+  const chatId = Number(firstNonEmpty(args['chat-id'], process.env.TELEGRAM_TEST_CHAT_ID, metadata.telegramTestChatId));
   const endpoint = firstNonEmpty(
     args['r2-endpoint'],
     process.env.R2_S3_ENDPOINT,

@@ -101,6 +101,8 @@ function buildRenderDeployArgs(args) {
     'openai-key',
     'openrouter-key',
     'huggingface-token'
+    ,
+    'env'
   ];
   const out = [];
   allowed.forEach((key) => {
@@ -153,6 +155,7 @@ function printSummary(args, targets) {
 
 function main() {
   const args = parseArgs(process.argv.slice(2));
+  const botEnv = String(args.env || process.env.BOT_ENV || 'staging').trim().toLowerCase() || 'staging';
   if (Object.prototype.hasOwnProperty.call(args, 'cloudflare-api-token')) {
     throw new Error('Deprecated --cloudflare-api-token is not supported. Use --cloudflare-ai-token and --cloudflare-account-api-token.');
   }
@@ -171,10 +174,14 @@ function main() {
     const renderDeployArgs = buildRenderDeployArgs(args);
     runStep('render-deploy', ['run', 'telegram:deploy:auto', '--', ...renderDeployArgs]);
     if (shouldRunRenderSanity(args)) {
-      const sanityArgs = ['run', 'telegram:deploy:sanity'];
-      const metadataIn = String(args['metadata-in'] || process.env.RENDER_DEPLOY_METADATA_OUT || '').trim();
+      const sanityArgs = ['run', 'telegram:deploy:sanity', '--', '--env', botEnv];
+      const metadataIn = String(
+        args['metadata-in']
+        || process.env.RENDER_DEPLOY_METADATA_OUT
+        || `telegram/out/deploy-render-metadata.${botEnv}.json`
+      ).trim();
       if (metadataIn) {
-        sanityArgs.push('--', '--metadata-in', metadataIn);
+        sanityArgs.push('--metadata-in', metadataIn);
       }
       runStep('render-sanity-e2e', sanityArgs);
     }

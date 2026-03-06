@@ -573,7 +573,10 @@ describe('render webhook bot REST + telegram flow', () => {
     const bot = await startBotProcess(
       botPort,
       `http://127.0.0.1:${tg.port}/botTEST_TOKEN`,
-      path.join(tmpDir, 'runtime-state.json')
+      path.join(tmpDir, 'runtime-state.json'),
+      {
+        TELEGRAM_ADMIN_CHAT_IDS: '1796415913'
+      }
     );
 
     try {
@@ -633,7 +636,10 @@ describe('render webhook bot REST + telegram flow', () => {
     const bot = await startBotProcess(
       botPort,
       `http://127.0.0.1:${tg.port}/botTEST_TOKEN`,
-      path.join(tmpDir, 'runtime-state.json')
+      path.join(tmpDir, 'runtime-state.json'),
+      {
+        TELEGRAM_ADMIN_CHAT_IDS: '1796415913'
+      }
     );
 
     try {
@@ -2229,6 +2235,35 @@ describe('render webhook bot REST + telegram flow', () => {
     }
   }, 30000);
 
+  it('for short non-URL text, shows enrichment and AI provider details before story invention', async () => {
+    const tg = await startFakeTelegramServer();
+    const botPort = await getFreePort();
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'render-bot-short-prompt-'));
+    const bot = await startBotProcess(
+      botPort,
+      `http://127.0.0.1:${tg.port}/botTEST_TOKEN`,
+      path.join(tmpDir, 'runtime-state.json')
+    );
+
+    try {
+      const before = tg.calls.length;
+      const res = await postUpdate(botPort, {
+        chat: { id: 777 },
+        from: { id: 777, username: 'short_prompt_user', first_name: 'ShortPrompt' },
+        text: 'tiny'
+      });
+      expect(res.status).toBe(200);
+      await waitFor(() => tg.calls
+        .slice(before)
+        .filter((c) => c.url.endsWith('/sendMessage'))
+        .map((c) => String(c.body.text || ''))
+        .some((m) => m.includes('Enrichment:') && m.includes('AI:')), 12000, 100);
+    } finally {
+      await bot.stop();
+      await tg.close();
+    }
+  }, 30000);
+
   it('handles forwarded text containing URL as URL source', async () => {
     const tg = await startFakeTelegramServer();
     const botPort = await getFreePort();
@@ -2727,7 +2762,10 @@ describe('render webhook bot REST + telegram flow', () => {
     const bot = await startBotProcess(
       botPort,
       `http://127.0.0.1:${tg.port}/botTEST_TOKEN`,
-      path.join(tmpDir, 'runtime-state.json')
+      path.join(tmpDir, 'runtime-state.json'),
+      {
+        TELEGRAM_ADMIN_CHAT_IDS: '1796415913'
+      }
     );
 
     try {
@@ -2779,7 +2817,10 @@ describe('render webhook bot REST + telegram flow', () => {
     const bot = await startBotProcess(
       botPort,
       `http://127.0.0.1:${tg.port}/botTEST_TOKEN`,
-      path.join(tmpDir, 'runtime-state.json')
+      path.join(tmpDir, 'runtime-state.json'),
+      {
+        TELEGRAM_ADMIN_CHAT_IDS: '1796415913'
+      }
     );
 
     try {

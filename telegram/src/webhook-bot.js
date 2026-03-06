@@ -11,6 +11,7 @@ const {
   generatePanelsWithRuntimeConfig,
   inventStoryText,
   normalizeUrlExtractor,
+  normalizeEnrichmentProvider,
   warmupPlaywrightChromiumInBackground,
   isProviderOrModelFailure
 } = require('./generate');
@@ -155,7 +156,7 @@ const runtime = {
 };
 const notifyOnStart = String(process.env.TELEGRAM_NOTIFY_ON_START || '').trim().toLowerCase() === 'true';
 const notifyChatId = Number(process.env.TELEGRAM_NOTIFY_CHAT_ID || 0);
-const adminChatIds = String(process.env.TELEGRAM_ADMIN_CHAT_IDS || '1796415913')
+const adminChatIds = String(process.env.TELEGRAM_ADMIN_CHAT_IDS || '')
   .split(',').map((v) => Number(v.trim())).filter((n) => Number.isFinite(n));
 if (Number.isFinite(notifyChatId) && notifyChatId > 0 && !adminChatIds.includes(notifyChatId)) {
   adminChatIds.push(notifyChatId);
@@ -190,7 +191,10 @@ const BOT_PROCESS_START_TIME = new Date().toISOString();
 const BOT_TEST_MODE = String(process.env.RENDER_BOT_TEST_MODE || process.env.RENDER_BOT_FAKE_GENERATOR || '')
   .trim()
   .toLowerCase() === 'true';
-const BOT_RAW_VERSION = String(packageJson && packageJson.version ? packageJson.version : '0.0.0');
+const BOT_RAW_VERSION = String(
+  process.env.RENDER_BOT_VERSION
+  || (packageJson && packageJson.version ? packageJson.version : '0.0.0')
+);
 const BOT_VERSION = (() => {
   const m = BOT_RAW_VERSION.match(/^(\d+)\.(\d+)/);
   if (!m) return BOT_RAW_VERSION;
@@ -621,7 +625,16 @@ function resolveRoleSelectionFromState(chatId, role, currentConfig, state) {
   }
 
   if (baseProvider && baseModel) return { provider: baseProvider, model: baseModel };
-  return { provider: '', model: '' };
+  for (const provider of order) {
+    const model = resolveProviderModel(key, provider);
+    if (!provider || !model) continue;
+    return { provider, model };
+  }
+  const emergencyProvider = 'gemini';
+  return {
+    provider: emergencyProvider,
+    model: resolveProviderModel(key, emergencyProvider) || ''
+  };
 }
 
 function applyProviderRotationToConfig(chatId, config, state) {
@@ -919,6 +932,57 @@ function formatProviderFallbackMessage(info) {
   const reason = String(info?.reason || 'provider_failure').trim();
   const shortReason = reason === 'missing_credentials' ? 'missing credentials' : 'provider/model failure';
   return `Provider issue detected (${shortReason}). Switched from ${from} to ${to}.`;
+}
+
+function classifyProviderRotationReason(errorLike) {
+  const msg = String(errorLike?.message || errorLike || '').trim().toLowerCase();
+  if (!msg) return '';
+  if (
+    msg.includes('rate limit')
+    || msg.includes('quota')
+    || msg.includes('rpd')
+    || msg.includes('429')
+    || msg.includes('too many requests')
+  ) return 'rate_limit';
+  if (
+    msg.includes('unauthorized')
+    || msg.includes('authentication')
+    || msg.includes('forbidden')
+    || msg.includes('invalid api key')
+    || msg.includes('missing ')
+    || msg.includes('401')
+    || msg.includes('403')
+  ) return 'auth';
+  if (
+    msg.includes('timeout')
+    || msg.includes('timed out')
+    || msg.includes('etimedout')
+    || msg.includes('econnreset')
+    || msg.includes('abort')
+  ) return 'timeout';
+  if (
+    msg.includes('model')
+    || msg.includes('unsupported')
+    || msg.includes('not found')
+    || msg.includes('404')
+  ) return 'model';
+  if (
+    msg.includes('503')
+    || msg.includes('502')
+    || msg.includes('500')
+    || msg.includes('service unavailable')
+    || msg.includes('gateway')
+  ) return 'provider';
+  return 'provider';
+}
+
+function formatProviderRotationRetryMessage(role, fromProvider, toProvider, errorLike) {
+  const roleText = String(role || 'text').trim();
+  const fromText = String(fromProvider || 'unknown').trim();
+  const toText = String(toProvider || 'unknown').trim();
+  const reason = classifyProviderRotationReason(errorLike);
+  const suffix = reason ? ` Reason: ${reason}.` : '';
+  return `Provider rotated for ${roleText}: ${fromText} -> ${toText}. Retrying...${suffix}`;
 }
 
 function formatExtractorFallbackMessage(info) {
@@ -2105,8 +2169,10 @@ async function handleCommand(chatId, text) {
 
   if (command === '/version') {
     const createdAt = configStore.getMeta('bot_created_at');
+    const bumpedAt = String(process.env.RENDER_BOT_VERSION_BUMPED_AT || '').trim();
     await api.sendMessage(chatId, [
       `version: ${BOT_VERSION}`,
+      `bumped: ${bumpedAt || '-'}`,
       `created: ${createdAt || '-'}`,
       `start: ${BOT_PROCESS_START_TIME}`
     ].join('\n'));
@@ -3153,7 +3219,7 @@ async function processMessage(message, context = {}) {
           if (!isProviderOrModelFailure(error)) throw error;
           const rotated = await advanceProviderRotation(chatId, failedRole, runCfg.selected[failedRole] || {});
           if (!rotated) throw error;
-          await safeNotifyUser(chatId, `Provider rotated for ${failedRole}: ${rotated.from} -> ${rotated.to}. Retrying...`);
+          await safeNotifyUser(chatId, formatProviderRotationRetryMessage(failedRole, rotated.from, rotated.to, error));
           runCfg = await writeRotatedEffectiveConfigFile(chatId, path.join(runtime.outDir, 'effective-config.yml'));
           effectiveConfigPath = runCfg.configPath;
           effectiveConfig = runCfg.config;
@@ -3193,7 +3259,7 @@ async function processMessage(message, context = {}) {
           if (!failedRole || !isProviderOrModelFailure(error) || alreadySent.size > 0) throw error;
           const rotated = await advanceProviderRotation(chatId, failedRole, runCfg.selected[failedRole] || {});
           if (!rotated) throw error;
-          await safeNotifyUser(chatId, `Provider rotated for ${failedRole}: ${rotated.from} -> ${rotated.to}. Retrying...`);
+          await safeNotifyUser(chatId, formatProviderRotationRetryMessage(failedRole, rotated.from, rotated.to, error));
           runCfg = await writeRotatedEffectiveConfigFile(chatId, path.join(runtime.outDir, 'effective-config.yml'));
           effectiveConfigPath = runCfg.configPath;
           effectiveConfig = runCfg.config;
@@ -3343,7 +3409,7 @@ async function processMessage(message, context = {}) {
             if (!isProviderOrModelFailure(error)) throw error;
             const rotated = await advanceProviderRotation(chatId, failedRole, runCfg.selected[failedRole] || {});
             if (!rotated) throw error;
-            await safeNotifyUser(chatId, `Provider rotated for ${failedRole}: ${rotated.from} -> ${rotated.to}. Retrying...`);
+            await safeNotifyUser(chatId, formatProviderRotationRetryMessage(failedRole, rotated.from, rotated.to, error));
             runCfg = await writeRotatedEffectiveConfigFile(chatId, path.join(runtime.outDir, 'effective-config.yml'));
             effectiveConfigPath = runCfg.configPath;
             effectiveConfig = runCfg.config;
@@ -3436,9 +3502,16 @@ async function processMessage(message, context = {}) {
         chatId,
         promptChars: String(text || '').trim().length
       });
+      const enrichSelected = normalizeEnrichmentProvider(effectiveConfig?.generation?.enrichment_provider || 'wikipedia');
+      const enrichFallback = normalizeEnrichmentProvider(effectiveConfig?.generation?.enrichment_fallback_provider || 'gemini');
+      const enrichPath = enrichSelected === enrichFallback
+        ? enrichSelected
+        : `${enrichSelected} -> ${enrichFallback}`;
+      const textProvider = String(effectiveConfig?.providers?.text?.provider || '-').trim();
+      const textModel = String(effectiveConfig?.providers?.text?.model || '-').trim();
       await api.sendMessage(
         chatId,
-        'Your prompt is too short, so we need to invent a longer story first. I am using AI to expand it.'
+        `Your prompt is too short, so I will invent a longer story first. Enrichment: ${enrichPath}. AI: ${textProvider}/${textModel}.`
       );
       let inventedStory = '';
       for (let attempt = 0; attempt < 6; attempt += 1) {
@@ -3459,7 +3532,7 @@ async function processMessage(message, context = {}) {
           if (!isProviderOrModelFailure(error)) throw error;
           const rotated = await advanceProviderRotation(chatId, failedRole, runCfg.selected[failedRole] || {});
           if (!rotated) throw error;
-          await safeNotifyUser(chatId, `Provider rotated for ${failedRole}: ${rotated.from} -> ${rotated.to}. Retrying...`);
+          await safeNotifyUser(chatId, formatProviderRotationRetryMessage(failedRole, rotated.from, rotated.to, error));
           runCfg = await writeRotatedEffectiveConfigFile(chatId, path.join(runtime.outDir, 'effective-config.yml'));
           effectiveConfigPath = runCfg.configPath;
           effectiveConfig = runCfg.config;
@@ -3515,7 +3588,7 @@ async function processMessage(message, context = {}) {
         if (!failedRole || !isProviderOrModelFailure(error) || alreadySent.size > 0) throw error;
         const rotated = await advanceProviderRotation(chatId, failedRole, runCfg.selected[failedRole] || {});
         if (!rotated) throw error;
-        await safeNotifyUser(chatId, `Provider rotated for ${failedRole}: ${rotated.from} -> ${rotated.to}. Retrying...`);
+        await safeNotifyUser(chatId, formatProviderRotationRetryMessage(failedRole, rotated.from, rotated.to, error));
         runCfg = await writeRotatedEffectiveConfigFile(chatId, path.join(runtime.outDir, 'effective-config.yml'));
         effectiveConfigPath = runCfg.configPath;
         effectiveConfig = runCfg.config;

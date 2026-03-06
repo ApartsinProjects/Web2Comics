@@ -4,7 +4,15 @@ const fs = require('fs');
 const { spawn } = require('child_process');
 const { S3Client, ListObjectsV2Command, GetObjectCommand } = require('@aws-sdk/client-s3');
 const { loadEnvFiles } = require('../src/env');
-const { readTelegramYaml, readCloudflareYaml, readAwsYaml } = require('../scripts/lib');
+const { readCloudflareYaml, readAwsYaml } = require('../scripts/lib');
+
+function resolveBotEnvironment(raw) {
+  const value = String(raw || '').trim().toLowerCase();
+  if (!value) return 'staging';
+  if (value === 'staging' || value === 'stage' || value === 'test') return 'staging';
+  if (value === 'production' || value === 'prod' || value === 'live') return 'production';
+  throw new Error(`Invalid BOT_ENV '${raw}'. Use staging or production.`);
+}
 
 const repoRoot = path.resolve(__dirname, '../..');
 loadEnvFiles([
@@ -191,11 +199,11 @@ describe('full stack interfaces e2e', () => {
   const shouldRun = String(process.env.RUN_FULL_STACK_E2E || '').trim().toLowerCase() === 'true';
 
   (shouldRun ? it : it.skip)('validates local+remote+telegram+r2 artifact flow', async () => {
-    const tgYaml = readTelegramYaml(repoRoot);
+    const botEnv = resolveBotEnvironment(process.env.BOT_ENV);
     const cfYaml = readCloudflareYaml(repoRoot);
     const awsYaml = readAwsYaml(repoRoot);
 
-    const deployMetadataPath = path.join(repoRoot, 'telegram/out/deploy-render-metadata.json');
+    const deployMetadataPath = path.join(repoRoot, `telegram/out/deploy-render-metadata.${botEnv}.json`);
     let deployMetadata = {};
     if (fs.existsSync(deployMetadataPath)) {
       try {
@@ -204,18 +212,20 @@ describe('full stack interfaces e2e', () => {
         deployMetadata = {};
       }
     }
+    const metadataEnv = String(deployMetadata.environment || '').trim().toLowerCase();
+    if (metadataEnv) {
+      expect(metadataEnv).toBe(botEnv);
+    }
     const serviceBase = firstNonEmpty(
       process.env.RENDER_PUBLIC_BASE_URL,
-      deployMetadata.publicUrl,
-      'https://web2comics-telegram-render-bot.onrender.com'
+      deployMetadata.publicUrl
     );
-    const webhookSecret = firstNonEmpty(process.env.TELEGRAM_WEBHOOK_SECRET, 'web2comics-render-webhook-secret-v1');
-    const telegramToken = firstNonEmpty(process.env.TELEGRAM_BOT_TOKEN, tgYaml.bot_token);
+    const webhookSecret = firstNonEmpty(process.env.TELEGRAM_WEBHOOK_SECRET);
+    const telegramToken = firstNonEmpty(process.env.TELEGRAM_BOT_TOKEN);
     const chatId = firstNonEmpty(
       process.env.TELEGRAM_TEST_CHAT_ID,
       process.env.TELEGRAM_NOTIFY_CHAT_ID,
-      tgYaml.allowed_chat_ids,
-      '1796415913'
+      deployMetadata.telegramTestChatId
     ).split(',')[0].trim();
 
     const cfR2 = (cfYaml && cfYaml.r2) || {};
@@ -231,7 +241,10 @@ describe('full stack interfaces e2e', () => {
     const accessKeyId = firstNonEmpty(process.env.R2_ACCESS_KEY_ID, key2.access_key_id, key1.access_key_id, awsYaml.aws_access_key_id);
     const secretAccessKey = firstNonEmpty(process.env.R2_SECRET_ACCESS_KEY, key2.secret_access_key, key1.secret_access_key, awsYaml.aws_secret_access_key);
 
+    if (!serviceBase) throw new Error('Missing RENDER_PUBLIC_BASE_URL (or env metadata publicUrl) for full stack e2e');
+    if (!webhookSecret) throw new Error('Missing TELEGRAM_WEBHOOK_SECRET for full stack e2e');
     if (!telegramToken) throw new Error('Missing TELEGRAM_BOT_TOKEN for full stack e2e');
+    if (!chatId) throw new Error('Missing TELEGRAM_TEST_CHAT_ID/TELEGRAM_NOTIFY_CHAT_ID for full stack e2e');
     if (!endpoint || !bucket || !accessKeyId || !secretAccessKey) throw new Error('Missing R2 config for full stack e2e');
 
     const healthRes = await fetch(`${serviceBase.replace(/\/+$/, '')}/healthz`);

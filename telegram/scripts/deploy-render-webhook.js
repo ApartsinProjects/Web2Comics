@@ -5,7 +5,6 @@ const { RenderApiClient } = require('./render-api');
 const { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand } = require('@aws-sdk/client-s3');
 const {
   parseArgs,
-  readTelegramYaml,
   readCloudflareYaml,
   readAwsYaml,
   resolveLatestDeployId,
@@ -22,6 +21,8 @@ const HELP_TEXT = [
   '',
   'Common options:',
   '  --help                         Show this message and exit',
+  '  --env <staging|production>     Deployment target environment (default: staging)',
+  '  --dry-run                      Run checks only; do not mutate service env or trigger deploy',
   '  --env-only                     Use env vars only (skip local yaml files)',
   '  --test-deployment              Deploy to test service name',
   '  --allow-partial-keys           Require only one configured provider key',
@@ -31,10 +32,90 @@ const HELP_TEXT = [
   '  --cloudflare-account-api-token <token>  Cloudflare account token (R2/provisioning)',
   '  --render-api-key <key>         Render API key',
   '  --telegram-token <token>       Telegram bot token',
+  '  --version-major <n>            Bot major version baseline (minor auto-increments each deploy)',
   '  --allowed-chat-ids <csv>       Restrict bot access to listed chat IDs (default: allow all chats)',
   '  --service-name <name>          Render service name override',
+  '  --peer-service-name <name>     Peer env service name for separation checks',
   '  --metadata-out <path>          Output path for deploy metadata json'
 ].join('\n');
+
+function resolveBotEnvironment(raw) {
+  const value = String(raw || '').trim().toLowerCase();
+  if (!value) return 'staging';
+  if (value === 'staging' || value === 'stage' || value === 'test') return 'staging';
+  if (value === 'production' || value === 'prod' || value === 'live') return 'production';
+  throw new Error(`Invalid --env value '${raw}'. Use staging or production.`);
+}
+
+function assertServiceNameMatchesEnv(envName, serviceName) {
+  const name = String(serviceName || '').trim().toLowerCase();
+  const looksStage = /stage|staging|test/.test(name);
+  if (envName === 'staging' && !looksStage) {
+    throw new Error(`Refusing staging deploy to non-stage service '${serviceName}'. Use a stage/test service name.`);
+  }
+  if (envName === 'production' && looksStage) {
+    throw new Error(`Refusing production deploy to stage/test service '${serviceName}'.`);
+  }
+}
+
+function defaultPeerServiceName(envName) {
+  return envName === 'staging'
+    ? 'web2comics-telegram-render-bot'
+    : 'web2comics-telegram-render-bot-stage';
+}
+
+function getEnvVarValue(rows, key) {
+  const list = Array.isArray(rows) ? rows : [];
+  const target = String(key || '').trim();
+  const row = list.find((item) => String(item?.key || '').trim() === target);
+  return String(row?.value || '').trim();
+}
+
+function assertCrossEnvironmentSeparation(current, peer, envName) {
+  const checks = [
+    ['TELEGRAM_BOT_TOKEN', current.telegramToken, peer.telegramToken],
+    ['TELEGRAM_NOTIFY_CHAT_ID', current.notifyChatId, peer.notifyChatId],
+    ['TELEGRAM_TEST_CHAT_ID', current.telegramTestChatId, peer.telegramTestChatId]
+  ];
+  const collisions = checks.filter(([, mine, other]) => String(mine || '').trim() && String(other || '').trim() && String(mine) === String(other));
+  if (collisions.length) {
+    const labels = collisions.map(([name]) => name).join(', ');
+    throw new Error(
+      `Environment separation check failed for ${envName}: identical values detected with peer service for ${labels}. ` +
+      'Use different bot token and chat IDs between staging and production.'
+    );
+  }
+  if (String(current.publicUrl || '').trim() && String(peer.publicUrl || '').trim() && String(current.publicUrl).trim() === String(peer.publicUrl).trim()) {
+    throw new Error(
+      `Environment separation check failed for ${envName}: RENDER_PUBLIC_BASE_URL/public service URL matches peer environment. ` +
+      'Use different Render services/webhook URLs for staging and production.'
+    );
+  }
+}
+
+function parseMajorMinorVersion(value, fallbackMajor = 1) {
+  const text = String(value || '').trim();
+  const m = text.match(/^(\d+)\.(\d+)$/);
+  if (m) {
+    return {
+      major: Math.max(0, Number(m[1])),
+      minor: Math.max(0, Number(m[2]))
+    };
+  }
+  return {
+    major: Math.max(0, Number.isFinite(Number(fallbackMajor)) ? Number(fallbackMajor) : 1),
+    minor: 0
+  };
+}
+
+function formatMajorMinorVersion(major, minor) {
+  return `${Math.max(0, Number(major) || 0)}.${Math.max(0, Number(minor) || 0)}`;
+}
+
+function resolveNextBotVersion(currentValue, majorHint) {
+  const parsed = parseMajorMinorVersion(currentValue, majorHint);
+  return formatMajorMinorVersion(parsed.major, parsed.minor + 1);
+}
 
 async function fetchTextWithTimeout(url, init, timeoutMs, label) {
   const ms = Math.max(1000, Number(timeoutMs || 45000));
@@ -668,11 +749,13 @@ async function main() {
   globalStage = 'load-env';
   const repoRoot = path.resolve(__dirname, '../..');
   const preArgs = parseArgs(process.argv.slice(2));
+  const botEnv = resolveBotEnvironment(preArgs.env || process.env.BOT_ENV);
   if (parseBool(preArgs.help) || parseBool(preArgs.h)) {
     console.log(HELP_TEXT);
     return;
   }
   const envOnly = parseBool(preArgs['env-only'] || process.env.BOT_SECRETS_ENV_ONLY);
+  const dryRun = parseBool(preArgs['dry-run'] || process.env.RENDER_DRY_RUN);
   loadEnvFiles([
     path.join(repoRoot, '.env.all'),
     path.join(repoRoot, '.env.local'),
@@ -687,9 +770,8 @@ async function main() {
   const metadataOut = firstNonEmpty(
     args['metadata-out'],
     process.env.RENDER_DEPLOY_METADATA_OUT,
-    path.join(repoRoot, 'telegram/out/deploy-render-metadata.json')
+    path.join(repoRoot, `telegram/out/deploy-render-metadata.${botEnv}.json`)
   );
-  const tgYaml = envOnly ? {} : readTelegramYaml(repoRoot);
   const cfYaml = envOnly ? {} : readCloudflareYaml(repoRoot);
   const awsYaml = envOnly ? {} : readAwsYaml(repoRoot);
   const testDeployment = parseBool(args['test-deployment'] || process.env.RENDER_TEST_DEPLOYMENT);
@@ -702,13 +784,21 @@ async function main() {
   globalRenderApiKey = renderApiKey;
   const repoUrl = firstNonEmpty(args['repo-url'], process.env.RENDER_REPO_URL, 'https://github.com/ApartsinProjects/Web2Comics');
   const branch = firstNonEmpty(args.branch, process.env.RENDER_REPO_BRANCH, 'main');
-  const defaultServiceName = testDeployment ? 'web2comics-telegram-render-bot-test' : 'web2comics-telegram-render-bot';
+  const defaultServiceName = botEnv === 'staging'
+    ? (testDeployment ? 'web2comics-telegram-render-bot-stage-test' : 'web2comics-telegram-render-bot-stage')
+    : (testDeployment ? 'web2comics-telegram-render-bot-test' : 'web2comics-telegram-render-bot');
   const serviceName = firstNonEmpty(args['service-name'], process.env.RENDER_SERVICE_NAME, defaultServiceName);
+  assertServiceNameMatchesEnv(botEnv, serviceName);
+  const peerServiceName = firstNonEmpty(
+    args['peer-service-name'],
+    process.env.RENDER_PEER_SERVICE_NAME,
+    defaultPeerServiceName(botEnv)
+  );
   const ownerIdArg = firstNonEmpty(args['owner-id'], process.env.RENDER_OWNER_ID);
   const region = firstNonEmpty(args.region, process.env.RENDER_REGION, 'oregon');
   const plan = firstNonEmpty(args.plan, process.env.RENDER_PLAN, 'free');
 
-  const telegramToken = firstNonEmpty(args['telegram-token'], process.env.TELEGRAM_BOT_TOKEN, tgYaml.bot_token);
+  const telegramToken = firstNonEmpty(args['telegram-token'], process.env.TELEGRAM_BOT_TOKEN);
   const cloudflareAccountId = firstNonEmpty(args['cloudflare-account-id'], process.env.CLOUDFLARE_ACCOUNT_ID, cfYaml.account_id);
   if (String(args['cloudflare-api-token'] || '').trim()) {
     throw new Error('Deprecated --cloudflare-api-token is not supported. Use --cloudflare-ai-token and --cloudflare-account-api-token explicitly.');
@@ -773,16 +863,15 @@ async function main() {
   };
 
   const notifyChatId = firstChatId(
-    firstNonEmpty(args['notify-chat-id'], process.env.TELEGRAM_NOTIFY_CHAT_ID, tgYaml.allowed_chat_ids),
-    '1796415913'
+    firstNonEmpty(args['notify-chat-id'], process.env.TELEGRAM_NOTIFY_CHAT_ID)
   );
   const telegramTestChatId = firstChatId(
-    firstNonEmpty(args['telegram-test-chat-id'], process.env.TELEGRAM_TEST_CHAT_ID, tgYaml.allowed_chat_ids),
+    firstNonEmpty(args['telegram-test-chat-id'], process.env.TELEGRAM_TEST_CHAT_ID),
     notifyChatId
   );
   const allowedChatIds = resolveAllowedChatIds(args);
   const adminChatIds = normalizeIdCsv(
-    firstNonEmpty(args['admin-chat-ids'], process.env.TELEGRAM_ADMIN_CHAT_IDS, '1796415913'),
+    firstNonEmpty(args['admin-chat-ids'], process.env.TELEGRAM_ADMIN_CHAT_IDS),
     notifyChatId
   );
   globalStage = 'validate-input';
@@ -793,7 +882,7 @@ async function main() {
     throw new Error('Missing Telegram bot token. Provide TELEGRAM_BOT_TOKEN (GitHub Secret) or --telegram-token');
   }
   const existingWebhookSecret = await getExistingWebhookSecret(telegramToken);
-  const defaultWebhookSecret = /stage/i.test(String(serviceName || ''))
+  const defaultWebhookSecret = botEnv === 'staging'
     ? 'web2comics-render-webhook-secret-stage-v1'
     : 'web2comics-render-webhook-secret-v1';
   const webhookSecret = firstNonEmpty(
@@ -858,11 +947,52 @@ async function main() {
 
   globalOwnerId = ownerId;
 
+  // Cross-environment separation guard: compare against peer environment service, when it exists.
+  let peerServiceRecord = null;
+  try {
+    if (peerServiceName && peerServiceName !== serviceName) {
+      const peerRows = await render.listServicesByName(peerServiceName, ownerId);
+      peerServiceRecord = peerRows.find((row) => String(row?.service?.name || '') === peerServiceName) || null;
+    }
+  } catch (error) {
+    console.log(`[deploy] warning: could not resolve peer service '${peerServiceName}' for separation check: ${String(error?.message || error)}`);
+  }
+  if (peerServiceRecord) {
+    try {
+      const peerServiceId = String((peerServiceRecord.service && peerServiceRecord.service.id) || peerServiceRecord.id || '').trim();
+      if (peerServiceId) {
+        const peerEnvRows = await render.listServiceEnvVars(peerServiceId);
+        assertCrossEnvironmentSeparation(
+          {
+            telegramToken,
+            notifyChatId,
+            telegramTestChatId,
+            publicUrl: ''
+          },
+          {
+            telegramToken: getEnvVarValue(peerEnvRows, 'TELEGRAM_BOT_TOKEN'),
+            notifyChatId: getEnvVarValue(peerEnvRows, 'TELEGRAM_NOTIFY_CHAT_ID'),
+            telegramTestChatId: getEnvVarValue(peerEnvRows, 'TELEGRAM_TEST_CHAT_ID'),
+            publicUrl: String(peerServiceRecord?.service?.serviceDetails?.url || peerServiceRecord?.serviceDetails?.url || '').trim()
+          },
+          botEnv
+        );
+      }
+    } catch (error) {
+      throw new Error(`Cross-environment separation precheck failed: ${String(error?.message || error)}`);
+    }
+  } else {
+    console.log(`[deploy] peer service not found (${peerServiceName}); skipping pre-deploy separation comparison`);
+  }
+
   globalStage = 'provision-service';
   const existing = await render.listServicesByName(serviceName, ownerId);
   let serviceRecord = existing.find((row) => String(row?.service?.name || '') === serviceName);
 
   if (!serviceRecord) {
+    if (dryRun) {
+      throw new Error(`Dry-run requires existing service '${serviceName}' to validate separation/deploy settings.`);
+    }
     const createPayload = {
       type: 'web_service',
       name: serviceName,
@@ -897,6 +1027,35 @@ async function main() {
   if (!serviceId) throw new Error('Could not determine service ID.');
   globalServiceId = serviceId;
 
+  // In dry-run mode, validate current service URL separation and exit before any mutation/deploy.
+  if (dryRun) {
+    const currentService = await render.getService(serviceId);
+    const currentPublicUrl = String(currentService?.serviceDetails?.url || '').trim();
+    if (peerServiceRecord) {
+      const peerPublicUrl = String(peerServiceRecord?.service?.serviceDetails?.url || peerServiceRecord?.serviceDetails?.url || '').trim();
+      assertCrossEnvironmentSeparation(
+        {
+          telegramToken,
+          notifyChatId,
+          telegramTestChatId,
+          publicUrl: currentPublicUrl
+        },
+        {
+          telegramToken: '',
+          notifyChatId: '',
+          telegramTestChatId: '',
+          publicUrl: peerPublicUrl
+        },
+        botEnv
+      );
+    }
+    console.log('[deploy] dry-run OK: separation guards passed');
+    console.log(`[deploy] env=${botEnv} service=${serviceName} peer=${peerServiceName}`);
+    console.log(`[deploy] notify=${notifyChatId} testChat=${telegramTestChatId}`);
+    console.log(`[deploy] currentPublicUrl=${currentPublicUrl || '-'}`);
+    return;
+  }
+
   globalStage = 'update-service-config';
   await render.updateService(serviceId, {
     repo: repoUrl,
@@ -913,7 +1072,19 @@ async function main() {
   console.log(`[deploy] service build/start commands updated (repo=${repoUrl}, branch=${branch})`);
 
   globalStage = 'sync-env-vars';
+  let previousBotVersion = '';
+  try {
+    const currentEnvRows = await render.listServiceEnvVars(serviceId);
+    const currentVersionRow = currentEnvRows.find((row) => String(row?.key || '').trim() === 'RENDER_BOT_VERSION');
+    previousBotVersion = String(currentVersionRow?.value || '').trim();
+  } catch (error) {
+    console.log(`[deploy] warning: could not read existing service env vars for version bump: ${String(error?.message || error)}`);
+  }
+  const configuredMajor = String(args['version-major'] || process.env.RENDER_BOT_VERSION_MAJOR || '1').trim();
+  const nextBotVersion = resolveNextBotVersion(previousBotVersion, configuredMajor);
+  const versionBumpedAt = new Date().toISOString();
   const envVars = {
+    BOT_ENV: botEnv,
     TELEGRAM_BOT_TOKEN: telegramToken,
     TELEGRAM_WEBHOOK_SECRET: webhookSecret,
     RENDER_BOT_PERSISTENCE_MODE: 'r2',
@@ -924,6 +1095,9 @@ async function main() {
     RENDER_BOT_FETCH_TIMEOUT_MS: '45000',
     RENDER_BOT_DEBUG_ARTIFACTS: 'false',
     RENDER_BOT_DEFAULT_PROVIDER: firstNonEmpty(args['default-provider'], process.env.RENDER_BOT_DEFAULT_PROVIDER, 'gemini'),
+    RENDER_BOT_VERSION: nextBotVersion,
+    RENDER_BOT_VERSION_BUMPED_AT: versionBumpedAt,
+    RENDER_BOT_VERSION_MAJOR: String(parseMajorMinorVersion(nextBotVersion, configuredMajor).major),
     // Force stable deployment default unless explicitly overridden by --default-objective.
     RENDER_BOT_DEFAULT_OBJECTIVE: firstNonEmpty(args['default-objective'], 'explain-like-im-five'),
     TELEGRAM_NOTIFY_ON_START: 'true',
@@ -940,6 +1114,7 @@ async function main() {
 
   await render.setServiceEnvVars(serviceId, envVars);
   console.log('[deploy] env vars synced');
+  console.log(`[deploy] bot version advanced: ${previousBotVersion || 'none'} -> ${nextBotVersion}`);
 
   globalStage = 'trigger-deploy';
   const triggerStartedAtMs = Date.now();
@@ -983,6 +1158,26 @@ async function main() {
     return;
   }
 
+  // Final URL separation check (RENDER_PUBLIC_BASE_URL/public service URL must differ across environments).
+  if (peerServiceRecord) {
+    const peerPublicUrl = String(peerServiceRecord?.service?.serviceDetails?.url || peerServiceRecord?.serviceDetails?.url || '').trim();
+    assertCrossEnvironmentSeparation(
+      {
+        telegramToken,
+        notifyChatId,
+        telegramTestChatId,
+        publicUrl
+      },
+      {
+        telegramToken: '',
+        notifyChatId: '',
+        telegramTestChatId: '',
+        publicUrl: peerPublicUrl
+      },
+      botEnv
+    );
+  }
+
   globalStage = 'set-telegram-webhook';
   const webhookUrl = await setTelegramWebhook(telegramToken, webhookSecret, publicUrl);
 
@@ -992,6 +1187,10 @@ async function main() {
     fs.mkdirSync(path.dirname(metadataOut), { recursive: true });
     fs.writeFileSync(metadataOut, JSON.stringify({
       timestamp: new Date().toISOString(),
+      environment: botEnv,
+      botVersion: nextBotVersion,
+      botVersionPrevious: previousBotVersion,
+      botVersionBumpedAt: versionBumpedAt,
       ownerId,
       serviceId,
       serviceName,

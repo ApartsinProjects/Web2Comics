@@ -3,6 +3,14 @@ name: Bot Tests
 on:
   workflow_dispatch:
     inputs:
+      environment:
+        description: Test environment
+        required: true
+        default: staging
+        type: choice
+        options:
+          - staging
+          - production
       run_real_gemini:
         description: Run live Gemini tests
         required: true
@@ -27,6 +35,7 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.environment }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -44,6 +53,8 @@ jobs:
         shell: bash
         env:
           BOT_SECRETS_ENV_ONLY: "true"
+          BOT_ENV: ${{ github.event.inputs.environment }}
+          RENDER_DEPLOY_METADATA_OUT: telegram/out/deploy-render-metadata.${{ github.event.inputs.environment }}.json
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_WEBHOOK_SECRET: ${{ secrets.TELEGRAM_WEBHOOK_SECRET }}
           TELEGRAM_NOTIFY_CHAT_ID: ${{ secrets.TELEGRAM_NOTIFY_CHAT_ID }}
@@ -60,6 +71,12 @@ jobs:
           FIRECRAWL_API_KEY: ${{ secrets.FIRECRAWL_API_KEY }}
           JINA_API_KEY: ${{ secrets.JINA_API_KEY }}
           DRIFTBOT_API_KEY: ${{ secrets.DRIFTBOT_API_KEY }}
+          BRAVE_SEARCH_API_KEY: ${{ secrets.BRAVE_SEARCH_API_KEY }}
+          TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
+          EXA_API_KEY: ${{ secrets.EXA_API_KEY }}
+          SERPER_API_KEY: ${{ secrets.SERPER_API_KEY }}
+          SERPAPI_API_KEY: ${{ secrets.SERPAPI_API_KEY }}
+          GOOGLE_KG_API_KEY: ${{ secrets.GOOGLE_KG_API_KEY }}
           LLAMA_CLOUD_API_KEY: ${{ secrets.LLAMA_CLOUD_API_KEY }}
           UNSTRUCTURED_API_KEY: ${{ secrets.UNSTRUCTURED_API_KEY }}
           ASSEMBLYAI_API_KEY: ${{ secrets.ASSEMBLYAI_API_KEY }}

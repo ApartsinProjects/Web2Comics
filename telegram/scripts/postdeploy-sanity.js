@@ -3,8 +3,16 @@ const fs = require('fs');
 const path = require('path');
 const { S3Client, ListObjectsV2Command, GetObjectCommand } = require('@aws-sdk/client-s3');
 const { loadEnvFiles } = require('../src/env');
-const { parseArgs, readTelegramYaml, readCloudflareYaml, readAwsYaml } = require('./lib');
+const { parseArgs, readCloudflareYaml, readAwsYaml } = require('./lib');
 const { RenderApiClient } = require('./render-api');
+
+function resolveBotEnvironment(raw) {
+  const value = String(raw || '').trim().toLowerCase();
+  if (!value) return 'staging';
+  if (value === 'staging' || value === 'stage' || value === 'test') return 'staging';
+  if (value === 'production' || value === 'prod' || value === 'live') return 'production';
+  throw new Error(`Invalid --env value '${raw}'. Use staging or production.`);
+}
 
 function firstNonEmpty(...values) {
   for (const v of values) {
@@ -197,6 +205,7 @@ function loadMetadata(metadataPath) {
 async function main() {
   const repoRoot = path.resolve(__dirname, '../..');
   const args = parseArgs(process.argv.slice(2));
+  const botEnv = resolveBotEnvironment(args.env || process.env.BOT_ENV);
   const envOnly = parseBool(args['env-only'] || process.env.BOT_SECRETS_ENV_ONLY);
   loadEnvFiles([
     path.join(repoRoot, '.env.all'),
@@ -209,9 +218,12 @@ async function main() {
   const metadata = loadMetadata(firstNonEmpty(
     args['metadata-in'],
     process.env.RENDER_DEPLOY_METADATA_OUT,
-    path.join(repoRoot, 'telegram/out/deploy-render-metadata.json')
+    path.join(repoRoot, `telegram/out/deploy-render-metadata.${botEnv}.json`)
   ));
-  const tgYaml = envOnly ? {} : readTelegramYaml(repoRoot);
+  const metadataEnv = String(metadata.environment || '').trim().toLowerCase();
+  if (metadataEnv && metadataEnv !== botEnv) {
+    throw new Error(`Metadata environment mismatch: expected ${botEnv}, got ${metadataEnv}`);
+  }
   const cfYaml = envOnly ? {} : readCloudflareYaml(repoRoot);
   const awsYaml = envOnly ? {} : readAwsYaml(repoRoot);
   const cfR2 = (cfYaml && cfYaml.r2) || {};
@@ -221,13 +233,12 @@ async function main() {
 
   const baseUrl = firstNonEmpty(args['service-url'], process.env.RENDER_PUBLIC_BASE_URL, metadata.publicUrl);
   const webhookSecret = firstNonEmpty(args['webhook-secret'], process.env.TELEGRAM_WEBHOOK_SECRET, metadata.webhookSecret);
-  const telegramToken = firstNonEmpty(args['telegram-token'], process.env.TELEGRAM_BOT_TOKEN, tgYaml.bot_token);
+  const telegramToken = firstNonEmpty(args['telegram-token'], process.env.TELEGRAM_BOT_TOKEN);
   const chatId = firstNonEmpty(
     args['telegram-test-chat-id'],
     process.env.TELEGRAM_TEST_CHAT_ID,
     process.env.TELEGRAM_NOTIFY_CHAT_ID,
-    metadata.telegramTestChatId,
-    tgYaml.allowed_chat_ids
+    metadata.telegramTestChatId
   ).split(',').map((v) => v.trim()).find(Boolean);
   const endpoint = firstNonEmpty(
     args['r2-endpoint'],
@@ -295,11 +306,12 @@ main().catch(async (error) => {
   try {
     const repoRoot = path.resolve(__dirname, '../..');
     const args = parseArgs(process.argv.slice(2));
+    const botEnv = resolveBotEnvironment(args.env || process.env.BOT_ENV);
     const envOnly = parseBool(args['env-only'] || process.env.BOT_SECRETS_ENV_ONLY);
     const metadata = loadMetadata(firstNonEmpty(
       args['metadata-in'],
       process.env.RENDER_DEPLOY_METADATA_OUT,
-      path.join(repoRoot, 'telegram/out/deploy-render-metadata.json')
+      path.join(repoRoot, `telegram/out/deploy-render-metadata.${botEnv}.json`)
     ));
     const cfYaml = envOnly ? {} : readCloudflareYaml(repoRoot);
     const awsYaml = envOnly ? {} : readAwsYaml(repoRoot);
@@ -338,10 +350,11 @@ main().catch(async (error) => {
   }
   try {
     const args = parseArgs(process.argv.slice(2));
+    const botEnv = resolveBotEnvironment(args.env || process.env.BOT_ENV);
     const metadata = loadMetadata(firstNonEmpty(
       args['metadata-in'],
       process.env.RENDER_DEPLOY_METADATA_OUT,
-      path.join(path.resolve(__dirname, '../..'), 'telegram/out/deploy-render-metadata.json')
+      path.join(path.resolve(__dirname, '../..'), `telegram/out/deploy-render-metadata.${botEnv}.json`)
     ));
     const renderApiKey = firstNonEmpty(args['render-api-key'], process.env.RENDER_API_KEY);
     const ownerId = firstNonEmpty(args['owner-id'], process.env.RENDER_OWNER_ID, metadata.ownerId);

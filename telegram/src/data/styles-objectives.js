@@ -96,15 +96,15 @@ const OBJECTIVE_DEFINITIONS = {
 const STYLE_DEFINITIONS = {
   classic: {
     name: 'Classic',
-    description: 'clean illustrated art, readable characters, coherent scene progression'
+    description: 'clean modern comic illustration, balanced composition, readable characters, consistent visual continuity'
   },
   noir: {
     name: 'Noir',
-    description: 'film noir comic style, dramatic shadows, high contrast, moody scenes'
+    description: 'film noir style, dramatic chiaroscuro shadows, high contrast lighting, tense cinematic atmosphere'
   },
   manga: {
     name: 'Manga',
-    description: 'manga-inspired comic art, expressive characters, dynamic framing'
+    description: 'manga-inspired linework, expressive faces, speed and motion cues, dynamic panel-ready framing'
   },
   superhero: {
     name: 'Superhero',
@@ -120,7 +120,7 @@ const STYLE_DEFINITIONS = {
   },
   cinematic: {
     name: 'Cinematic',
-    description: 'cinematic concept-art look, dramatic composition, volumetric lighting, rich depth'
+    description: 'cinematic concept-art look, dramatic camera language, volumetric lighting, rich depth and scale'
   },
   anime: {
     name: 'Anime',
@@ -144,7 +144,7 @@ const STYLE_DEFINITIONS = {
   },
   storybook: {
     name: 'Storybook',
-    description: 'illustrated storybook look, warm textures, whimsical details, soft narrative atmosphere'
+    description: 'illustrated storybook look, warm textures, whimsical detail, gentle narrative atmosphere'
   },
   'ink-wash': {
     name: 'Ink Wash',

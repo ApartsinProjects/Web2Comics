@@ -17,7 +17,7 @@ const IMAGE_EXTRACTOR_SET = new Set(IMAGE_EXTRACTOR_VALUES);
 const VOICE_EXTRACTOR_VALUES = ['assemblyai'];
 const VOICE_EXTRACTOR_SET = new Set(VOICE_EXTRACTOR_VALUES);
 const IMAGE_STORY_MIN_CHARS = 120;
-const VOICE_STORY_MIN_CHARS = 40;
+const VOICE_STORY_MIN_CHARS = 8;
 
 function normalizeImageExtractor(raw) {
   const value = String(raw || '').trim().toLowerCase();
