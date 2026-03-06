@@ -3932,6 +3932,7 @@ async function startServer() {
   const port = Number(process.env.PORT || 10000);
   server.listen(port, () => {
     console.log(`[render-bot] listening on port ${port}`);
+    console.log(`[render-bot] version: ${BOT_VERSION}`);
     console.log(`[render-bot] webhook path: ${webhookPath}`);
     console.log(`[render-bot] persistence: ${persistenceMode.mode}`);
     console.log(`[render-bot] crash logs: ${crashStoreMode}`);
