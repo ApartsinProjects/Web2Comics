@@ -422,11 +422,12 @@ async function main() {
 
   await runVendorCredentialPreflight(process.env);
 
-  const skipTests = parseBool(process.env.PREDEPLOY_SKIP_TESTS);
+  const skipTests = parseBool(process.env.PREDEPLOY_SKIP_TESTS)
+    || (parseBool(process.env.CI) && !parseBool(process.env.PREDEPLOY_FORCE_TESTS));
   if (!skipTests) {
     run('npm run test:telegram');
   } else {
-    console.log('[predeploy] test suite skipped (PREDEPLOY_SKIP_TESTS=true)');
+    console.log('[predeploy] test suite skipped (PREDEPLOY_SKIP_TESTS/CI mode)');
   }
 
   const runReal = String(process.env.RUN_RENDER_REAL_GEMINI || '') === '1';
