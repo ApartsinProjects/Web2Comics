@@ -101,6 +101,17 @@ function getGeminiText(json) {
   return parts.map((p) => p?.text || '').filter(Boolean).join(' ').trim();
 }
 
+function getCohereText(json) {
+  const direct = String(json?.text || '').trim();
+  if (direct) return direct;
+  const messageContent = Array.isArray(json?.message?.content) ? json.message.content : [];
+  const parts = messageContent
+    .map((item) => String(item?.text || '').trim())
+    .filter(Boolean);
+  if (parts.length) return parts.join('\n').trim();
+  return '';
+}
+
 function extractGeminiInlineImage(json) {
   const candidates = Array.isArray(json?.candidates) ? json.candidates : [];
   for (const candidate of candidates) {
@@ -144,7 +155,12 @@ function decodeDataUri(value) {
 function normalizeBaseUrl(value, fallback) {
   const raw = String(value || fallback || '').trim();
   if (!raw) return '';
-  return raw.replace(/\/+$/, '');
+  const normalized = raw.replace(/\/+$/, '');
+  // Hugging Face deprecated api-inference endpoint now redirects to router API.
+  if (/^https?:\/\/api-inference\.huggingface\.co$/i.test(normalized)) {
+    return 'https://router.huggingface.co/hf-inference';
+  }
+  return normalized;
 }
 
 function buildHuggingFaceModelUrl(providerConfig, model) {
@@ -249,6 +265,48 @@ async function generateTextWithProvider(providerConfig, prompt, runtimeConfig) {
     return text;
   }
 
+  if (provider === 'groq') {
+    const apiKey = resolveProviderValue(providerConfig, 'api_key', 'GROQ_API_KEY');
+    if (!apiKey) throw new Error('Missing GROQ_API_KEY for Groq text provider');
+    const { json } = await fetchJson('https://api.groq.com/openai/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        model,
+        messages: [{ role: 'user', content: prompt }],
+        temperature: hasTemperature ? temperature : 0.3
+      })
+    }, timeoutMs, 'Groq text');
+    const text = String(json?.choices?.[0]?.message?.content || '').trim();
+    if (!text) throw new Error('Groq text response was empty');
+    return text;
+  }
+
+  if (provider === 'cohere') {
+    const apiKey = resolveProviderValue(providerConfig, 'api_key', 'COHERE_API_KEY');
+    if (!apiKey) throw new Error('Missing COHERE_API_KEY for Cohere text provider');
+    const baseUrl = normalizeBaseUrl(resolveProviderValue(providerConfig, 'base_url', 'COHERE_BASE_URL'), 'https://api.cohere.com');
+    const { json } = await fetchJson(`${baseUrl}/v2/chat`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        model,
+        messages: [{ role: 'user', content: prompt }],
+        temperature: hasTemperature ? temperature : 0.3,
+        max_tokens: 2048
+      })
+    }, timeoutMs, 'Cohere text');
+    const text = getCohereText(json);
+    if (!text) throw new Error('Cohere text response was empty');
+    return text;
+  }
+
   if (provider === 'cloudflare') {
     const accountId = resolveProviderValue(providerConfig, 'account_id', 'CLOUDFLARE_ACCOUNT_ID');
     const apiToken = resolveProviderValue(providerConfig, 'api_token', 'CLOUDFLARE_API_TOKEN');
@@ -297,6 +355,10 @@ async function generateTextWithProvider(providerConfig, prompt, runtimeConfig) {
       : String(json?.generated_text || json?.[0]?.generated_text || '').trim();
     if (!text) throw new Error('Hugging Face text response was empty');
     return text;
+  }
+
+  if (provider === 'groq') {
+    throw new Error('Groq image provider is not supported');
   }
 
   throw new Error(`Unsupported text provider: ${provider}`);

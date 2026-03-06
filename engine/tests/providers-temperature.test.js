@@ -75,4 +75,26 @@ describe('provider text temperature wiring', () => {
     expect(body.parameters.max_new_tokens).toBe(512);
     expect(body.parameters.temperature).toBe(1.1);
   });
+
+  it('migrates deprecated HuggingFace base URL to router endpoint', async () => {
+    process.env.HUGGINGFACE_INFERENCE_API_TOKEN = 'hf-1';
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      text: async () => JSON.stringify({ generated_text: 'ok' })
+    });
+    global.fetch = fetchMock;
+
+    await generateTextWithProvider(
+      {
+        provider: 'huggingface',
+        model: 'mistralai/Mistral-7B-Instruct-v0.2',
+        base_url: 'https://api-inference.huggingface.co'
+      },
+      'hello',
+      { timeout_ms: 1000 }
+    );
+
+    const url = String(fetchMock.mock.calls[0][0] || '');
+    expect(url).toContain('https://router.huggingface.co/hf-inference/models/');
+  });
 });

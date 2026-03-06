@@ -103,6 +103,14 @@ async function verifyHuggingFaceKey(apiKey) {
   if (!res.ok) throw new Error(`Hugging Face token invalid (${res.status}): ${text.slice(0, 300)}`);
 }
 
+async function verifyCohereKey(apiKey) {
+  const { res, text } = await fetchTextWithTimeout('https://api.cohere.com/v1/models', {
+    method: 'GET',
+    headers: { Authorization: `Bearer ${apiKey}` }
+  }, 30000, 'Cohere auth');
+  if (!res.ok) throw new Error(`Cohere key invalid (${res.status}): ${text.slice(0, 300)}`);
+}
+
 async function verifyFirecrawlKey(apiKey) {
   const { res, text } = await fetchTextWithTimeout('https://api.firecrawl.dev/v1/search', {
     method: 'POST',
@@ -139,6 +147,64 @@ async function verifyDriftbotKey(apiKey) {
   if (!res.ok) throw new Error(`Driftbot key invalid (${res.status}): ${text.slice(0, 300)}`);
 }
 
+async function verifyBraveSearchKey(apiKey) {
+  const { res, text } = await fetchTextWithTimeout('https://api.search.brave.com/res/v1/web/search?q=example.com&count=1', {
+    method: 'GET',
+    headers: {
+      'X-Subscription-Token': apiKey,
+      Accept: 'application/json'
+    }
+  }, 45000, 'Brave auth');
+  if (!res.ok) throw new Error(`Brave key invalid (${res.status}): ${text.slice(0, 300)}`);
+}
+
+async function verifyTavilyKey(apiKey) {
+  const { res, text } = await fetchTextWithTimeout('https://api.tavily.com/search', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ api_key: apiKey, query: 'example.com', max_results: 1 })
+  }, 45000, 'Tavily auth');
+  if (!res.ok) throw new Error(`Tavily key invalid (${res.status}): ${text.slice(0, 300)}`);
+}
+
+async function verifyExaKey(apiKey) {
+  const { res, text } = await fetchTextWithTimeout('https://api.exa.ai/search', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': apiKey
+    },
+    body: JSON.stringify({ query: 'example.com', numResults: 1 })
+  }, 45000, 'Exa auth');
+  if (!res.ok) throw new Error(`Exa key invalid (${res.status}): ${text.slice(0, 300)}`);
+}
+
+async function verifySerperKey(apiKey) {
+  const { res, text } = await fetchTextWithTimeout('https://google.serper.dev/search', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-API-KEY': apiKey
+    },
+    body: JSON.stringify({ q: 'example.com', num: 1 })
+  }, 45000, 'Serper auth');
+  if (!res.ok) throw new Error(`Serper key invalid (${res.status}): ${text.slice(0, 300)}`);
+}
+
+async function verifySerpApiKey(apiKey) {
+  const { res, text } = await fetchTextWithTimeout(`https://serpapi.com/search.json?q=example.com&num=1&api_key=${encodeURIComponent(apiKey)}`, {
+    method: 'GET'
+  }, 45000, 'SerpAPI auth');
+  if (!res.ok) throw new Error(`SerpAPI key invalid (${res.status}): ${text.slice(0, 300)}`);
+}
+
+async function verifyGoogleKgKey(apiKey) {
+  const { res, text } = await fetchTextWithTimeout(`https://kgsearch.googleapis.com/v1/entities:search?query=Tokyo&limit=1&key=${encodeURIComponent(apiKey)}`, {
+    method: 'GET'
+  }, 45000, 'Google KG auth');
+  if (!res.ok) throw new Error(`Google KG key invalid (${res.status}): ${text.slice(0, 300)}`);
+}
+
 async function verifyLlamaCloudKey(apiKey) {
   if (!String(apiKey || '').trim().startsWith('llx-')) {
     throw new Error('LlamaCloud key format invalid (expected llx-)');
@@ -166,6 +232,20 @@ async function verifyAssemblyAiKey(apiKey) {
   }, 30000, 'AssemblyAI auth');
   if (res.status === 401 || res.status === 403) {
     throw new Error(`AssemblyAI key invalid (${res.status}): ${text.slice(0, 300)}`);
+  }
+}
+
+async function verifyUnstructuredKey(apiKey) {
+  const { res, text } = await fetchTextWithTimeout('https://api.unstructuredapp.io/general/v0/general', {
+    method: 'POST',
+    headers: {
+      Accept: 'application/json',
+      'unstructured-api-key': apiKey
+    },
+    body: new FormData()
+  }, 30000, 'Unstructured auth');
+  if (res.status === 401 || res.status === 403) {
+    throw new Error(`Unstructured key invalid (${res.status}): ${text.slice(0, 300)}`);
   }
 }
 
@@ -200,6 +280,11 @@ async function verifyAllProviderCredentials(providerEnv, options = {}) {
     run: () => verifyHuggingFaceKey(key('HUGGINGFACE_INFERENCE_API_TOKEN'))
   });
   checks.push({
+    name: 'cohere',
+    enabled: Boolean(key('COHERE_API_KEY')),
+    run: () => verifyCohereKey(key('COHERE_API_KEY'))
+  });
+  checks.push({
     name: 'firecrawl',
     enabled: Boolean(key('FIRECRAWL_API_KEY')),
     run: () => verifyFirecrawlKey(key('FIRECRAWL_API_KEY'))
@@ -220,9 +305,45 @@ async function verifyAllProviderCredentials(providerEnv, options = {}) {
     run: () => verifyLlamaCloudKey(key('LLAMA_CLOUD_API_KEY'))
   });
   checks.push({
+    name: 'unstructured',
+    enabled: Boolean(key('UNSTRUCTURED_API_KEY')),
+    run: () => verifyUnstructuredKey(key('UNSTRUCTURED_API_KEY'))
+  });
+  checks.push({
     name: 'assemblyai',
     enabled: Boolean(key('ASSEMBLYAI_API_KEY')),
     run: () => verifyAssemblyAiKey(key('ASSEMBLYAI_API_KEY'))
+  });
+  checks.push({
+    name: 'brave',
+    enabled: Boolean(key('BRAVE_SEARCH_API_KEY')),
+    run: () => verifyBraveSearchKey(key('BRAVE_SEARCH_API_KEY'))
+  });
+  checks.push({
+    name: 'tavily',
+    enabled: Boolean(key('TAVILY_API_KEY')),
+    run: () => verifyTavilyKey(key('TAVILY_API_KEY'))
+  });
+  checks.push({
+    name: 'exa',
+    enabled: Boolean(key('EXA_API_KEY')),
+    optional: true,
+    run: () => verifyExaKey(key('EXA_API_KEY'))
+  });
+  checks.push({
+    name: 'serper',
+    enabled: Boolean(key('SERPER_API_KEY')),
+    run: () => verifySerperKey(key('SERPER_API_KEY'))
+  });
+  checks.push({
+    name: 'serpapi',
+    enabled: Boolean(key('SERPAPI_API_KEY')),
+    run: () => verifySerpApiKey(key('SERPAPI_API_KEY'))
+  });
+  checks.push({
+    name: 'googlekg',
+    enabled: Boolean(key('GOOGLE_KG_API_KEY')),
+    run: () => verifyGoogleKgKey(key('GOOGLE_KG_API_KEY'))
   });
 
   const failures = [];
@@ -235,7 +356,12 @@ async function verifyAllProviderCredentials(providerEnv, options = {}) {
       await check.run();
       console.log(`[deploy] provider credential check ok: ${check.name}`);
     } catch (error) {
-      failures.push(`${check.name}: ${String(error?.message || error)}`);
+      const message = `${check.name}: ${String(error?.message || error)}`;
+      if (check.optional && !strictAll) {
+        console.warn(`[deploy] provider credential check warning: ${message}`);
+        continue;
+      }
+      failures.push(message);
     }
   }
   if (failures.length) {
@@ -305,7 +431,7 @@ function pickCloudflareAccountTokenCandidates(cfYaml) {
   return out;
 }
 
-function resolveR2Config(args, cfYaml, awsYaml) {
+function resolveR2Config(args, cfYaml, awsYaml, serviceName = '') {
   const cfR2 = (cfYaml && cfYaml.r2) || {};
   const s3Clients = (cfR2 && cfR2.s3_clients) || {};
   const key2 = s3Clients.keypair_2 || {};
@@ -316,7 +442,11 @@ function resolveR2Config(args, cfYaml, awsYaml) {
     process.env.CLOUDFLARE_ACCOUNT_ID,
     cfYaml && cfYaml.account_id
   );
-  const bucket = firstNonEmpty(args['r2-bucket'], process.env.R2_BUCKET, cfR2.bucket, 'web2comics-bot-data');
+  const explicitBucket = firstNonEmpty(args['r2-bucket']);
+  const isStageService = /stage/i.test(String(serviceName || ''));
+  const stageBucketDefault = firstNonEmpty(args['r2-bucket-stage'], process.env.R2_BUCKET_STAGE, 'web2comics-bot-data-stage');
+  const nonStageBucketDefault = firstNonEmpty(process.env.R2_BUCKET, cfR2.bucket, 'web2comics-bot-data');
+  const bucket = explicitBucket || (isStageService ? stageBucketDefault : nonStageBucketDefault);
   const endpointRaw = firstNonEmpty(
     args['r2-endpoint'],
     process.env.R2_S3_ENDPOINT,
@@ -544,6 +674,7 @@ async function main() {
   }
   const envOnly = parseBool(preArgs['env-only'] || process.env.BOT_SECRETS_ENV_ONLY);
   loadEnvFiles([
+    path.join(repoRoot, '.env.all'),
     path.join(repoRoot, '.env.local'),
     path.join(repoRoot, '.env.e2e.local'),
     path.join(repoRoot, '.crawler'),
@@ -602,13 +733,22 @@ async function main() {
     CLOUDFLARE_ACCOUNT_ID: cloudflareAccountId,
     CLOUDFLARE_API_TOKEN: cloudflareAiToken,
     HUGGINGFACE_INFERENCE_API_TOKEN: firstNonEmpty(args['huggingface-token'], process.env.HUGGINGFACE_INFERENCE_API_TOKEN),
+    COHERE_API_KEY: firstNonEmpty(args['cohere-key'], process.env.COHERE_API_KEY),
     FIRECRAWL_API_KEY: firstNonEmpty(args['firecrawl-key'], process.env.FIRECRAWL_API_KEY),
     JINA_API_KEY: firstNonEmpty(args['jina-key'], process.env.JINA_API_KEY),
-    DRIFTBOT_API_KEY: firstNonEmpty(args['driftbot-key'], process.env.DRIFTBOT_API_KEY),
+    DRIFTBOT_API_KEY: firstNonEmpty(args['driftbot-key'], process.env.DRIFTBOT_API_KEY, process.env.DIFFBOT_API_KEY),
+    DIFFBOT_API_KEY: firstNonEmpty(args['diffbot-key'], process.env.DIFFBOT_API_KEY),
+    BRAVE_SEARCH_API_KEY: firstNonEmpty(args['brave-key'], process.env.BRAVE_SEARCH_API_KEY),
+    TAVILY_API_KEY: firstNonEmpty(args['tavily-key'], process.env.TAVILY_API_KEY),
+    EXA_API_KEY: firstNonEmpty(args['exa-key'], process.env.EXA_API_KEY),
+    SERPER_API_KEY: firstNonEmpty(args['serper-key'], process.env.SERPER_API_KEY),
+    SERPAPI_API_KEY: firstNonEmpty(args['serpapi-key'], process.env.SERPAPI_API_KEY),
+    GOOGLE_KG_API_KEY: firstNonEmpty(args['googlekg-key'], process.env.GOOGLE_KG_API_KEY),
     LLAMA_CLOUD_API_KEY: firstNonEmpty(args['llama-cloud-key'], process.env.LLAMA_CLOUD_API_KEY, process.env.LLAMAPARSE_API_KEY),
+    UNSTRUCTURED_API_KEY: firstNonEmpty(args['unstructured-key'], process.env.UNSTRUCTURED_API_KEY),
     ASSEMBLYAI_API_KEY: firstNonEmpty(args['assemblyai-key'], process.env.ASSEMBLYAI_API_KEY)
   };
-  const resolvedR2 = resolveR2Config(args, cfYaml, awsYaml);
+  const resolvedR2 = resolveR2Config(args, cfYaml, awsYaml, serviceName);
   const r2Env = {
     R2_S3_ENDPOINT: resolvedR2.endpoint,
     R2_BUCKET: resolvedR2.bucket,
@@ -653,11 +793,14 @@ async function main() {
     throw new Error('Missing Telegram bot token. Provide TELEGRAM_BOT_TOKEN (GitHub Secret) or --telegram-token');
   }
   const existingWebhookSecret = await getExistingWebhookSecret(telegramToken);
+  const defaultWebhookSecret = /stage/i.test(String(serviceName || ''))
+    ? 'web2comics-render-webhook-secret-stage-v1'
+    : 'web2comics-render-webhook-secret-v1';
   const webhookSecret = firstNonEmpty(
     args['webhook-secret'],
     process.env.TELEGRAM_WEBHOOK_SECRET,
     existingWebhookSecret,
-    'web2comics-render-webhook-secret-v1'
+    defaultWebhookSecret
   );
   const keyCheck = validateProviderEnv(providerEnv, requireAllKeys);
   if (!keyCheck.ok) {
@@ -856,6 +999,7 @@ async function main() {
       publicUrl,
       webhookUrl,
       webhookSecret,
+      r2Bucket: r2Env.R2_BUCKET,
       telegramTestChatId,
       notifyChatId
     }, null, 2), 'utf8');
