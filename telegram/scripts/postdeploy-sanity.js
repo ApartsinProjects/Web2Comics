@@ -102,6 +102,18 @@ async function findMarkerRequestEntry(s3, bucket, beforeSet, marker) {
   return null;
 }
 
+async function findAnyNewRequestEntry(s3, bucket, beforeSet, chatId) {
+  const keys = await listKeys(s3, bucket, 'logs/requests/');
+  const candidates = keys.filter((k) => !beforeSet.has(k)).slice(-120);
+  for (let i = candidates.length - 1; i >= 0; i -= 1) {
+    const key = candidates[i];
+    const obj = await readJson(s3, bucket, key);
+    if (chatId && Number(obj?.chatId || 0) !== Number(chatId)) continue;
+    return { key, obj };
+  }
+  return null;
+}
+
 async function loadR2Diagnostics(s3, bucket) {
   const out = { latestCrash: null, latestRequests: [] };
   try {
@@ -274,7 +286,7 @@ async function main() {
   console.log('[sanity] wait for request log marker');
   const requestEntry = await waitFor(async () => {
     await assertHealth(baseUrl, 'request-log-wait');
-    const found = await findMarkerRequestEntry(s3, bucket, beforeReq, marker);
+    const found = await findAnyNewRequestEntry(s3, bucket, beforeReq, chatId);
     if (!found) return false;
     if (found.obj && found.obj.result && found.obj.result.ok === false) {
       throw new Error(`Remote generation failed early: ${String(found.obj.result.error || 'unknown error')}`);
