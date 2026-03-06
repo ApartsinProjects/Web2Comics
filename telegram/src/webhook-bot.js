@@ -2431,6 +2431,13 @@ async function processMessage(message, context = {}) {
       }
     }
     await sendPanelSequence(chatId, result, result.kind === 'url' ? 'url' : 'text', '', alreadySent, deliveryMode, effectiveConfig, debugPromptsEnabled);
+    console.log('[render-bot] generation completed', JSON.stringify({
+      chatId,
+      mode: result.kind === 'url' ? 'url' : 'text',
+      panelCount: Number(result && result.panelCount ? result.panelCount : 0),
+      elapsedMs: Number(result && result.elapsedMs ? result.elapsedMs : 0),
+      deliveryMode
+    }));
     runBackgroundTask('record generation success', () => safeRecordInteraction(chatId, {
       kind: incoming.kind,
       command: incoming.command,
@@ -2454,6 +2461,13 @@ async function processMessage(message, context = {}) {
       config: configStore.getEffectiveConfig(chatId)
     }, userMeta));
   } catch (error) {
+    console.error('[render-bot] generation failed', JSON.stringify({
+      chatId,
+      kind: String(incoming && incoming.kind || ''),
+      command: String(incoming && incoming.command || ''),
+      message: String(error && error.message ? error.message : error),
+      preview: String(text || '').slice(0, 180)
+    }));
     await persistCrash('processMessageError', error, {
       chatId,
       incomingKind: incoming?.kind || '',
