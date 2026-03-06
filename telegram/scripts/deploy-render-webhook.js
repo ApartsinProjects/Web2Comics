@@ -644,7 +644,12 @@ async function main() {
     serviceRecord = await render.createWebService(createPayload);
     console.log(`[deploy] created service: ${serviceName}`);
   } else {
-    console.log(`[deploy] service exists: ${serviceName}`);
+    const existingBranch = String((serviceRecord.service && serviceRecord.service.branch) || serviceRecord.branch || '').trim();
+    if (existingBranch && existingBranch !== branch) {
+      console.log(`[deploy] service exists: ${serviceName} (branch drift: ${existingBranch} -> ${branch})`);
+    } else {
+      console.log(`[deploy] service exists: ${serviceName}`);
+    }
   }
 
   const serviceId = String((serviceRecord.service && serviceRecord.service.id) || serviceRecord.id || '');
@@ -653,6 +658,9 @@ async function main() {
 
   globalStage = 'update-service-config';
   await render.updateService(serviceId, {
+    repo: repoUrl,
+    branch,
+    autoDeploy: 'yes',
     serviceDetails: {
       runtime: 'node',
       envSpecificDetails: {
@@ -661,7 +669,7 @@ async function main() {
       }
     }
   });
-  console.log('[deploy] service build/start commands updated');
+  console.log(`[deploy] service build/start commands updated (repo=${repoUrl}, branch=${branch})`);
 
   globalStage = 'sync-env-vars';
   const envVars = {
