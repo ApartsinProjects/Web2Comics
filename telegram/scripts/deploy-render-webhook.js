@@ -675,7 +675,7 @@ async function resolveDeployId(render, serviceId, deployResponse, triggerStarted
   return resolveLatestDeployId(rows, triggerStartedAtMs);
 }
 
-async function waitForDeploy(render, serviceId, deployId, timeoutMs = 360000) {
+async function waitForDeploy(render, serviceId, deployId, timeoutMs = 900000) {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
     const deploy = await render.getDeploy(serviceId, deployId);
@@ -1131,7 +1131,8 @@ async function main() {
   const deployId = await resolveDeployId(render, serviceId, deployStart, triggerStartedAtMs);
   if (!deployId) throw new Error('Could not resolve deploy ID after trigger.');
   globalStage = 'wait-deploy';
-  const finalDeploy = await waitForDeploy(render, serviceId, deployId);
+  const waitTimeoutMs = Math.max(60000, Number(process.env.RENDER_DEPLOY_WAIT_TIMEOUT_MS || 900000));
+  const finalDeploy = await waitForDeploy(render, serviceId, deployId, waitTimeoutMs);
   const deployStatus = String(finalDeploy?.status || '').toLowerCase();
   if (deployStatus !== 'live') {
     console.log(`[deploy] deploy ended with status: ${deployStatus || 'unknown'}`);
