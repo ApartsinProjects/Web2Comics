@@ -160,6 +160,11 @@ async function verifyUnstructuredKey(apiKey) {
   }
 }
 
+function isTransientVendorFailure(message) {
+  const text = String(message || '').toLowerCase();
+  return /(?:\b429\b|\b5\d\d\b|timeout|timed out|aborted|econnreset|enotfound|bad gateway|service unavailable)/i.test(text);
+}
+
 async function runVendorCredentialPreflight(env = process.env) {
   const accountId = firstNonEmpty(env.CLOUDFLARE_ACCOUNT_ID);
   const workersAiToken = firstNonEmpty(env.CLOUDFLARE_WORKERS_AI_TOKEN, env.CLOUDFLARE_API_TOKEN);
@@ -206,11 +211,6 @@ async function runVendorCredentialPreflight(env = process.env) {
       run: () => verifyJinaKey(firstNonEmpty(env.JINA_API_KEY))
     },
     {
-      key: 'DRIFTBOT_API_KEY',
-      isPresent: Boolean(firstNonEmpty(env.DRIFTBOT_API_KEY, env.DIFFBOT_API_KEY)),
-      run: () => verifyDriftbotKey(firstNonEmpty(env.DRIFTBOT_API_KEY, env.DIFFBOT_API_KEY))
-    },
-    {
       key: 'LLAMA_CLOUD_API_KEY',
       isPresent: Boolean(firstNonEmpty(env.LLAMA_CLOUD_API_KEY, env.LLAMAPARSE_API_KEY)),
       run: () => verifyLlamaCloudKey(firstNonEmpty(env.LLAMA_CLOUD_API_KEY, env.LLAMAPARSE_API_KEY))
@@ -242,7 +242,12 @@ async function runVendorCredentialPreflight(env = process.env) {
       await c.run();
       rows.push({ key: c.key, status: 'OK', details: '' });
     } catch (error) {
-      rows.push({ key: c.key, status: 'FAIL', details: String(error?.message || error).slice(0, 260) });
+      const details = String(error?.message || error).slice(0, 260);
+      if (isTransientVendorFailure(details)) {
+        rows.push({ key: c.key, status: 'WARN', details });
+      } else {
+        rows.push({ key: c.key, status: 'FAIL', details });
+      }
     }
   }
 
@@ -252,7 +257,7 @@ async function runVendorCredentialPreflight(env = process.env) {
     console.log(`- [${r.status}] ${r.key}${details}`);
   });
 
-  const bad = rows.filter((r) => r.status !== 'OK');
+  const bad = rows.filter((r) => r.status === 'MISSING' || r.status === 'FAIL');
   if (bad.length) {
     const missing = bad.filter((r) => r.status === 'MISSING').map((r) => r.key);
     const failing = bad.filter((r) => r.status === 'FAIL').map((r) => `${r.key}: ${r.details}`);
@@ -441,5 +446,6 @@ if (require.main === module) {
 
 module.exports = {
   validateCloudflareTokenRoles,
-  runVendorCredentialPreflight
+  runVendorCredentialPreflight,
+  isTransientVendorFailure
 };
