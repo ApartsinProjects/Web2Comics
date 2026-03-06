@@ -1092,8 +1092,16 @@ async function summarizeExtractedForStoryboard(sourceText, effectiveConfig, effe
     };
   }
 
-  const provider = String(effectiveConfig?.providers?.text?.provider || 'gemini').trim();
-  const model = String(effectiveConfig?.providers?.text?.model || '').trim();
+  const requestedProvider = String(effectiveConfig?.providers?.text?.provider || '').trim().toLowerCase();
+  const provider = PROVIDER_NAMES.includes(requestedProvider) ? requestedProvider : 'gemini';
+  const requestedModel = String(effectiveConfig?.providers?.text?.model || '').trim();
+  const model = requestedModel || resolveProviderModel('text', provider) || '';
+  if (!requestedProvider || requestedProvider !== provider) {
+    console.warn('[render-bot] summary_text_provider_fallback', JSON.stringify({
+      requestedProvider: requestedProvider || '(empty)',
+      fallbackProvider: provider
+    }));
+  }
   const prompt = buildKeyPointsSummaryPrompt(source, effectiveConfig);
   const raw = await generateTextWithProvider(provider, model, prompt, {
     temperature: 0.2,
