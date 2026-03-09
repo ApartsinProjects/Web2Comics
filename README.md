@@ -7,7 +7,7 @@
 [![Docs](https://img.shields.io/badge/Docs-GitHub%20Pages-0ea5e9?logo=githubpages&logoColor=white)](https://apartsinprojects.github.io/Web2Comics/)
 
 <p align="center">
-  <img src="docs/visual-abstract-gemini.png" alt="Web2Comics visual abstract" width="760">
+  <img src="docs/banner.jpg" alt="Web2Comics banner" width="760">
 </p>
 
 Web2Comics is a Chrome extension that:
