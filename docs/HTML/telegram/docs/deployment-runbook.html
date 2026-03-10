@@ -160,6 +160,11 @@ Skip it only when needed:</p>
 <li>Deploys service and waits for live status</li>
 <li>Registers Telegram webhook with <code>drop_pending_updates=true</code></li>
 </ul>
+<h3 id="sanity-probe-behavior">Sanity Probe Behavior</h3>
+<ul>
+<li>The deploy sanity probe now sends a plain-text marker message through the webhook path.</li>
+<li>It intentionally avoids unknown slash commands so deployment checks do not create <code>Unrecognized command.</code> noise in the user-facing Telegram chat.</li>
+</ul>
 <h2 id="post-deploy-checks">6) Post-Deploy Checks</h2>
 <ul>
 <li><code>GET /healthz</code> returns 200</li>
@@ -179,10 +184,16 @@ Skip it only when needed:</p>
 <li>bot prints exact parsed URL before extraction (<code>Detected link, parsing page: &lt;url&gt;</code>)</li>
 </ul>
 </li>
+<li>Verify handled recovery noise is not shown to the user
+<ul>
+<li>successful provider/extractor fallbacks should stay in internal logs</li>
+<li>terminal failures may still notify the user, but should use clean user-facing wording instead of raw provider credential text</li>
+</ul>
+</li>
 <li>Sanity script (automatic in deploy wrapper):
 <ul>
 <li>health endpoint check</li>
-<li>webhook generation trigger</li>
+<li>webhook plain-text marker trigger</li>
 <li>R2 request-log marker detection</li>
 <li>R2 image growth (live provider path)</li>
 <li>Telegram <code>sendMessage</code> API probe</li>

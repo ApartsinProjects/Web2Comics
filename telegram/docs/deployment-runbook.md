@@ -117,6 +117,10 @@ npm run bot:deploy:auto -- --target render --env staging --branch stage1 --env-o
 - Deploys service and waits for live status
 - Registers Telegram webhook with `drop_pending_updates=true`
 
+### Sanity Probe Behavior
+- The deploy sanity probe now sends a plain-text marker message through the webhook path.
+- It intentionally avoids unknown slash commands so deployment checks do not create `Unrecognized command.` noise in the user-facing Telegram chat.
+
 ## 6) Post-Deploy Checks
 - `GET /healthz` returns 200
 - Send `/help` and `/about` in Telegram
@@ -129,9 +133,12 @@ npm run bot:deploy:auto -- --target render --env staging --branch stage1 --env-o
   - messages/photos are forwardable (not content-protected)
 - Send URL and verify URL rendering flow works
   - bot prints exact parsed URL before extraction (`Detected link, parsing page: <url>`)
+- Verify handled recovery noise is not shown to the user
+  - successful provider/extractor fallbacks should stay in internal logs
+  - terminal failures may still notify the user, but should use clean user-facing wording instead of raw provider credential text
 - Sanity script (automatic in deploy wrapper):
   - health endpoint check
-  - webhook generation trigger
+  - webhook plain-text marker trigger
   - R2 request-log marker detection
   - R2 image growth (live provider path)
   - Telegram `sendMessage` API probe

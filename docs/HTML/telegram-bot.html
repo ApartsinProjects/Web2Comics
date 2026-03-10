@@ -65,6 +65,7 @@
 <li>Panel caption prefix format <code>X(Y)</code></li>
 <li>Per-user settings and secrets</li>
 <li>Persistent storage via Cloudflare R2, with local file fallback when R2 is not configured</li>
+<li>Keeps handled provider/extractor retries internal so successful recoveries do not spam the user chat</li>
 </ul>
 <h2 id="scope">Scope</h2>
 <ul>
@@ -116,6 +117,13 @@
 <li>Deploy artifact: <code>Web2Comics-TelegramBot-v1.0.4-deploy.zip</code></li>
 <li>Release history: <a href="telegram/docs/release-notes.html"><code>../telegram/docs/release-notes.md</code></a></li>
 <li>Companion extension package: <a href="extension.html"><code>./extension.md</code></a></li>
+</ul>
+<h2 id="production-hotfix-status">Production Hotfix Status</h2>
+<ul>
+<li>Production was updated on 2026-03-10 with a chat-noise reduction hotfix.</li>
+<li>Handled provider fallback and extractor fallback messages now stay in internal logs instead of being sent to the user chat.</li>
+<li>Terminal failures still notify the user, but provider-auth style errors are now shown with cleaner user-facing wording.</li>
+<li>The deploy sanity probe now uses a plain-text marker instead of an unknown slash command, so routine deploy checks no longer create <code>Unrecognized command.</code> noise.</li>
 </ul>
 <h2 id="test">Test</h2>
 <pre><code class="language-bash">npm run test:telegram:local

@@ -34,8 +34,20 @@
     </nav>
     <article>
 <h1 id="telegram-bot-release-notes">Telegram Bot Release Notes</h1>
-<h2 id="v1.0.4-2026-03-10">v1.0.4 (2026-03-10)</h2>
+<h2 id="production-hotfix-2026-03-10">Production Hotfix (2026-03-10)</h2>
 <h3 id="highlights">Highlights</h3>
+<ul>
+<li>Deployed a production-only UX hardening fix so handled provider/extractor recovery steps no longer appear as user-facing chat errors.</li>
+<li>Sanitized terminal provider-auth style failures so the bot does not expose raw credential/provider text such as invalid API key messages.</li>
+<li>Updated the Render post-deploy sanity probe to use a plain-text marker instead of an unknown slash command, preventing routine deploy checks from generating <code>Unrecognized command.</code> in the bot chat.</li>
+</ul>
+<h3 id="status">Status</h3>
+<ul>
+<li>Deployed from <code>main</code> commit <code>3ac0580</code></li>
+<li>This hotfix is live in production even though the packaged bot artifact version remains <code>v1.0.4</code></li>
+</ul>
+<h2 id="v1.0.4-2026-03-10">v1.0.4 (2026-03-10)</h2>
+<h3 id="highlights-1">Highlights</h3>
 <ul>
 <li>Updated the Telegram bot deploy package for the latest shared engine and persistence changes.</li>
 <li>Added dedicated bot release documentation so bot packaging is tracked separately from extension packaging.</li>
@@ -48,7 +60,7 @@
 <li>Companion extension artifact: <code>Web2Comics-v1.0.4-extension.zip</code></li>
 </ul>
 <h2 id="v1.0.3-2026-03-03">v1.0.3 (2026-03-03)</h2>
-<h3 id="highlights-1">Highlights</h3>
+<h3 id="highlights-2">Highlights</h3>
 <ul>
 <li>Refreshed bot documentation links and deployment references.</li>
 <li>Packaged the standalone bot deployment bundle for Render-based webhook hosting.</li>

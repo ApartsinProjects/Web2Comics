@@ -28,6 +28,7 @@ The Telegram bot is the server-side companion to the Web2Comics extension.
 - Panel caption prefix format `X(Y)`
 - Per-user settings and secrets
 - Persistent storage via Cloudflare R2, with local file fallback when R2 is not configured
+- Keeps handled provider/extractor retries internal so successful recoveries do not spam the user chat
 
 ## Scope
 - This bridge page documents public user-facing behavior only.
@@ -60,6 +61,12 @@ npm run bot:deploy:auto -- --target render --env staging --branch stage1 --env-o
 - Deploy artifact: `Web2Comics-TelegramBot-v1.0.4-deploy.zip`
 - Release history: [`../telegram/docs/release-notes.md`](../telegram/docs/release-notes.md)
 - Companion extension package: [`./extension.md`](./extension.md)
+
+## Production Hotfix Status
+- Production was updated on 2026-03-10 with a chat-noise reduction hotfix.
+- Handled provider fallback and extractor fallback messages now stay in internal logs instead of being sent to the user chat.
+- Terminal failures still notify the user, but provider-auth style errors are now shown with cleaner user-facing wording.
+- The deploy sanity probe now uses a plain-text marker instead of an unknown slash command, so routine deploy checks no longer create `Unrecognized command.` noise.
 
 ## Test
 ```bash
