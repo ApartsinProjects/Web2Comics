@@ -379,6 +379,16 @@ async function safeNotifyUser(chatId, text) {
   }
 }
 
+async function notifyHandledRecovery(chatId, text, extra = {}) {
+  const payload = {
+    chatId: Number(chatId || 0),
+    message: String(text || '').trim(),
+    ...extra
+  };
+  console.warn('[render-bot] handled recovery', JSON.stringify(payload));
+  logRuntimeEvent('warn', 'handled_recovery', payload);
+}
+
 async function notifyAdmins(text) {
   const targets = Array.from(new Set((adminChatIds || []).map((id) => Number(id)).filter((id) => Number.isFinite(id) && id > 0)));
   for (const id of targets) {
@@ -1015,6 +1025,35 @@ function formatImageExtractorFallbackMessage(info) {
   const from = String(info?.from || 'unknown').trim();
   const to = String(info?.to || 'gemini').trim();
   return `Image extractor issue detected. Switched from ${from} to ${to}.`;
+}
+
+function formatUserFacingGenerationFailureMessage(errorLike) {
+  const message = String(errorLike?.message || errorLike || '').trim();
+  const reason = classifyProviderRotationReason(message);
+  if (
+    reason === 'auth'
+    || /api key/i.test(message)
+    || /missing credentials/i.test(message)
+    || /unsupported text provider/i.test(message)
+  ) {
+    return 'Generation failed: a provider is temporarily unavailable. Please try again in a moment.';
+  }
+  if (reason === 'rate_limit') {
+    return 'Generation failed: the AI provider is temporarily busy. Please try again shortly.';
+  }
+  if (reason === 'timeout' || reason === 'provider') {
+    return 'Generation failed: the service timed out while building your comic. Please try again.';
+  }
+  return `Generation failed: ${message || 'unknown error'}`;
+}
+
+function formatUserFacingUnexpectedErrorMessage(errorLike) {
+  const message = String(errorLike?.message || errorLike || '').trim();
+  if (!message) return 'Unexpected bot error. Please try again.';
+  const reason = classifyProviderRotationReason(message);
+  if (reason === 'timeout') return `Unexpected bot error: ${message}`;
+  if (reason) return 'Unexpected bot error. Please try again.';
+  return `Unexpected bot error: ${message}`;
 }
 
 function formatEnrichmentMessage(info) {
@@ -3241,11 +3280,11 @@ async function processMessage(message, context = {}) {
         try {
           inventedStory = await inventStoryText(seed, effectiveConfigPath, {
             onFallback: async (info) => {
-              await safeNotifyUser(chatId, formatProviderFallbackMessage(info));
+              await notifyHandledRecovery(chatId, formatProviderFallbackMessage(info), { stage: 'invent_fallback' });
             },
             onEnrichment: async (info) => {
               const msg = formatEnrichmentMessage(info);
-              if (msg) await safeNotifyUser(chatId, msg);
+              if (msg) await notifyHandledRecovery(chatId, msg, { stage: 'invent_enrichment' });
             }
           });
           await persistRotationSuccess(runCfg.selected);
@@ -3255,7 +3294,10 @@ async function processMessage(message, context = {}) {
           if (!isProviderOrModelFailure(error)) throw error;
           const rotated = await advanceProviderRotation(chatId, failedRole, runCfg.selected[failedRole] || {});
           if (!rotated) throw error;
-          await safeNotifyUser(chatId, formatProviderRotationRetryMessage(failedRole, rotated.from, rotated.to, error));
+          await notifyHandledRecovery(chatId, formatProviderRotationRetryMessage(failedRole, rotated.from, rotated.to, error), {
+            stage: 'invent_rotation',
+            role: failedRole
+          });
           runCfg = await writeRotatedEffectiveConfigFile(chatId, path.join(runtime.outDir, 'effective-config.yml'));
           effectiveConfigPath = runCfg.configPath;
           effectiveConfig = runCfg.config;
@@ -3277,10 +3319,10 @@ async function processMessage(message, context = {}) {
             userId: chatId,
             generationId,
             onFallback: async (info) => {
-              await safeNotifyUser(chatId, formatProviderFallbackMessage(info));
+              await notifyHandledRecovery(chatId, formatProviderFallbackMessage(info), { stage: 'invent_panel_fallback' });
             },
             onExtractorFallback: async (info) => {
-              await safeNotifyUser(chatId, formatExtractorFallbackMessage(info));
+              await notifyHandledRecovery(chatId, formatExtractorFallbackMessage(info), { stage: 'invent_extractor_fallback' });
             },
             onPanelReady: (deliveryMode === 'default')
               ? async (panelMessage) => {
@@ -3295,7 +3337,10 @@ async function processMessage(message, context = {}) {
           if (!failedRole || !isProviderOrModelFailure(error) || alreadySent.size > 0) throw error;
           const rotated = await advanceProviderRotation(chatId, failedRole, runCfg.selected[failedRole] || {});
           if (!rotated) throw error;
-          await safeNotifyUser(chatId, formatProviderRotationRetryMessage(failedRole, rotated.from, rotated.to, error));
+          await notifyHandledRecovery(chatId, formatProviderRotationRetryMessage(failedRole, rotated.from, rotated.to, error), {
+            stage: 'invent_panel_rotation',
+            role: failedRole
+          });
           runCfg = await writeRotatedEffectiveConfigFile(chatId, path.join(runtime.outDir, 'effective-config.yml'));
           effectiveConfigPath = runCfg.configPath;
           effectiveConfig = runCfg.config;
@@ -3429,13 +3474,13 @@ async function processMessage(message, context = {}) {
           runtime,
           config: effectiveConfig,
           onExtractorFallback: async (info) => {
-            await safeNotifyUser(chatId, formatExtractorFallbackMessage(info));
+            await notifyHandledRecovery(chatId, formatExtractorFallbackMessage(info), { stage: 'source_extractor_fallback' });
           },
           onPdfFallback: async (info) => {
-            await safeNotifyUser(chatId, formatPdfExtractorFallbackMessage(info));
+            await notifyHandledRecovery(chatId, formatPdfExtractorFallbackMessage(info), { stage: 'source_pdf_fallback' });
           },
           onImageFallback: async (info) => {
-            await safeNotifyUser(chatId, formatImageExtractorFallbackMessage(info));
+            await notifyHandledRecovery(chatId, formatImageExtractorFallbackMessage(info), { stage: 'source_image_fallback' });
           }
         });
         generationInput = String(extractionInfo?.text || '').trim();
@@ -3446,11 +3491,11 @@ async function processMessage(message, context = {}) {
           try {
             summaryInfo = await summarizeExtractedForStoryboard(generationInput, effectiveConfig, effectiveConfigPath, {
               onFallback: async (info) => {
-                await safeNotifyUser(chatId, formatProviderFallbackMessage(info));
+                await notifyHandledRecovery(chatId, formatProviderFallbackMessage(info), { stage: 'summary_fallback' });
               },
               onEnrichment: async (info) => {
                 const msg = formatEnrichmentMessage(info);
-                if (msg) await safeNotifyUser(chatId, msg);
+                if (msg) await notifyHandledRecovery(chatId, msg, { stage: 'summary_enrichment' });
               }
             });
             await persistRotationSuccess(runCfg.selected);
@@ -3460,7 +3505,10 @@ async function processMessage(message, context = {}) {
             if (!isProviderOrModelFailure(error)) throw error;
             const rotated = await advanceProviderRotation(chatId, failedRole, runCfg.selected[failedRole] || {});
             if (!rotated) throw error;
-            await safeNotifyUser(chatId, formatProviderRotationRetryMessage(failedRole, rotated.from, rotated.to, error));
+            await notifyHandledRecovery(chatId, formatProviderRotationRetryMessage(failedRole, rotated.from, rotated.to, error), {
+              stage: 'summary_rotation',
+              role: failedRole
+            });
             runCfg = await writeRotatedEffectiveConfigFile(chatId, path.join(runtime.outDir, 'effective-config.yml'));
             effectiveConfigPath = runCfg.configPath;
             effectiveConfig = runCfg.config;
@@ -3470,9 +3518,13 @@ async function processMessage(message, context = {}) {
         generationInput = String(summaryInfo.text || generationInput).trim();
         await api.sendMessage(chatId, 'Story input ready. Building storyboard...');
         if (summaryInfo.method === 'invent_fallback') {
-          await safeNotifyUser(chatId, 'Summary was too short, so I expanded it with AI before storyboard generation.');
+          await notifyHandledRecovery(chatId, 'Summary was too short, so I expanded it with AI before storyboard generation.', {
+            stage: 'summary_invent_fallback'
+          });
         } else if (summaryInfo.method === 'source_fallback') {
-          await safeNotifyUser(chatId, 'Summary stayed too short, so I used extracted text directly for storyboard generation.');
+          await notifyHandledRecovery(chatId, 'Summary stayed too short, so I used extracted text directly for storyboard generation.', {
+            stage: 'summary_source_fallback'
+          });
         }
         logRuntimeEvent('info', 'source_summary_ready', {
           chatId,
@@ -3569,11 +3621,11 @@ async function processMessage(message, context = {}) {
         try {
           inventedStory = await inventStoryText(text, effectiveConfigPath, {
             onFallback: async (info) => {
-              await safeNotifyUser(chatId, formatProviderFallbackMessage(info));
+              await notifyHandledRecovery(chatId, formatProviderFallbackMessage(info), { stage: 'short_prompt_fallback' });
             },
             onEnrichment: async (info) => {
               const msg = formatEnrichmentMessage(info);
-              if (msg) await safeNotifyUser(chatId, msg);
+              if (msg) await notifyHandledRecovery(chatId, msg, { stage: 'short_prompt_enrichment' });
             }
           });
           await persistRotationSuccess(runCfg.selected);
@@ -3583,7 +3635,10 @@ async function processMessage(message, context = {}) {
           if (!isProviderOrModelFailure(error)) throw error;
           const rotated = await advanceProviderRotation(chatId, failedRole, runCfg.selected[failedRole] || {});
           if (!rotated) throw error;
-          await safeNotifyUser(chatId, formatProviderRotationRetryMessage(failedRole, rotated.from, rotated.to, error));
+          await notifyHandledRecovery(chatId, formatProviderRotationRetryMessage(failedRole, rotated.from, rotated.to, error), {
+            stage: 'short_prompt_rotation',
+            role: failedRole
+          });
           runCfg = await writeRotatedEffectiveConfigFile(chatId, path.join(runtime.outDir, 'effective-config.yml'));
           effectiveConfigPath = runCfg.configPath;
           effectiveConfig = runCfg.config;
@@ -3621,10 +3676,10 @@ async function processMessage(message, context = {}) {
           userId: chatId,
           generationId,
           onFallback: async (info) => {
-            await safeNotifyUser(chatId, formatProviderFallbackMessage(info));
+            await notifyHandledRecovery(chatId, formatProviderFallbackMessage(info), { stage: 'generation_fallback' });
           },
           onExtractorFallback: async (info) => {
-            await safeNotifyUser(chatId, formatExtractorFallbackMessage(info));
+            await notifyHandledRecovery(chatId, formatExtractorFallbackMessage(info), { stage: 'generation_extractor_fallback' });
           },
           onPanelReady: (deliveryMode === 'default')
             ? async (panelMessage) => {
@@ -3639,7 +3694,10 @@ async function processMessage(message, context = {}) {
         if (!failedRole || !isProviderOrModelFailure(error) || alreadySent.size > 0) throw error;
         const rotated = await advanceProviderRotation(chatId, failedRole, runCfg.selected[failedRole] || {});
         if (!rotated) throw error;
-        await safeNotifyUser(chatId, formatProviderRotationRetryMessage(failedRole, rotated.from, rotated.to, error));
+        await notifyHandledRecovery(chatId, formatProviderRotationRetryMessage(failedRole, rotated.from, rotated.to, error), {
+          stage: 'generation_rotation',
+          role: failedRole
+        });
         runCfg = await writeRotatedEffectiveConfigFile(chatId, path.join(runtime.outDir, 'effective-config.yml'));
         effectiveConfigPath = runCfg.configPath;
         effectiveConfig = runCfg.config;
@@ -3724,7 +3782,7 @@ async function processMessage(message, context = {}) {
       ].filter(Boolean).join('\n');
       await safeNotifyUser(chatId, debugText);
     }
-    await safeNotifyUser(chatId, `Generation failed: ${String(error?.message || error)}`);
+    await safeNotifyUser(chatId, formatUserFacingGenerationFailureMessage(error));
     runBackgroundTask('record generation failure', () => safeRecordInteraction(chatId, {
       kind: incoming.kind,
       command: incoming.command,
@@ -3765,7 +3823,7 @@ function enqueueUpdate(update) {
         source: String(updateSource || ''),
         textPreview: String(update?.message?.text || update?.message?.caption || '').slice(0, 2000)
       });
-      await safeNotifyUser(targetChatId, `Unexpected bot error: ${String(error?.message || error)}`);
+      await safeNotifyUser(targetChatId, formatUserFacingUnexpectedErrorMessage(error));
       await safeRecordInteraction(targetChatId, {
         kind: 'command',
         command: 'queue_error',
