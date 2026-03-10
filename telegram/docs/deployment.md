@@ -11,8 +11,8 @@ Scope note:
 
 ## Public Commands Covered By This Deployment
 - Runtime and onboarding: `/start`, `/welcome`, `/help`, `/version`, `/about`, `/user`, `/config`, `/explain`, `/debug`
-- Generation entrypoints: text/URL messages, `/invent <story>`, `/random`
-- Provider/model controls: `/vendor`, `/text_vendor`, `/image_vendor`, `/models`, `/test`
+- Generation entrypoints: text, link, PDF, image, or voice/audio messages, `/invent <story>`, `/random`
+- Provider/model controls: `/vendors`, `/vendor`, `/text_vendor`, `/image_vendor`, `/models`, `/test`
 - Output controls: `/panels`, `/objective`, `/objectives`, objective shortcuts (`/summary`, `/fun`, `/learn`, `/news`, `/timeline`, `/facts`, `/compare`, `/5yold`, `/eli5`, `/study`, `/meeting`, `/howto`, `/debate`), `/style`, style shortcuts, `/new_style`, `/language`, `/mode`, `/consistency`, `/detail`, `/crazyness`, `/concurrency`, `/retries`
 - Prompt/options controls: `/prompts`, `/set_prompt`, `/list_options`, `/options`
 - Credentials/state: `/keys`, `/setkey`, `/unsetkey`, `/reset_config`, `/restart`
@@ -29,7 +29,7 @@ Core bot docs:
 
 Quick deploy:
 ```bash
-npm run bot:deploy:auto -- --target render --branch engine --env-only
+npm run bot:deploy:auto -- --target render --env staging --branch stage1 --env-only
 ```
 
 Notes:

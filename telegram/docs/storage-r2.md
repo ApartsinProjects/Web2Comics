@@ -13,19 +13,25 @@ Scope note:
 - Credentials/state:
   - `/keys`, `/setkey`, `/unsetkey`, `/reset_config`, `/restart`
 - Generation/config:
-  - text/URL input, `/invent`, `/random`, `/peek`
-  - `/vendor`, `/text_vendor`, `/image_vendor`, `/models`, `/test`
+  - text, link, PDF, image, or voice/audio input, `/invent`, `/random`, `/peek`
+  - `/vendors`, `/vendor`, `/text_vendor`, `/image_vendor`, `/models`, `/test`
   - `/panels`, `/objective`, objective shortcuts, `/style`, style shortcuts, `/new_style`
   - `/language`, `/mode`, `/consistency`, `/detail`, `/crazyness`, `/concurrency`, `/retries`
   - `/prompts`, `/set_prompt`, `/list_options`, `/options`
 
 ## Storage classes used
-- `logs/requests/` for request audit records.
-- `crash-logs/` for crash records and latest pointer.
-- `images/` for generated panel images.
+- `envs/<environment>/logs/requests/` for request audit records.
+- `envs/<environment>/crash-logs/` for crash records and latest pointer.
+- `envs/<environment>/images/` for generated panel images.
+- `envs/<environment>/logs/runtime/` for runtime logs.
 - status objects:
-  - `status/image-storage-status.json`
-  - `crash-logs/status.json`
+  - `envs/<environment>/status/image-storage-status.json`
+  - `envs/<environment>/crash-logs/status.json`
+  - `envs/<environment>/logs/requests/status.json`
+
+Environment examples:
+- staging: `envs/staging/...`
+- production: `envs/production/...`
 
 ## Free-tier safety defaults
 Applied by deploy script and runtime defaults:
@@ -48,6 +54,9 @@ Hard safety:
 - `R2_IMAGE_STATUS_KEY`
 - `R2_CRASH_LOG_PREFIX`
 - `R2_CRASH_LOG_STATUS_KEY`
+- `R2_REQUEST_LOG_PREFIX`
+- `R2_REQUEST_LOG_STATUS_KEY`
+- `R2_RUNTIME_LOG_PREFIX`
 - `RENDER_BOT_IMAGE_CAPACITY_BYTES`
 - `RENDER_BOT_IMAGE_CLEANUP_THRESHOLD_RATIO`
 - `R2_CRASH_LOG_CAPACITY_BYTES`

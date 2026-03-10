@@ -7,6 +7,7 @@ Vitest + DOM/jsdom integration tests for popup/options/sidepanel/service worker 
 - `content-script-adapters.test.js` : JavaScript source code.
 - `options-page.test.js` : JavaScript source code.
 - `popup-page.test.js` : JavaScript source code.
+- `service-worker-context-menu.test.js` : JavaScript source code.
 - `service-worker.test.js` : JavaScript source code.
 - `sidepanel-page.test.js` : JavaScript source code.
 - `ui.test.js` : JavaScript source code.

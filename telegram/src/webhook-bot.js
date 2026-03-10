@@ -23,6 +23,7 @@ const { createCrashLogStoreFromEnv, FileCrashLogStore } = require('./crash-log-s
 const { createRequestLogStoreFromEnv } = require('./request-log-store');
 const { createRuntimeLogStoreFromEnv } = require('./runtime-log-store');
 const { normalizeCloudflareR2Endpoint } = require('./r2-endpoint');
+const { storageDefaultsFromEnv } = require('./env-storage-defaults');
 const {
   classifyMessageInput,
   extractTextFallbackFromUrlMessage,
@@ -69,6 +70,7 @@ const {
 } = require('./data/messages');
 const { buildStoryboardPrompt } = require('../../engine/src/prompts');
 const { buildPanelImagePrompt, buildStyleReferencePrompt } = require('../../engine/src');
+const { sanitizeCanonicalStoryText } = require('../../engine/src/story-text');
 const { generateTextWithProvider, generateImageWithProvider } = require('../../engine/src/providers');
 const { buildInventStoryPrompt } = require('./generate');
 const { composeComicSheet } = require('../../engine/src/compose');
@@ -136,6 +138,7 @@ const allowedChatConfig = parseAllowedChats(
   process.env.COMICBOT_ALLOWED_CHAT_IDS,
   parseAllowAllFlag(process.env.RENDER_ALLOW_ALL_CHATS)
 );
+const storageDefaults = storageDefaultsFromEnv(process.env);
 
 const runtime = {
   repoRoot,
@@ -147,8 +150,8 @@ const runtime = {
   r2Bucket: String(process.env.R2_BUCKET || '').trim(),
   r2AccessKeyId: String(process.env.R2_ACCESS_KEY_ID || '').trim(),
   r2SecretAccessKey: String(process.env.R2_SECRET_ACCESS_KEY || '').trim(),
-  r2ImagePrefix: String(process.env.R2_IMAGE_PREFIX || 'images').trim(),
-  r2ImageStatusKey: String(process.env.R2_IMAGE_STATUS_KEY || 'status/image-storage-status.json').trim(),
+  r2ImagePrefix: String(process.env.R2_IMAGE_PREFIX || storageDefaults.imagePrefix).trim(),
+  r2ImageStatusKey: String(process.env.R2_IMAGE_STATUS_KEY || storageDefaults.imageStatusKey).trim(),
   fetchTimeoutMs: Math.max(5000, Number(process.env.RENDER_BOT_FETCH_TIMEOUT_MS || 45000)),
   debugArtifacts: String(process.env.RENDER_BOT_DEBUG_ARTIFACTS || '').toLowerCase() === 'true',
   allowedChatIds: allowedChatConfig.ids,
@@ -359,6 +362,11 @@ function installRuntimeLogConsoleTee() {
 
 api.sendMessage = async (chatId, text, extra) => {
   const redacted = redactSensitiveText(text, collectSensitiveValues(chatId));
+  logRuntimeEvent('info', 'output_sent', {
+    chatId: Number(chatId || 0),
+    textPreview: previewForLog(redacted, 500),
+    hasExtra: Boolean(extra)
+  });
   return rawSendMessage(chatId, redacted, extra);
 };
 
@@ -889,6 +897,12 @@ function classifyIncoming(text) {
   return { kind: 'text', command: '' };
 }
 
+function previewForLog(value, maxLen = 400) {
+  const raw = String(value == null ? '' : value).replace(/\s+/g, ' ').trim();
+  if (!raw) return '';
+  return raw.length > maxLen ? `${raw.slice(0, maxLen)}...` : raw;
+}
+
 function logRuntimeEvent(level, event, payload = {}) {
   const lvl = String(level || 'info').trim().toLowerCase();
   const eventName = String(event || 'runtime_event').trim();
@@ -1039,14 +1053,7 @@ function isFakeGeneratorMode() {
 }
 
 function sanitizeSummaryText(text) {
-  return String(text || '')
-    .replace(/\r/g, '\n')
-    .split('\n')
-    .map((line) => String(line || '').trim())
-    .filter((line) => line && !/^#{1,6}\s+/.test(line))
-    .join('\n')
-    .replace(/\n{3,}/g, '\n\n')
-    .trim();
+  return sanitizeCanonicalStoryText(text, { maxChars: 12000 });
 }
 
 function summarizeHeuristically(text) {
@@ -1077,8 +1084,17 @@ function buildKeyPointsSummaryPrompt(sourceText, cfg = {}) {
 }
 
 async function summarizeExtractedForStoryboard(sourceText, effectiveConfig, effectiveConfigPath, options = {}) {
-  const source = String(sourceText || '').trim();
+  const source = sanitizeCanonicalStoryText(sourceText, { maxChars: 12000 });
   if (!source) throw new Error('Cannot summarize empty extracted text');
+  if (source.length >= SUMMARY_MIN_CHARS && source.length <= 12000) {
+    return {
+      text: source,
+      method: 'canonical_source',
+      sourceChars: source.length,
+      summaryChars: source.length,
+      reason: ''
+    };
+  }
 
   if (isFakeGeneratorMode()) {
     const local = sanitizeSummaryText(summarizeHeuristically(source));
@@ -3094,6 +3110,18 @@ async function processMessage(message, context = {}) {
     id: Number(message?.from?.id || chatId || 0),
     username: incomingUsername
   };
+  logRuntimeEvent('info', 'input_received', {
+    chatId,
+    userId: Number(userMeta.id || 0),
+    username: String(incomingUsername || ''),
+    kind: String(incoming.kind || ''),
+    command: String(incoming.command || ''),
+    source: String(context?.source || ''),
+    hasDocument: Boolean(message?.document),
+    hasPhoto: Boolean(Array.isArray(message?.photo) && message.photo.length),
+    hasVoice: Boolean(message?.voice),
+    inputPreview: previewForLog(text, 500)
+  });
   try {
     if (!text && !message?.document && !(Array.isArray(message?.photo) && message.photo.length) && !message?.voice) {
       await api.sendMessage(chatId, 'Unsupported message format. Send plain text, URL, PDF, image, or voice.');
@@ -3301,6 +3329,11 @@ async function processMessage(message, context = {}) {
 
     const handled = await handleCommand(chatId, text);
     if (handled) {
+      logRuntimeEvent('info', 'decision_command_handled', {
+        chatId,
+        command: String(incoming.command || ''),
+        handled: true
+      });
       await sendCommandChangeConfirmation(chatId, commandStateBefore);
       runBackgroundTask('record command success', () => safeRecordInteraction(chatId, {
         kind: incoming.kind,
@@ -3313,6 +3346,10 @@ async function processMessage(message, context = {}) {
     }
 
     if (incoming.kind === 'command') {
+      logRuntimeEvent('warn', 'decision_unrecognized_command', {
+        chatId,
+        command: String(incoming.command || '')
+      });
       await api.sendMessage(chatId, 'Unrecognized command.');
       await sendCommandChangeConfirmation(chatId, commandStateBefore);
       runBackgroundTask('record unknown command', () => safeRecordInteraction(chatId, {
@@ -3350,6 +3387,12 @@ async function processMessage(message, context = {}) {
         parsedInput = classifyMessageInput(generationInput);
       }
     }
+    logRuntimeEvent('info', 'decision_route_selected', {
+      chatId,
+      route: String(intent.route || ''),
+      sourceType: String(source?.type || ''),
+      shortTextInput: Boolean(shortTextInput)
+    });
     logRuntimeEvent('info', 'input_intent', {
       chatId,
       incomingKind: incoming.kind,
@@ -3397,7 +3440,7 @@ async function processMessage(message, context = {}) {
         });
         generationInput = String(extractionInfo?.text || '').trim();
         if (!generationInput) throw new Error('Story extraction returned empty text');
-        await api.sendMessage(chatId, 'Summarizing key points from extracted content...');
+        await api.sendMessage(chatId, 'Preparing extracted story text for storyboard generation...');
         let summaryInfo = null;
         for (let attempt = 0; attempt < 6; attempt += 1) {
           try {
@@ -3425,7 +3468,7 @@ async function processMessage(message, context = {}) {
         }
         if (!summaryInfo) throw new Error('Summary generation failed: no provider produced output');
         generationInput = String(summaryInfo.text || generationInput).trim();
-        await api.sendMessage(chatId, 'Key points summary ready. Building storyboard...');
+        await api.sendMessage(chatId, 'Story input ready. Building storyboard...');
         if (summaryInfo.method === 'invent_fallback') {
           await safeNotifyUser(chatId, 'Summary was too short, so I expanded it with AI before storyboard generation.');
         } else if (summaryInfo.method === 'source_fallback') {
@@ -3617,6 +3660,13 @@ async function processMessage(message, context = {}) {
       elapsedMs: Number(result && result.elapsedMs ? result.elapsedMs : 0),
       deliveryMode
     }));
+    logRuntimeEvent('info', 'generation_success', {
+      chatId,
+      sourceMode: finalSourceMode,
+      panelCount: Number(result?.panelCount || 0),
+      elapsedMs: Number(result?.elapsedMs || 0),
+      deliveryMode: String(deliveryMode || '')
+    });
     runBackgroundTask('record generation success', () => safeRecordInteraction(chatId, {
       kind: incoming.kind,
       command: incoming.command,
@@ -3643,6 +3693,13 @@ async function processMessage(message, context = {}) {
       config: configStore.getEffectiveConfig(chatId)
     }, userMeta));
   } catch (error) {
+    logRuntimeEvent('error', 'generation_error', {
+      chatId,
+      kind: String(incoming?.kind || ''),
+      command: String(incoming?.command || ''),
+      message: String(error?.message || error),
+      inputPreview: previewForLog(text, 500)
+    });
     console.error('[render-bot] generation failed', JSON.stringify({
       chatId,
       kind: String(incoming && incoming.kind || ''),
@@ -3681,6 +3738,11 @@ async function processMessage(message, context = {}) {
 function enqueueUpdate(update) {
   const chatId = Number(update?.message?.chat?.id || 0);
   const updateSource = normalizeUpdateSource(update, update?.message);
+  logRuntimeEvent('info', 'queue_enqueued', {
+    chatId,
+    updateId: Number(update?.update_id || 0),
+    source: String(updateSource || '')
+  });
   const key = chatId > 0 ? String(chatId) : 'global';
   const current = chatQueues.get(key) || Promise.resolve();
   const next = current
@@ -3690,6 +3752,10 @@ function enqueueUpdate(update) {
         processMessage(update.message, { source: updateSource }),
         new Promise((_, reject) => setTimeout(() => reject(new Error(`Request timed out after ${jobTimeoutMs}ms`)), jobTimeoutMs))
       ]);
+      logRuntimeEvent('info', 'queue_job_completed', {
+        chatId,
+        updateId: Number(update?.update_id || 0)
+      });
     })
     .catch(async (error) => {
       const targetChatId = Number(update?.message?.chat?.id || 0);
@@ -3794,7 +3860,7 @@ async function startServer() {
     r2Bucket: process.env.R2_BUCKET || '',
     r2AccessKeyId: process.env.R2_ACCESS_KEY_ID || '',
     r2SecretAccessKey: process.env.R2_SECRET_ACCESS_KEY || '',
-    r2StateKey: process.env.R2_STATE_KEY || 'state/runtime-config.json',
+    r2StateKey: process.env.R2_STATE_KEY || storageDefaults.stateKey,
     filePath: path.resolve(process.env.RENDER_BOT_STATE_FILE || path.join(repoRoot, 'telegram/data/runtime-state.json'))
   });
   const blacklistStore = createBlacklistStoreFromEnv();
@@ -3947,7 +4013,7 @@ async function startServer() {
     console.log(`[render-bot] local crash diagnostics: ${localCrashLogDir}`);
     console.log(`[render-bot] request logs: ${requestLogStoreMode}`);
     console.log(`[render-bot] runtime logs: ${runtimeLogStoreMode}`);
-    console.log(`[render-bot] request logs config: prefix=${String(process.env.R2_REQUEST_LOG_PREFIX || 'logs/requests').trim() || '-'} statusKey=${String(process.env.R2_REQUEST_LOG_STATUS_KEY || 'logs/requests/status.json').trim() || '-'} bucket=${String(process.env.R2_BUCKET || '').trim() || '-'}`);
+    console.log(`[render-bot] request logs config: prefix=${String(process.env.R2_REQUEST_LOG_PREFIX || storageDefaults.requestLogPrefix).trim() || '-'} statusKey=${String(process.env.R2_REQUEST_LOG_STATUS_KEY || storageDefaults.requestLogStatusKey).trim() || '-'} bucket=${String(process.env.R2_BUCKET || '').trim() || '-'}`);
     console.log(`[render-bot] blacklist store: ${blacklistStoreMode}`);
     console.log(`[render-bot] known users store: ${knownUsersStoreMode}`);
     console.log(`[render-bot] image storage: ${runtime.r2Endpoint && runtime.r2Bucket ? 'r2' : 'file'}`);

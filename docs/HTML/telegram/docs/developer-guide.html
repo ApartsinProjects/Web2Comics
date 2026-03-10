@@ -48,9 +48,9 @@
 <h2 id="public-command-catalog-implementation-scope">Public Command Catalog (Implementation Scope)</h2>
 <ul>
 <li>Onboarding/info: <code>/start</code>, <code>/welcome</code>, <code>/help</code>, <code>/about</code>, <code>/version</code>, <code>/user</code>, <code>/config</code>, <code>/explain</code>, <code>/debug</code></li>
-<li>Generation inputs: text/URL, <code>/invent &lt;story&gt;</code>, <code>/random</code></li>
+<li>Generation inputs: text, web link, PDF, image, or voice/audio, <code>/invent &lt;story&gt;</code>, <code>/random</code></li>
 <li>Replay: <code>/peek</code>, <code>/peek &lt;n&gt;</code>, <code>/peek&lt;n&gt;</code></li>
-<li>Providers/models: <code>/vendor</code>, <code>/text_vendor</code>, <code>/image_vendor</code>, <code>/models</code>, <code>/test</code></li>
+<li>Providers/models: <code>/vendors</code>, <code>/vendor &lt;role&gt; &lt;name&gt;</code>, <code>/vendor &lt;name&gt;</code>, <code>/models [role] [model]</code>, <code>/test</code></li>
 <li>Output controls: <code>/panels</code>, <code>/objective</code>, <code>/objectives</code>, objective shortcuts, <code>/style</code>, style shortcuts, <code>/new_style</code>, <code>/language</code>, <code>/mode</code>, <code>/consistency</code>, <code>/detail</code>, <code>/crazyness</code>, <code>/concurrency</code>, <code>/retries</code></li>
 <li>Prompt/options: <code>/prompts</code>, <code>/set_prompt</code>, <code>/list_options</code>, <code>/options</code></li>
 <li>Credentials/state: <code>/keys</code>, <code>/setkey</code>, <code>/unsetkey</code>, <code>/reset_config</code>, <code>/restart</code></li>
@@ -72,14 +72,23 @@
 <li>One active job per chat queue preserves per-user order</li>
 </ul>
 <h2 id="input-classification">Input Classification</h2>
-<p>Input from <code>message.text</code> or <code>message.caption</code> is classified as:</p>
+<p>Input from <code>message.text</code>, media attachments, or <code>message.caption</code> is classified as:</p>
 <ul>
 <li>command</li>
 <li>url</li>
+<li>pdf</li>
+<li>image</li>
+<li>voice</li>
 <li>text</li>
 <li>empty/unsupported</li>
 </ul>
-<p>URL flow snapshots rendered page HTML before generation.</p>
+<p>Source-specific flows extract structured text before generation:</p>
+<ul>
+<li>URL flow snapshots rendered page HTML before generation</li>
+<li>PDF flow extracts document text from a link or uploaded file</li>
+<li>Image flow extracts scene/story context from a link or uploaded file</li>
+<li>Voice/audio flow transcribes the clip before story generation</li>
+</ul>
 <h2 id="generation-pipeline">Generation Pipeline</h2>
 <ol>
 <li>Resolve effective per-user config</li>
@@ -106,6 +115,7 @@
 <li><code>/crazyness &lt;0..2&gt;</code> controls story invention temperature</li>
 <li><code>/options</code> without args explains valid paths/options; apply via dedicated commands (<code>/objective</code>, <code>/panels</code>, <code>/mode</code>, <code>/vendor</code>, <code>/models</code>, etc.)</li>
 <li><code>/keys</code> shows runtime key status</li>
+<li><code>/vendors [role]</code> prints available provider roles and options</li>
 <li>URL flow sends <code>Detected link, parsing page: &lt;url&gt;</code> with the exact parsed URL</li>
 </ul>
 <h2 id="blacklist-model">Blacklist Model</h2>
@@ -124,7 +134,7 @@
 <h2 id="storage">Storage</h2>
 <ul>
 <li>R2 state object: user runtime config/secrets/profile + history</li>
-<li>R2: images, request logs, crash logs, status markers</li>
+<li>R2: env-scoped images, request logs, crash logs, runtime logs, and status markers</li>
 <li>Capacity/retention cleanup is enforced by runtime/storage managers</li>
 </ul>
 <h2 id="testing">Testing</h2>
@@ -143,7 +153,7 @@
 </ul>
 <h2 id="deployment">Deployment</h2>
 <p>Use:</p>
-<pre><code class="language-bash">npm run bot:deploy:auto -- --target render --branch engine --env-only
+<pre><code class="language-bash">npm run bot:deploy:auto -- --target render --env staging --branch stage1 --env-only
 </code></pre>
 <p>See:</p>
 <ul>

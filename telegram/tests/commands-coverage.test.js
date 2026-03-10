@@ -82,7 +82,27 @@ async function startBotProcess(botPort, telegramBaseUrl, statePath) {
     RENDER_BOT_OUT_DIR: isolatedOutDir,
     RENDER_BOT_CFGS_DIR: isolatedCfgsDir,
     RENDER_BOT_BLACKLIST_FILE: path.join(isolatedDataDir, 'blacklist.json'),
-    RENDER_BOT_KNOWN_USERS_FILE: path.join(isolatedDataDir, 'known-users.json')
+    RENDER_BOT_KNOWN_USERS_FILE: path.join(isolatedDataDir, 'known-users.json'),
+    RENDER_BOT_ASYNC_CHROMIUM_WARMUP: 'false',
+    TELEGRAM_BOT_TOKEN_FILE: '',
+    TELEGRAM_WEBHOOK_SECRET_FILE: '',
+    GEMINI_API_KEY_FILE: '',
+    OPENAI_API_KEY_FILE: '',
+    OPENROUTER_API_KEY_FILE: '',
+    HUGGINGFACE_INFERENCE_API_TOKEN_FILE: '',
+    CLOUDFLARE_WORKERS_AI_TOKEN_FILE: '',
+    CLOUDFLARE_ACCOUNT_API_TOKEN_FILE: '',
+    CLOUDFLARE_API_TOKEN_FILE: '',
+    FIRECRAWL_API_KEY_FILE: '',
+    JINA_API_KEY_FILE: '',
+    DRIFTBOT_API_KEY_FILE: '',
+    UNSTRUCTURED_API_KEY_FILE: '',
+    LLAMA_CLOUD_API_KEY_FILE: '',
+    ASSEMBLYAI_API_KEY_FILE: '',
+    GROQ_API_KEY_FILE: '',
+    COHERE_API_KEY_FILE: '',
+    R2_ACCESS_KEY_ID_FILE: '',
+    R2_SECRET_ACCESS_KEY_FILE: ''
   };
 
   const child = spawn(process.execPath, ['telegram/src/webhook-bot.js'], {
@@ -200,35 +220,52 @@ function userCommandSamples() {
   ];
 }
 
-describe('user command coverage', () => {
-  it('handles all user commands without unrecognized-command response', async () => {
-    const tg = await startFakeTelegramServer();
-    const botPort = await getFreePort();
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'render-bot-cmds-'));
-    const bot = await startBotProcess(
-      botPort,
-      `http://127.0.0.1:${tg.port}/botTEST_TOKEN`,
-      path.join(tmpDir, 'runtime-state.json')
-    );
+function splitIntoChunks(items, size = 12) {
+  const chunks = [];
+  for (let i = 0; i < items.length; i += size) {
+    chunks.push(items.slice(i, i + size));
+  }
+  return chunks;
+}
 
-    try {
-      const commands = userCommandSamples();
-      for (const cmd of commands) {
-        const before = tg.calls.filter((c) => c.url.endsWith('/sendMessage')).length;
-        const res = await postUpdate(botPort, cmd);
-        expect(res.status).toBe(200);
-        await waitFor(() => tg.calls.filter((c) => c.url.endsWith('/sendMessage')).length > before, 40000, 120);
-        const chunk = tg.calls
-          .filter((c) => c.url.endsWith('/sendMessage'))
-          .slice(before)
-          .map((c) => String(c.body?.text || '').toLowerCase());
-        const unrecognized = chunk.some((line) => line.includes('unrecognized command'));
-        expect(unrecognized, `Unexpected unrecognized command for ${cmd}`).toBe(false);
+function hasInvalidCommandText(line) {
+  const text = String(line || '').toLowerCase();
+  return text.includes('unrecognized command') || text.includes('invalid command');
+}
+
+describe('user command coverage', () => {
+  const commands = userCommandSamples();
+  const commandGroups = splitIntoChunks(commands, 12);
+
+  commandGroups.forEach((group, index) => {
+    it(`handles command batch ${index + 1}/${commandGroups.length} without invalid fallback`, async () => {
+      const tg = await startFakeTelegramServer();
+      const botPort = await getFreePort();
+      const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), `render-bot-cmds-${index + 1}-`));
+      const bot = await startBotProcess(
+        botPort,
+        `http://127.0.0.1:${tg.port}/botTEST_TOKEN`,
+        path.join(tmpDir, 'runtime-state.json')
+      );
+
+      try {
+        for (const cmd of group) {
+          const before = tg.calls.filter((c) => c.url.endsWith('/sendMessage')).length;
+          const res = await postUpdate(botPort, cmd);
+          expect(res.status).toBe(200);
+          await waitFor(() => tg.calls.filter((c) => c.url.endsWith('/sendMessage')).length > before, 40000, 120);
+          const chunk = tg.calls
+            .filter((c) => c.url.endsWith('/sendMessage'))
+            .slice(before)
+            .map((c) => String(c.body?.text || ''));
+          const invalidLine = chunk.find((line) => hasInvalidCommandText(line));
+          expect(invalidLine, `Unexpected invalid fallback for ${cmd}: ${invalidLine || ''}`).toBeUndefined();
+        }
+      } finally {
+        await bot.stop();
+        await tg.close();
       }
-    } finally {
-      await bot.stop();
-      await tg.close();
-    }
-  }, 360000);
+    }, 120000);
+  });
 });
 

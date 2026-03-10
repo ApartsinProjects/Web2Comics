@@ -1,5 +1,18 @@
 # Web2Comics Release Notes
 
+## v1.0.4 (2026-03-10)
+
+### Highlights
+- Added dedicated release packaging/documentation coverage for both the extension and the Telegram bot.
+- Documented the extension and bot release artifacts separately while keeping cross-references between the two product docs.
+- Added a docs-side engine bridge so both product release documents continue to point at shared engine behavior.
+
+### Packaging
+- Extension artifact: `Web2Comics-v1.0.4-extension.zip`
+- Telegram bot artifact: `Web2Comics-TelegramBot-v1.0.4-deploy.zip`
+- Built via: `scripts/package-release.ps1`
+- Companion bot package built via: `scripts/package-telegram-bot-release.ps1`
+
 ## v1.0.3 (2026-03-03)
 
 ### Highlights

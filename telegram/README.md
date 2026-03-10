@@ -7,29 +7,34 @@
 ![Tests](https://img.shields.io/badge/tests-vitest-6E9F18?logo=vitest&logoColor=white)
 ![License](https://img.shields.io/badge/%C2%A9%202026-Alexander%20Apartsin-red)
 
-Telegram bot backend for Web2Comics.  
-The bot accepts text or URL messages, generates comic panels, and sends ordered panel images back to chat.
+Telegram bot backend for Web2Comics.
+The bot accepts text, web links, PDF links/files, image links/files, and voice/audio, then generates comic panels and sends ordered panel images back to chat.
 
-Extension README (Markdown): [../README.md](../README.md)  
+Bot overview doc: [../docs/telegram-bot.md](../docs/telegram-bot.md)
+Extension overview doc: [../docs/extension.md](../docs/extension.md)
+Extension README: [../README.md](../README.md)
+Shared engine overview: [../docs/engine.md](../docs/engine.md)
+Engine manual source: [../engine/manual.md](../engine/manual.md)
+Bot release notes: [docs/release-notes.md](docs/release-notes.md)
 GitHub Pages bot docs: <https://apartsinprojects.github.io/Web2Comics/HTML/telegram-bot.html>
-Bot docs bridge page (Markdown): [../docs/telegram-bot.md](../docs/telegram-bot.md)
 
 ## Documentation Scope
 - Bot documentation lists public user-facing commands and flows only.
 - Internal/admin-only commands are intentionally excluded from published docs.
+- Extension popup, sidepanel, options-page, and browser workflows are documented separately.
 
 ## Public Command Catalog (No Admin Commands)
 - Onboarding/info:
   - `/start`, `/welcome`, `/help`, `/about`, `/version`, `/user`, `/config`, `/explain`, `/debug <on|off>`
 - Story generation:
-  - Send plain text or URL message
+  - Send plain text, web link, PDF, image, or voice/audio message
   - `/invent <story>`
   - `/random`
 - Replay/history:
   - `/peek`, `/peek <n>`, `/peek<n>`
 - Providers and models:
-  - `/vendor <name>`, `/text_vendor <name>`, `/image_vendor <name>`
-  - `/models [text|image] [model]`
+  - `/vendors [role]`, `/vendor <role> <name>`, `/vendor <name>`
+  - `/models [text|image|url|image_extract|pdf|voice] [model]`
   - `/test`
 - Generation controls:
   - `/panels <count>`, `/objective [name]`, `/objectives`
@@ -55,12 +60,17 @@ Bot docs bridge page (Markdown): [../docs/telegram-bot.md](../docs/telegram-bot.
 
 ## What It Does
 - Receives Telegram webhook updates
-- Detects text vs URL inputs
+- Detects text, web link, PDF, image, and voice/audio inputs
 - Builds storyboard and panel images with configured providers
 - Streams panels to users as they are generated
 - Uses per-user runtime settings and credentials
 - Persists runtime state in Cloudflare R2
 - Persists artifacts/logs/images in Cloudflare R2
+
+## Shared Engine Relationship
+- The bot reuses shared prompt-building and composition logic from [`../engine/`](../engine/)
+- Engine overview: [`../docs/engine.md`](../docs/engine.md)
+- This keeps storyboard behavior closer to the extension while allowing the bot to keep its own transport, storage, and deployment model
 
 ## Runtime Highlights
 - Fast webhook ACK + per-chat processing queue
@@ -74,6 +84,11 @@ Bot docs bridge page (Markdown): [../docs/telegram-bot.md](../docs/telegram-bot.
 - For URL inputs, bot prints the exact parsed URL before extraction
 
 ## Documentation
+- Bot overview: [../docs/telegram-bot.md](../docs/telegram-bot.md)
+- Extension overview: [../docs/extension.md](../docs/extension.md)
+- Shared engine overview: [../docs/engine.md](../docs/engine.md)
+- Engine manual source: [../engine/manual.md](../engine/manual.md)
+- Release notes: [docs/release-notes.md](docs/release-notes.md)
 - Deployment hub: [docs/deployment.md](docs/deployment.md)
 - Deployment runbook: [docs/deployment-runbook.md](docs/deployment-runbook.md)
 - Testing: [docs/testing.md](docs/testing.md)
@@ -111,8 +126,13 @@ Optional real URL e2e is opt-in and requires:
 ## Deployment
 Recommended automatic path:
 ```bash
-npm run bot:deploy:auto -- --target render --branch engine --env-only
+npm run bot:deploy:auto -- --target render --env staging --branch stage1 --env-only
 ```
+
+Release package:
+- Current bot release: `v1.0.4`
+- Deploy artifact: `Web2Comics-TelegramBot-v1.0.4-deploy.zip`
+- Companion extension package docs: [../docs/extension.md](../docs/extension.md)
 
 Includes:
 - secret validation

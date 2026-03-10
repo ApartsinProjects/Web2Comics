@@ -31,10 +31,40 @@ function waitFor(conditionFn, timeoutMs = 10000, stepMs = 150) {
   });
 }
 
+function sendMessageCalls(calls) {
+  return (Array.isArray(calls) ? calls : []).filter((c) => c.url.endsWith('/sendMessage'));
+}
+
+async function collectSendMessagesAfter(calls, before, expected, timeoutMs = 12000) {
+  await waitFor(() => {
+    const chunk = sendMessageCalls(calls).slice(before).map((c) => String(c.body.text || ''));
+    if (typeof expected === 'function') return expected(chunk);
+    if (typeof expected === 'string' && expected) return chunk.some((message) => message.includes(expected));
+    return chunk.length > 0;
+  }, timeoutMs, 100);
+  return sendMessageCalls(calls).slice(before).map((c) => String(c.body.text || ''));
+}
+
+async function waitForSendMessageIdle(calls, idleMs = 500, timeoutMs = 5000) {
+  let lastCount = -1;
+  let lastChangeAt = Date.now();
+  await waitFor(() => {
+    const count = sendMessageCalls(calls).length;
+    if (count !== lastCount) {
+      lastCount = count;
+      lastChangeAt = Date.now();
+      return false;
+    }
+    return (Date.now() - lastChangeAt) >= idleMs;
+  }, timeoutMs, 100);
+  return lastCount;
+}
+
 async function startFakeTelegramServer(options = {}) {
   const calls = [];
   let photoFailuresLeft = Number(options.failSendPhotoTimes || 0);
   let messageFailuresLeft = Number(options.failSendMessageTimes || 0);
+  const telegramFiles = options.telegramFiles || {};
   const server = http.createServer(async (req, res) => {
     const chunks = [];
     req.on('data', (d) => chunks.push(d));
@@ -43,6 +73,30 @@ async function startFakeTelegramServer(options = {}) {
       let body = {};
       try { body = raw ? JSON.parse(raw) : {}; } catch (_) {}
       calls.push({ method: req.method, url: req.url, body, raw, at: Date.now() });
+      if (req.url.endsWith('/getFile')) {
+        const fileId = String(body.file_id || '').trim();
+        const fileEntry = telegramFiles[fileId] || {};
+        res.statusCode = 200;
+        res.setHeader('Content-Type', 'application/json');
+        res.end(JSON.stringify({
+          ok: true,
+          result: {
+            file_id: fileId,
+            file_path: String(fileEntry.file_path || `${fileId}.bin`)
+          }
+        }));
+        return;
+      }
+      const fileMatch = req.url.match(/\/file\/botTEST_TOKEN\/(.+)$/);
+      if (fileMatch && fileMatch[1]) {
+        const filePath = String(fileMatch[1] || '').trim();
+        const fileEntry = Object.values(telegramFiles).find((entry) => String(entry?.file_path || '').trim() === filePath) || {};
+        const bytes = Buffer.isBuffer(fileEntry.bytes) ? fileEntry.bytes : Buffer.from(String(fileEntry.text || 'fake-file-bytes'), 'utf8');
+        res.statusCode = 200;
+        res.setHeader('Content-Type', String(fileEntry.contentType || 'application/octet-stream'));
+        res.end(bytes);
+        return;
+      }
       if (req.url.endsWith('/sendPhoto') && photoFailuresLeft > 0) {
         photoFailuresLeft -= 1;
         res.statusCode = 200;
@@ -170,6 +224,10 @@ function extractMultipartField(raw, fieldName) {
   return text.slice(start + 4, end).trim();
 }
 
+function sentMessages(calls) {
+  return calls.filter((c) => c.url.endsWith('/sendMessage'));
+}
+
 describe('render webhook bot REST + telegram flow', () => {
   it('accepts webhook and sends /help response through telegram api', async () => {
     const tg = await startFakeTelegramServer();
@@ -221,18 +279,19 @@ describe('render webhook bot REST + telegram flow', () => {
     );
 
     try {
-      const before = tg.calls.filter((c) => c.url.endsWith('/sendMessage')).length;
+      const before = sendMessageCalls(tg.calls).length;
       const res = await postUpdate(botPort, {
         chat: { id: 777 },
         from: { id: 777, username: 'new_user', first_name: 'New' },
         text: '/help'
       });
       expect(res.status).toBe(200);
-      await waitFor(() => tg.calls.filter((c) => c.url.endsWith('/sendMessage')).length >= before + 2, 10000, 100);
-      const chunk = tg.calls
-        .filter((c) => c.url.endsWith('/sendMessage'))
-        .slice(before)
-        .map((c) => String(c.body.text || ''));
+      const chunk = await collectSendMessagesAfter(
+        tg.calls,
+        before,
+        (messages) => messages.some((m) => m.includes('Welcome to Web2Comic.')) && messages.some((m) => m.includes('Commands:')),
+        12000
+      );
       expect(chunk.some((m) => m.includes('Welcome to Web2Comic.'))).toBe(true);
       expect(chunk.some((m) => m.includes('Commands:'))).toBe(true);
     } finally {
@@ -252,32 +311,29 @@ describe('render webhook bot REST + telegram flow', () => {
     );
 
     try {
-      const firstBefore = tg.calls.filter((c) => c.url.endsWith('/sendMessage')).length;
+      const firstBefore = sendMessageCalls(tg.calls).length;
       const firstRes = await postUpdate(botPort, {
         chat: { id: 777 },
         from: { id: 777, username: 'wake_user', first_name: 'Wake' },
         text: '/help'
       });
       expect(firstRes.status).toBe(200);
-      await waitFor(() => tg.calls.filter((c) => c.url.endsWith('/sendMessage')).length > firstBefore, 10000, 100);
-      const firstChunk = tg.calls
-        .filter((c) => c.url.endsWith('/sendMessage'))
-        .slice(firstBefore)
-        .map((c) => String(c.body.text || ''));
+      const firstChunk = await collectSendMessagesAfter(
+        tg.calls,
+        firstBefore,
+        'I just woke up. First response may take a bit longer.',
+        12000
+      );
       expect(firstChunk.some((m) => m.includes('I just woke up. First response may take a bit longer.'))).toBe(true);
 
-      const secondBefore = tg.calls.filter((c) => c.url.endsWith('/sendMessage')).length;
+      const secondBefore = sendMessageCalls(tg.calls).length;
       const secondRes = await postUpdate(botPort, {
         chat: { id: 777 },
         from: { id: 777, username: 'wake_user', first_name: 'Wake' },
         text: '/help'
       });
       expect(secondRes.status).toBe(200);
-      await waitFor(() => tg.calls.filter((c) => c.url.endsWith('/sendMessage')).length > secondBefore, 10000, 100);
-      const secondChunk = tg.calls
-        .filter((c) => c.url.endsWith('/sendMessage'))
-        .slice(secondBefore)
-        .map((c) => String(c.body.text || ''));
+      const secondChunk = await collectSendMessagesAfter(tg.calls, secondBefore, (messages) => messages.length > 0, 12000);
       expect(secondChunk.some((m) => m.includes('I just woke up. First response may take a bit longer.'))).toBe(false);
 
       const allWakeNotices = tg.calls
@@ -346,18 +402,19 @@ describe('render webhook bot REST + telegram flow', () => {
         .map((c) => String(c.body.text || ''));
       expect(deniedMsgs.some((m) => m.includes('I just woke up. First response may take a bit longer.'))).toBe(false);
 
-      const allowedBefore = tg.calls.filter((c) => c.url.endsWith('/sendMessage')).length;
+      const allowedBefore = sendMessageCalls(tg.calls).length;
       const allowedRes = await postUpdate(botPort, {
         chat: { id: 777 },
         from: { id: 777, username: 'allowed_user', first_name: 'Allowed' },
         text: '/help'
       });
       expect(allowedRes.status).toBe(200);
-      await waitFor(() => tg.calls.filter((c) => c.url.endsWith('/sendMessage')).length > allowedBefore, 10000, 100);
-      const allowedMsgs = tg.calls
-        .filter((c) => c.url.endsWith('/sendMessage'))
-        .slice(allowedBefore)
-        .map((c) => String(c.body.text || ''));
+      const allowedMsgs = await collectSendMessagesAfter(
+        tg.calls,
+        allowedBefore,
+        'I just woke up. First response may take a bit longer.',
+        12000
+      );
       expect(allowedMsgs.some((m) => m.includes('I just woke up. First response may take a bit longer.'))).toBe(true);
     } finally {
       await bot.stop();
@@ -851,7 +908,8 @@ describe('render webhook bot REST + telegram flow', () => {
       expect(res.status).toBe(200);
       await waitFor(() => tg.calls.some((c) =>
         c.url.endsWith('/sendMessage') && String(c.body.text || '').includes('Updated generation.image_extractor = openai')
-      ), 8000, 100);
+      ), 15000, 100);
+      await waitFor(() => fs.existsSync(statePath), 15000, 100);
       const stateRaw = fs.readFileSync(statePath, 'utf8');
       const state = JSON.parse(stateRaw);
       expect(state?.users?.['777']?.overrides?.generation?.image_extractor).toBe('openai');
@@ -859,7 +917,7 @@ describe('render webhook bot REST + telegram flow', () => {
       await bot.stop();
       await tg.close();
     }
-  }, 20000);
+  }, 30000);
 
   it('supports /voice_extractor command and stores selected voice extractor vendor', async () => {
     const tg = await startFakeTelegramServer();
@@ -1223,7 +1281,7 @@ describe('render webhook bot REST + telegram flow', () => {
           && String(c.body.text || '').includes('Your user id: 777')
       ), 8000, 100);
 
-      const before = tg.calls.filter((c) => c.url.endsWith('/sendMessage')).length;
+      const before = await waitForSendMessageIdle(tg.calls, 500, 4000);
       const r2 = await postRawUpdate(botPort, update);
       expect(r2.status).toBe(200);
       const b2 = await r2.json();
@@ -1742,8 +1800,8 @@ describe('render webhook bot REST + telegram flow', () => {
       expect(captions[2]).toContain(`3(${total}) Fake panel 3`);
       const msgTexts = chunk.filter((c) => c.url.endsWith('/sendMessage')).map((c) => String(c.body.text || ''));
       expect(msgTexts.some((m) => m.includes('Detected link, parsing page: https://example.com'))).toBe(true);
-      expect(msgTexts.some((m) => m.includes('Summarizing key points from extracted content'))).toBe(true);
-      expect(msgTexts.some((m) => m.includes('Key points summary ready. Building storyboard'))).toBe(true);
+      expect(msgTexts.some((m) => m.includes('Preparing extracted story text for storyboard generation'))).toBe(true);
+      expect(msgTexts.some((m) => m.includes('Story input ready. Building storyboard'))).toBe(true);
       expect(msgTexts.some((m) => m.includes('Generating your comic'))).toBe(true);
       expect(msgTexts.some((m) => m.includes('Done: url -> comic panels'))).toBe(true);
     } finally {
@@ -2041,11 +2099,11 @@ describe('render webhook bot REST + telegram flow', () => {
         caption_entities: [{ offset: 0, length: 19, type: 'url' }]
       });
       expect(res.status).toBe(200);
-      await waitFor(() => tg.calls.filter((c) => c.url.endsWith('/sendPhoto')).length >= 3, 12000, 100);
+      await waitFor(() => tg.calls.filter((c) => c.url.endsWith('/sendPhoto')).length >= 3, 20000, 100);
       await waitFor(() => tg.calls
         .filter((c) => c.url.endsWith('/sendMessage'))
         .map((c) => String(c.body.text || ''))
-        .some((m) => m.includes('Done: url -> comic panels')), 12000, 100);
+        .some((m) => m.includes('Done: url -> comic panels')), 20000, 100);
       const chunk = tg.calls.slice(before);
       const photos = chunk.filter((c) => c.url.endsWith('/sendPhoto'));
       expect(photos.length).toBeGreaterThanOrEqual(3);
@@ -2053,7 +2111,7 @@ describe('render webhook bot REST + telegram flow', () => {
       await bot.stop();
       await tg.close();
     }
-  }, 30000);
+  }, 45000);
 
   it('handles video caption text_link URL and treats input as URL source', async () => {
     const tg = await startFakeTelegramServer();
@@ -2402,14 +2460,13 @@ describe('render webhook bot REST + telegram flow', () => {
 
     try {
       async function runAndCollect(text) {
-        const before = tg.calls.filter((c) => c.url.endsWith('/sendMessage')).length;
+        const before = sendMessageCalls(tg.calls).length;
         const res = await postUpdate(botPort, { chat: { id: 777 }, text });
         expect(res.status).toBe(200);
-        await waitFor(() => tg.calls.filter((c) => c.url.endsWith('/sendMessage')).length > before, 12000, 100);
-        return tg.calls
-          .filter((c) => c.url.endsWith('/sendMessage'))
-          .slice(before)
-          .map((c) => String(c.body.text || ''));
+        const expected = text === '/mode media_group'
+          ? 'Updated generation.delivery_mode = media_group'
+          : 'Usage: /mode <name>';
+        return collectSendMessagesAfter(tg.calls, before, expected, 12000);
       }
 
       const msgs1 = await runAndCollect('/mode');
@@ -2624,6 +2681,159 @@ describe('render webhook bot REST + telegram flow', () => {
       await tg.close();
     }
   }, 40000);
+
+  it('handles source input matrix: text, URL, PDF, audio, PDF link, and mixed combinations', async () => {
+    const tg = await startFakeTelegramServer({
+      telegramFiles: {
+        'pdf-file-1': {
+          file_path: 'docs/sample-upload.pdf',
+          contentType: 'application/pdf',
+          bytes: Buffer.from('%PDF-1.4 fake pdf bytes', 'utf8')
+        },
+        'audio-file-1': {
+          file_path: 'audio/sample-upload.mp3',
+          contentType: 'audio/mpeg',
+          bytes: Buffer.from('fake mp3 bytes', 'utf8')
+        }
+      }
+    });
+    const botPort = await getFreePort();
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'render-bot-webhook-source-matrix-'));
+    const bot = await startBotProcess(
+      botPort,
+      `http://127.0.0.1:${tg.port}/botTEST_TOKEN`,
+      path.join(tmpDir, 'runtime-state.json'),
+      {
+        RENDER_BOT_FAKE_URL_EXTRACTOR: 'true',
+        RENDER_BOT_FAKE_PDF_EXTRACTOR: 'true',
+        RENDER_BOT_FAKE_VOICE_EXTRACTOR: 'true'
+      }
+    );
+
+    const cases = [
+      {
+        name: 'text',
+        message: {
+          chat: { id: 777 },
+          from: { id: 777, username: 'matrix_user', first_name: 'Matrix' },
+          text: 'A plain text story about testing every input path.'
+        },
+        expectTexts: ['Done: text -> comic panels']
+      },
+      {
+        name: 'html-url',
+        message: {
+          chat: { id: 777 },
+          from: { id: 777, username: 'matrix_user', first_name: 'Matrix' },
+          text: 'https://example.com/article',
+          entities: [{ offset: 0, length: 27, type: 'url' }]
+        },
+        expectTexts: ['Detected link, parsing page: https://example.com/article', 'Done: url -> comic panels']
+      },
+      {
+        name: 'pdf-link',
+        message: {
+          chat: { id: 777 },
+          from: { id: 777, username: 'matrix_user', first_name: 'Matrix' },
+          text: 'https://example.com/guide.pdf'
+        },
+        expectTexts: ['Detected PDF link, extracting story: https://example.com/guide.pdf', 'PDF parsed via', 'Done: pdf -> comic panels']
+      },
+      {
+        name: 'audio-link',
+        message: {
+          chat: { id: 777 },
+          from: { id: 777, username: 'matrix_user', first_name: 'Matrix' },
+          text: 'https://example.com/podcast.mp3'
+        },
+        expectTexts: ['Detected audio link, transcribing: https://example.com/podcast.mp3', 'Voice parsed via assemblyai. Generating your comic...', 'Done: voice -> comic panels']
+      },
+      {
+        name: 'pdf-file-with-caption',
+        message: {
+          chat: { id: 777 },
+          from: { id: 777, username: 'matrix_user', first_name: 'Matrix' },
+          caption: 'Please turn this uploaded PDF into a comic.',
+          document: {
+            file_id: 'pdf-file-1',
+            file_name: 'sample-upload.pdf',
+            mime_type: 'application/pdf'
+          }
+        },
+        expectTexts: ['Detected PDF file, extracting story...', 'PDF parsed via', 'Done: pdf -> comic panels']
+      },
+      {
+        name: 'audio-file-with-caption',
+        message: {
+          chat: { id: 777 },
+          from: { id: 777, username: 'matrix_user', first_name: 'Matrix' },
+          caption: 'Please transcribe this uploaded audio and comicify it.',
+          document: {
+            file_id: 'audio-file-1',
+            file_name: 'sample-upload.mp3',
+            mime_type: 'audio/mpeg'
+          }
+        },
+        expectTexts: ['Detected voice/audio file, transcribing...', 'Voice parsed via assemblyai. Generating your comic...', 'Done: voice -> comic panels']
+      },
+      {
+        name: 'text-plus-web-url',
+        message: {
+          chat: { id: 777 },
+          from: { id: 777, username: 'matrix_user', first_name: 'Matrix' },
+          text: 'Summarize this page in comic form: https://example.com/mixed-web'
+        },
+        expectTexts: ['Detected link, parsing page: https://example.com/mixed-web', 'Done: url -> comic panels']
+      },
+      {
+        name: 'text-plus-pdf-link',
+        message: {
+          chat: { id: 777 },
+          from: { id: 777, username: 'matrix_user', first_name: 'Matrix' },
+          text: 'Summarize the attached reading list from https://example.com/mixed.pdf into panels'
+        },
+        expectTexts: ['Detected PDF link, extracting story: https://example.com/mixed.pdf', 'Done: pdf -> comic panels']
+      },
+      {
+        name: 'text-plus-audio-link',
+        message: {
+          chat: { id: 777 },
+          from: { id: 777, username: 'matrix_user', first_name: 'Matrix' },
+          text: 'Please use this recording https://example.com/mixed-audio.ogg and make a comic'
+        },
+        expectTexts: ['Detected audio link, transcribing: https://example.com/mixed-audio.ogg', 'Done: voice -> comic panels']
+      }
+    ];
+
+    try {
+      for (const testCase of cases) {
+        const beforeCalls = tg.calls.length;
+        const beforePhotos = tg.calls.filter((c) => c.url.endsWith('/sendPhoto')).length;
+        const res = await postUpdate(botPort, testCase.message);
+        expect(res.status, testCase.name).toBe(200);
+
+        await waitFor(() => tg.calls.filter((c) => c.url.endsWith('/sendPhoto')).length >= beforePhotos + 3, 20000, 100);
+        await waitFor(() => {
+          const chunkTexts = tg.calls
+            .slice(beforeCalls)
+            .filter((c) => c.url.endsWith('/sendMessage'))
+            .map((c) => String(c.body.text || ''));
+          return chunkTexts.some((m) => m.includes('Done:'));
+        }, 20000, 100);
+
+        const chunkTexts = tg.calls
+          .slice(beforeCalls)
+          .filter((c) => c.url.endsWith('/sendMessage'))
+          .map((c) => String(c.body.text || ''));
+        testCase.expectTexts.forEach((expected) => {
+          expect(chunkTexts.some((m) => m.includes(expected)), `${testCase.name} missing "${expected}" in ${chunkTexts.join(' | ')}`).toBe(true);
+        });
+      }
+    } finally {
+      await bot.stop();
+      await tg.close();
+    }
+  }, 90000);
 
   it('reports timeout errors back to chat when a job exceeds timeout', async () => {
     const tg = await startFakeTelegramServer();

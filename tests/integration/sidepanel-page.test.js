@@ -1747,6 +1747,7 @@ describe('Sidepanel Page UX', () => {
 
   it('alerts when composite export fails', async () => {
     const history = [makeHistoryItem(1)];
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
     chrome.storage.local.get.mockImplementation(async (key) => {
       if (key === 'currentJob') return { currentJob: { status: 'completed', storyboard: history[0].storyboard } };
       if (key === 'history') return { history };
@@ -1776,6 +1777,7 @@ describe('Sidepanel Page UX', () => {
 
       expect(global.alert).toHaveBeenCalledWith('Failed to export comic as a single image.');
     } finally {
+      consoleError.mockRestore();
       document.createElement = originalCreateElement;
     }
   });
@@ -2682,6 +2684,32 @@ describe('Sidepanel Page UX', () => {
     expect(global.alert).toHaveBeenCalled();
   });
 
+  it('exports a composite PNG through the real canvas export path', async () => {
+    const history = [makeHistoryItem(1)];
+    chrome.storage.local.get.mockImplementation(async (key) => {
+      if (key === 'currentJob') return { currentJob: { status: 'completed', storyboard: history[0].storyboard } };
+      if (key === 'history') return { history };
+      if (key === 'sidepanelPrefs') return { sidepanelPrefs: {} };
+      return {};
+    });
+
+    const anchorClick = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+
+    await import('../../sidepanel/sidepanel.js');
+    document.dispatchEvent(new Event('DOMContentLoaded'));
+    await flush();
+    await flush();
+
+    const viewer = window.__sidepanelViewer;
+    vi.spyOn(viewer, 'loadImageElement').mockResolvedValue({ width: 800, height: 600 });
+
+    const exported = await viewer.exportComicAsCompositeImage({ download: true });
+
+    expect(exported.filename).toContain('comic-sheet.png');
+    expect(exported.dataUrl).toContain('data:image/png;base64,TEST_CANVAS_EXPORT');
+    expect(anchorClick).toHaveBeenCalled();
+  });
+
   it('uses Facebook fallback flow by downloading image and opening Facebook composer', async () => {
     const history = [makeHistoryItem(1)];
     chrome.storage.local.get.mockImplementation(async (key) => {
@@ -2747,6 +2775,7 @@ describe('Sidepanel Page UX', () => {
 
   it('shows safe alert when share export fails', async () => {
     const history = [makeHistoryItem(1)];
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
     chrome.storage.local.get.mockImplementation(async (key) => {
       if (key === 'currentJob') return { currentJob: { status: 'completed', storyboard: history[0].storyboard } };
       if (key === 'history') return { history };
@@ -2769,6 +2798,7 @@ describe('Sidepanel Page UX', () => {
     await flush();
 
     expect(global.alert).toHaveBeenCalledWith('Failed to open sharing target.');
+    consoleError.mockRestore();
   });
 
   it('uses email-card fallback by downloading image and opening mail client link', async () => {

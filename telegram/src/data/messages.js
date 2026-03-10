@@ -62,7 +62,7 @@ function buildHelpMessage(chatId, options = {}) {
     BOT_DISPLAY_NAME,
     BOT_SHORT_DESCRIPTION,
     '',
-    'Send plain text, URL, or PDF to generate a comic.',
+    'Send plain text, web links, PDF links/files, image links/files, or voice/audio to generate a comic.',
     '',
     'Commands:',
     'Getting started:',

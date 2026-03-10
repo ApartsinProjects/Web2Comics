@@ -2,41 +2,45 @@
 
 The Telegram bot is the server-side companion to the Web2Comics extension.
 
+## Product Boundaries
+- This document covers the Telegram bot only.
+- Extension popup, sidepanel, options-page, and browser-storage behavior live in separate extension documents.
+- Shared comic-generation behavior is implemented in the engine and referenced here as a common dependency.
+
 ## Cross References
-
-Extension docs:
-- Extension README (GitHub): <https://github.com/ApartsinProjects/Web2Comics/blob/main/README.md>
-
-Bot docs:
-- Bot README (GitHub): <https://github.com/ApartsinProjects/Web2Comics/blob/main/telegram/README.md>
-- Bot docs page (GitHub Pages): <https://apartsinprojects.github.io/Web2Comics/HTML/telegram-bot.html>
-- Bot README (GitHub Pages): [`../telegram/README.md`](../telegram/README.md)
-- Bot docs folder (GitHub): <https://github.com/ApartsinProjects/Web2Comics/tree/main/telegram/docs>
+- Extension overview: [`./extension.md`](./extension.md)
+- Extension README: [`../README.md`](../README.md)
+- Bot README: [`../telegram/README.md`](../telegram/README.md)
+- Shared engine overview: [`./engine.md`](./engine.md)
+- Bot release notes: [`../telegram/docs/release-notes.md`](../telegram/docs/release-notes.md)
 
 ## Quick Links
 - Bot deployment runbook: [`../telegram/docs/deployment-runbook.md`](../telegram/docs/deployment-runbook.md)
 - Bot testing guide: [`../telegram/docs/testing.md`](../telegram/docs/testing.md)
 - Bot user manual: [`../telegram/docs/user-manual.md`](../telegram/docs/user-manual.md)
 - Bot developer guide: [`../telegram/docs/developer-guide.md`](../telegram/docs/developer-guide.md)
+- Bot release notes: [`../telegram/docs/release-notes.md`](../telegram/docs/release-notes.md)
+- Shared engine overview: [`./engine.md`](./engine.md)
 
 ## Features
-- Accepts plain text and URL messages
+- Accepts plain text, web links, PDF links/files, image links/files, and voice/audio
 - Generates comic panels and streams them as Telegram images
 - Panel caption prefix format `X(Y)`
 - Per-user settings and secrets
-- Persistent storage via Postgres + Cloudflare R2
+- Persistent storage via Cloudflare R2, with local file fallback when R2 is not configured
 
 ## Scope
 - This bridge page documents public user-facing behavior only.
 - Admin-only bot commands are intentionally excluded from published docs.
+- Browser-extension-specific UX is intentionally documented outside this page.
 
 ## Public Command Catalog (No Admin Commands)
 - Onboarding/info:
   - `/start`, `/welcome`, `/help`, `/about`, `/version`, `/user`, `/config`, `/explain`, `/debug <on|off>`
 - Generation/replay:
-  - text/URL message, `/invent <story>`, `/random`, `/peek`, `/peek<n>`
+  - text, link, PDF, image, or voice/audio input, `/invent <story>`, `/random`, `/peek`, `/peek<n>`
 - Providers/models:
-  - `/vendor`, `/text_vendor`, `/image_vendor`, `/models`, `/test`
+  - `/vendors [role]`, `/vendor <role> <name>`, `/vendor <name>`, `/models [role] [model]`, `/test`
 - Controls:
   - `/panels`, `/objective`, `/objectives`, objective shortcuts
   - `/style`, style shortcuts, `/new_style`
@@ -48,11 +52,22 @@ Bot docs:
 
 ## Deploy
 ```bash
-npm run bot:deploy:auto -- --target render --branch engine --env-only
+npm run bot:deploy:auto -- --target render --env staging --branch stage1 --env-only
 ```
+
+## Current Release Package
+- Current bot release: `v1.0.4`
+- Deploy artifact: `Web2Comics-TelegramBot-v1.0.4-deploy.zip`
+- Release history: [`../telegram/docs/release-notes.md`](../telegram/docs/release-notes.md)
+- Companion extension package: [`./extension.md`](./extension.md)
 
 ## Test
 ```bash
 npm run test:telegram:local
 npm run test:telegram
 ```
+
+## Shared Engine Relationship
+- The bot uses shared prompt and composition logic from [`../engine/`](../engine/)
+- Engine overview: [`./engine.md`](./engine.md)
+- Shared engine behavior helps keep storyboard generation aligned between bot and extension products

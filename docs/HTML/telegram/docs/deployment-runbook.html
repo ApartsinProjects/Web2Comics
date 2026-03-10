@@ -50,7 +50,7 @@
 <li>Verify onboarding/info commands: <code>/start</code>, <code>/welcome</code>, <code>/help</code>, <code>/about</code>, <code>/version</code>, <code>/user</code>, <code>/config</code>, <code>/explain</code>, <code>/debug</code></li>
 <li>Verify generation commands:
 <ul>
-<li>text/URL input</li>
+<li>text, link, PDF, image, or voice/audio input</li>
 <li><code>/invent &lt;story&gt;</code></li>
 <li><code>/random</code></li>
 <li><code>/peek</code>, <code>/peek&lt;n&gt;</code></li>
@@ -58,7 +58,7 @@
 </li>
 <li>Verify configuration commands:
 <ul>
-<li><code>/vendor</code>, <code>/text_vendor</code>, <code>/image_vendor</code>, <code>/models</code>, <code>/test</code></li>
+<li><code>/vendors</code>, <code>/vendor</code>, <code>/text_vendor</code>, <code>/image_vendor</code>, <code>/models</code>, <code>/test</code></li>
 <li><code>/panels</code>, <code>/objective</code>, <code>/objectives</code> + objective shortcuts (<code>/summary</code>, <code>/fun</code>, <code>/learn</code>, <code>/news</code>, <code>/timeline</code>, <code>/facts</code>, <code>/compare</code>, <code>/5yold</code>, <code>/eli5</code>, <code>/study</code>, <code>/meeting</code>, <code>/howto</code>, <code>/debate</code>)</li>
 <li><code>/style</code> + style shortcuts (<code>/classic</code>, <code>/noir</code>, <code>/manga</code>, <code>/superhero</code>, <code>/watercolor</code>, <code>/newspaper</code>, <code>/cinematic</code>, <code>/anime</code>, <code>/cyberpunk</code>, <code>/pixel-art</code>, <code>/retro-pop</code>, <code>/minimalist</code>, <code>/storybook</code>, <code>/ink-wash</code>, <code>/line-art</code>, <code>/clay-3d</code>)</li>
 <li><code>/new_style</code>, <code>/language</code>, <code>/mode</code>, <code>/consistency</code>, <code>/detail</code>, <code>/crazyness</code>, <code>/concurrency</code>, <code>/retries</code></li>
@@ -123,6 +123,10 @@
 <pre><code class="language-bash">npm run secrets:validate:deploy
 npm run secrets:validate:deploy:ci
 </code></pre>
+<p>Audit GitHub repo plus environment secrets before dispatching the workflow:</p>
+<pre><code class="language-bash">npm run secrets:validate:deploy:github:staging
+npm run secrets:validate:deploy:github:production
+</code></pre>
 <p>Predeploy also enforces strict Cloudflare token roles:</p>
 <ul>
 <li><code>CLOUDFLARE_WORKERS_AI_TOKEN</code> = Workers AI provider token</li>
@@ -136,16 +140,16 @@ npm run secrets:validate:deploy:ci
 </ul>
 <h2 id="deploy-commands">4) Deploy Commands</h2>
 <p>Primary path:</p>
-<pre><code class="language-bash">npm run bot:deploy:auto -- --target render --branch engine --env-only
+<pre><code class="language-bash">npm run bot:deploy:auto -- --target render --env staging --branch stage1 --env-only
 </code></pre>
 <p>Useful variants:</p>
-<pre><code class="language-bash">npm run bot:deploy:auto -- --target render --branch engine --env-only --with-render-smoke
+<pre><code class="language-bash">npm run bot:deploy:auto -- --target render --env staging --branch stage1 --env-only --with-render-smoke
 npm run bot:deploy:auto -- --target cloudflare --env-only --with-cloudflare-smoke
-npm run bot:deploy:auto -- --target both --branch engine --env-only --with-render-smoke --with-cloudflare-smoke
+npm run bot:deploy:auto -- --target both --env staging --branch stage1 --env-only --with-render-smoke --with-cloudflare-smoke
 </code></pre>
 <p>By default, <code>bot:deploy:auto</code> now runs a post-deploy sanity E2E check for Render (<code>telegram/scripts/postdeploy-sanity.js</code>).
 Skip it only when needed:</p>
-<pre><code class="language-bash">npm run bot:deploy:auto -- --target render --branch engine --env-only --skip-sanity
+<pre><code class="language-bash">npm run bot:deploy:auto -- --target render --env staging --branch stage1 --env-only --skip-sanity
 </code></pre>
 <h2 id="what-automation-performs">5) What Automation Performs</h2>
 <ul>
@@ -190,6 +194,7 @@ Skip it only when needed:</p>
 <li>Re-run deploy with previous branch/commit</li>
 <li>Keep webhook secret stable unless rotation is required</li>
 <li>If rotated, redeploy and re-register webhook immediately</li>
+<li>Production deploys must use <code>--env production --branch main</code></li>
 </ul>
 
     </article>

@@ -3471,6 +3471,36 @@ var ServiceWorker = function() {
     return best;
   };
 
+  this.sanitizeProviderStoryText = function(rawText) {
+    var raw = String(rawText || '').replace(/\r/g, '\n').trim();
+    if (!raw) return '';
+    var lines = raw.split('\n')
+      .map(function(line) { return String(line || '').trim(); })
+      .filter(Boolean)
+      .map(function(line) {
+        if (/^(story|article|source)\s*text\s*:/i.test(line)) {
+          return line.replace(/^(story|article|source)\s*text\s*:/i, '').trim();
+        }
+        if (/^(summary|description)\s*:/i.test(line)) {
+          return line.replace(/^(summary|description)\s*:/i, '').trim();
+        }
+        return line;
+      })
+      .filter(function(line) {
+        return !/^#{1,6}\s+/.test(line);
+      })
+      .filter(function(line) {
+        return !/^(error|warning|status|debug|trace|stack|exception|provider(?: used)?|panel errors?)\s*:/i.test(line);
+      })
+      .filter(function(line) {
+        return !/^no summary available\.?$/i.test(line);
+      })
+      .filter(function(line) {
+        return !/^\[[A-Z _-]{2,40}\]\s*/.test(line);
+      });
+    return lines.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+  };
+
   this.normalizeStorySelectionResult = function(rawText, candidatePayloads) {
     function makeStoryStableId(sourceCandidateId, title, summary, index) {
       var candidate = String(sourceCandidateId || '').trim();
@@ -3507,18 +3537,26 @@ var ServiceWorker = function() {
       var summary = String(story.summary || story.long_summary || '').trim();
       if (!title && !summary) continue;
       var matched = self.pickCandidateForStory(title, summary, story.candidate_id, items);
-      var text = String((matched && matched.text) || '').trim();
+      var providerText = self.sanitizeProviderStoryText(
+        story.story_text || story.storyText || story.text || story.content || ''
+      );
+      var matchedText = self.sanitizeProviderStoryText((matched && matched.text) || '');
       var fallbackSummary = String((matched && matched.summary) || '').trim();
       var score = Number(story.score || (matched && matched.score) || 0);
       var sourceCandidateId = matched && matched.id ? String(matched.id) : '';
+      var resolvedText = providerText
+        || matchedText
+        || self.sanitizeProviderStoryText(summary)
+        || self.sanitizeProviderStoryText(fallbackSummary)
+        || '';
       stories.push({
         id: makeStoryStableId(sourceCandidateId, title, summary, i),
         title: title || ('Story ' + (i + 1)),
         summary: summary || fallbackSummary || fallbackText.noSummary,
         score: Number.isFinite(score) ? Number(score.toFixed(2)) : 0,
-        chars: Number(matched && matched.chars || text.length || 0),
+        chars: Number(matched && matched.chars || resolvedText.length || 0),
         sourceCandidateId: sourceCandidateId,
-        text: text || summary || fallbackSummary || ''
+        text: resolvedText
       });
     }
 
@@ -3536,7 +3574,7 @@ var ServiceWorker = function() {
           score: Number(candidate.score || 0),
           chars: Number(candidate.chars || 0),
           sourceCandidateId: sourceCandidateId,
-          text: String(candidate.text || '')
+          text: self.sanitizeProviderStoryText(candidate.text || '')
         };
       });
     }
@@ -3706,10 +3744,13 @@ var ServiceWorker = function() {
       'You are extracting top stories from a webpage for comic generation.',
       'Primary signal is FULL HTML document structure + content. Use candidate blocks only as anchors.',
       'Return STRICT JSON only with schema:',
-      '{"stories":[{"title":string,"summary":string,"candidate_id":string,"score":number}]}',
+      '{"stories":[{"title":string,"summary":string,"story_text":string,"candidate_id":string,"score":number}]}',
       'Rules:',
       '- Extract up to 5 distinct top stories.',
       '- summary must be long and informative (3-6 sentences).',
+      '- story_text must be the clean factual story body for that story, not metadata labels or debug/status text.',
+      '- story_text should preserve the actual article/story details in coherent prose (2-8 paragraphs when available).',
+      '- Do not include wrapper labels like "Error:", "Description:", "Summary:", "Status:", or provider/debug notes.',
       '- Use only facts present in source/candidates.',
       '- Rank stories by user relevance/importance on the page.',
       '- candidate_id must match one of provided candidate ids when possible; otherwise empty string.',

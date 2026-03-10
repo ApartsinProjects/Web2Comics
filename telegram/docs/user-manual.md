@@ -13,14 +13,14 @@ Scope note:
 - Onboarding/info:
   - `/start`, `/welcome`, `/help`, `/about`, `/version`, `/user`, `/config`, `/explain`, `/debug <on|off>`
 - Story generation:
-  - Send text or URL
+  - Send text, web link, PDF, image, or voice/audio
   - `/invent <story>`
   - `/random`
 - Replay/history:
   - `/peek`, `/peek <n>`, `/peek<n>`
 - Providers/models:
-  - `/vendor <name>`, `/text_vendor <name>`, `/image_vendor <name>`
-  - `/models [text|image] [model]`
+  - `/vendors [role]`, `/vendor <role> <name>`, `/vendor <name>`
+  - `/models [text|image|url|image_extract|pdf|voice] [model]`
   - `/test`
 - Controls:
   - `/panels <count>`, `/objective [name]`, `/objectives`
@@ -45,7 +45,7 @@ Scope note:
   - Unknown `/...` commands are rejected as unrecognized and not treated as story input.
 
 ## What The Bot Does
-Send plain text or a URL, and the bot generates comic panels and sends them back as ordered Telegram images.
+Send plain text, a web link, a PDF link/file, an image link/file, or a voice/audio message, and the bot generates comic panels and sends them back as ordered Telegram images.
 
 Panel captions are prefixed as `X(Y)`:
 - `X` = current panel number
@@ -56,7 +56,7 @@ Panel captions are prefixed as `X(Y)`:
 2. Send `/help`
 3. Run `/user` to get your Telegram id
 4. Add provider key with `/setkey GEMINI_API_KEY <YOUR_KEY>`
-5. Send a story or URL
+5. Send a story, link, PDF, image, or voice note
 
 ## Core Commands
 - `/help` command list
@@ -66,9 +66,10 @@ Panel captions are prefixed as `X(Y)`:
 - `/keys` key status
 
 ## Generation Controls
+- `/vendors [role]`
+- `/vendor <role> <name>`
 - `/vendor <name>`
-- `/text_vendor <name>`
-- `/image_vendor <name>`
+- Legacy aliases: `/text_vendor <name>`, `/image_vendor <name>`
 - `/language <code>`
 - `/consistency <on|off>` enable style-consistency flow (supported image models only)
 - `/crazyness <0..2>` control story-invention temperature (higher = wilder twists)
@@ -98,6 +99,9 @@ If `/options` is called without required args, the bot explains usage and lists 
 - Normal text: generate directly
 - Very short prompt: bot first expands story with AI, shows invented story, then generates comic
 - URL input: bot prints the exact parsed URL, renders page content, then uses it as source
+- PDF input: bot extracts document text from a PDF link or uploaded PDF file, then uses it as source
+- Image input: bot extracts scene/story context from an image link or uploaded image file, then uses it as source
+- Voice/audio input: bot transcribes the clip, then uses the transcript as source
 
 ## Image Prompt Context
 For each panel image, the bot sends context that includes:

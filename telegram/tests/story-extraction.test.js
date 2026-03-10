@@ -44,6 +44,17 @@ describe('story extraction phase', () => {
     expect(out.text).toContain('A simple narrative');
   });
 
+  it('sanitizes wrapper labels and diagnostic lines from extracted source text', async () => {
+    const out = await extractStoryFromSource({
+      type: 'text',
+      text: 'Description: A simple narrative.\nThe main event unfolds clearly.\nError: ignore this line.'
+    }, {});
+    expect(out.text).toContain('A simple narrative.');
+    expect(out.text).toContain('The main event unfolds clearly.');
+    expect(out.text).not.toContain('Description:');
+    expect(out.text).not.toContain('Error:');
+  });
+
   it('extracts image source in fake mode', async () => {
     const prev = process.env.RENDER_BOT_FAKE_IMAGE_EXTRACTOR;
     process.env.RENDER_BOT_FAKE_IMAGE_EXTRACTOR = 'true';

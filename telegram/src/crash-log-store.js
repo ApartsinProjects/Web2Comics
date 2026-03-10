@@ -2,6 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const { createWriteLockClientFromEnv } = require('./r2-write-lock');
 const { normalizeCloudflareR2Endpoint } = require('./r2-endpoint');
+const { storageDefaultsFromEnv } = require('./env-storage-defaults');
 
 function randomId() {
   return Math.random().toString(36).slice(2, 10);
@@ -155,8 +156,9 @@ class S3Adapter {
 
 class R2CrashLogStore {
   constructor(options = {}) {
+    const storageDefaults = storageDefaultsFromEnv(process.env);
     this.bucket = String(options.bucket || '').trim();
-    this.prefix = String(options.prefix || 'crash-logs').trim().replace(/\/+$/, '');
+    this.prefix = String(options.prefix || storageDefaults.crashLogPrefix).trim().replace(/\/+$/, '');
     this.statusKey = String(options.statusKey || `${this.prefix}/status.json`).trim();
     this.lockClient = options.lockClient || null;
     this.capacityBytes = Math.max(1, safeNumber(options.capacityBytes, 1024 * 1024 * 1024));
@@ -323,13 +325,14 @@ class R2CrashLogStore {
 }
 
 function createCrashLogStoreFromEnv() {
+  const storageDefaults = storageDefaultsFromEnv(process.env);
   const accountId = String(process.env.CLOUDFLARE_ACCOUNT_ID || '').trim();
   const endpoint = normalizeCloudflareR2Endpoint(String(process.env.R2_S3_ENDPOINT || '').trim(), accountId);
   if (endpoint) process.env.R2_S3_ENDPOINT = endpoint;
   const bucket = String(process.env.R2_BUCKET || '').trim();
   const accessKeyId = String(process.env.R2_ACCESS_KEY_ID || '').trim();
   const secretAccessKey = String(process.env.R2_SECRET_ACCESS_KEY || '').trim();
-  const prefix = String(process.env.R2_CRASH_LOG_PREFIX || 'crash-logs').trim();
+  const prefix = String(process.env.R2_CRASH_LOG_PREFIX || storageDefaults.crashLogPrefix).trim();
   const statusKey = String(process.env.R2_CRASH_LOG_STATUS_KEY || `${prefix}/status.json`).trim();
   const capacityBytes = Math.max(1, safeNumber(process.env.R2_CRASH_LOG_CAPACITY_BYTES, 1024 * 1024 * 1024));
   const cleanupThresholdRatio = Math.max(0.01, Math.min(1, safeNumber(process.env.R2_CRASH_LOG_CLEANUP_THRESHOLD_RATIO, 0.8)));

@@ -23,7 +23,7 @@ on:
       branch:
         description: Git branch to deploy on Render
         required: true
-        default: engine
+        default: stage1
         type: string
       test_deployment:
         description: Deploy Render test service name

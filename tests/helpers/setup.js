@@ -7,13 +7,18 @@ global.__WEB2COMICS_TEST_LOGS__ = true;
 global.chrome = {
   runtime: {
     id: 'test-extension-id',
-    sendMessage: vi.fn(),
+    sendMessage: vi.fn(async (message) => {
+      if (message && message.type === 'START_GENERATION' && global.chrome?.tabs?.sendMessage) {
+        return global.chrome.tabs.sendMessage(1, message);
+      }
+      return { success: true };
+    }),
     onMessage: {
       addListener: vi.fn()
     },
     openOptionsPage: vi.fn(),
     getURL: vi.fn((path) => `chrome-extension://test/${path}`),
-    getManifest: vi.fn(() => ({ version: '1.0.2' }))
+    getManifest: vi.fn(() => ({ version: '1.0.4' }))
   },
   storage: {
     local: {
@@ -160,3 +165,65 @@ export const spyOnConsole = () => {
     warn: vi.spyOn(console, 'warn')
   };
 };
+
+function createMockCanvasContext() {
+  return {
+    fillStyle: '',
+    strokeStyle: '',
+    lineWidth: 1,
+    font: '',
+    textAlign: 'start',
+    textBaseline: 'alphabetic',
+    globalAlpha: 1,
+    save: vi.fn(),
+    restore: vi.fn(),
+    beginPath: vi.fn(),
+    closePath: vi.fn(),
+    moveTo: vi.fn(),
+    lineTo: vi.fn(),
+    quadraticCurveTo: vi.fn(),
+    bezierCurveTo: vi.fn(),
+    arc: vi.fn(),
+    arcTo: vi.fn(),
+    rect: vi.fn(),
+    clip: vi.fn(),
+    fill: vi.fn(),
+    stroke: vi.fn(),
+    fillRect: vi.fn(),
+    strokeRect: vi.fn(),
+    clearRect: vi.fn(),
+    drawImage: vi.fn(),
+    fillText: vi.fn(),
+    strokeText: vi.fn(),
+    measureText: vi.fn((text = '') => ({ width: String(text).length * 8 })),
+    createLinearGradient: vi.fn(() => ({ addColorStop: vi.fn() })),
+    createPattern: vi.fn(() => null),
+    setLineDash: vi.fn(),
+    translate: vi.fn(),
+    rotate: vi.fn(),
+    scale: vi.fn()
+  };
+}
+
+if (typeof HTMLCanvasElement !== 'undefined') {
+  Object.defineProperty(HTMLCanvasElement.prototype, 'getContext', {
+    configurable: true,
+    writable: true,
+    value: vi.fn(function getContext() {
+      if (!this.__mockContext) this.__mockContext = createMockCanvasContext();
+      return this.__mockContext;
+    })
+  });
+  Object.defineProperty(HTMLCanvasElement.prototype, 'toDataURL', {
+    configurable: true,
+    writable: true,
+    value: vi.fn(() => 'data:image/png;base64,TEST_CANVAS_EXPORT')
+  });
+  Object.defineProperty(HTMLCanvasElement.prototype, 'toBlob', {
+    configurable: true,
+    writable: true,
+    value: vi.fn((callback) => {
+      if (typeof callback === 'function') callback(new Blob(['test'], { type: 'image/png' }));
+    })
+  });
+}

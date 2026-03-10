@@ -11,6 +11,7 @@ const {
 } = require('./message-utils');
 const { extractStoryFromUrlText } = require('./generate');
 const { extractPdfStory, extractPdfFromTelegramDocument, getConfiguredPdfExtractor } = require('./pdf-extract');
+const { sanitizeCanonicalStoryText } = require('../../engine/src/story-text');
 
 const IMAGE_EXTRACTOR_VALUES = ['gemini', 'openai'];
 const IMAGE_EXTRACTOR_SET = new Set(IMAGE_EXTRACTOR_VALUES);
@@ -424,7 +425,12 @@ async function extractStoryFromSource(source, context = {}) {
   if (!source || source.type === 'empty') throw new Error('Empty message. Send plain text, URL, PDF, or image.');
 
   if (source.type === 'text') {
-    return { sourceType: 'text', text: String(source.text || '').trim(), providerSelected: '', providerUsed: '' };
+    return {
+      sourceType: 'text',
+      text: sanitizeCanonicalStoryText(String(source.text || '').trim()),
+      providerSelected: '',
+      providerUsed: ''
+    };
   }
 
   if (source.type === 'html_url') {
@@ -433,7 +439,7 @@ async function extractStoryFromSource(source, context = {}) {
     });
     return {
       sourceType: 'html_url',
-      text: String(out.text || '').trim(),
+      text: sanitizeCanonicalStoryText(String(out.text || '').trim()),
       providerSelected: String(out.extractorSelected || '').trim(),
       providerUsed: String(out.extractorUsed || '').trim()
     };
@@ -446,7 +452,7 @@ async function extractStoryFromSource(source, context = {}) {
     const out = await extractPdfStory(input, runtime, config, { onFallback: context.onPdfFallback });
     return {
       sourceType: source.type,
-      text: String(out.text || '').trim(),
+      text: sanitizeCanonicalStoryText(String(out.text || '').trim()),
       providerSelected: String(out.providerSelected || getConfiguredPdfExtractor(config)).trim(),
       providerUsed: String(out.providerUsed || getConfiguredPdfExtractor(config)).trim()
     };
@@ -459,7 +465,7 @@ async function extractStoryFromSource(source, context = {}) {
     const out = await extractStoryFromImage(input, runtime, config, { onFallback: context.onImageFallback });
     return {
       sourceType: source.type,
-      text: String(out.text || '').trim(),
+      text: sanitizeCanonicalStoryText(String(out.text || '').trim()),
       providerSelected: String(out.providerSelected || getConfiguredImageExtractor(config)).trim(),
       providerUsed: String(out.providerUsed || getConfiguredImageExtractor(config)).trim()
     };
@@ -472,7 +478,7 @@ async function extractStoryFromSource(source, context = {}) {
     const out = await extractStoryFromAudio(input, runtime, config, { onFallback: context.onVoiceFallback });
     return {
       sourceType: source.type,
-      text: String(out.text || '').trim(),
+      text: sanitizeCanonicalStoryText(String(out.text || '').trim()),
       providerSelected: String(out.providerSelected || getConfiguredVoiceExtractor(config)).trim(),
       providerUsed: String(out.providerUsed || getConfiguredVoiceExtractor(config)).trim()
     };

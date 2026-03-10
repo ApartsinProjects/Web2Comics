@@ -2,6 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const { S3Adapter } = require('./crash-log-store');
 const { createWriteLockClientFromEnv } = require('./r2-write-lock');
+const { storageDefaultsFromEnv } = require('./env-storage-defaults');
 
 function sanitizeIdentifier(value, fallback) {
   const id = String(value || '').trim();
@@ -89,8 +90,9 @@ class PostgresPersistence {
 
 class R2Persistence {
   constructor(options = {}) {
+    const storageDefaults = storageDefaultsFromEnv(process.env);
     this.bucket = String(options.bucket || '').trim();
-    this.stateKey = String(options.stateKey || 'state/runtime-config.json').trim();
+    this.stateKey = String(options.stateKey || storageDefaults.stateKey).trim();
     this.lockClient = options.lockClient || null;
     if (!this.bucket) throw new Error('Missing R2 bucket for persistence.');
     this.adapter = options.adapter || new S3Adapter({
@@ -120,13 +122,14 @@ class R2Persistence {
 }
 
 function createPersistence(options = {}) {
+  const storageDefaults = storageDefaultsFromEnv(process.env);
   const mode = String(options.mode || '').trim().toLowerCase();
   const pgUrl = String(options.pgUrl || '').trim();
   const r2Endpoint = String(options.r2Endpoint || '').trim();
   const r2Bucket = String(options.r2Bucket || '').trim();
   const r2AccessKeyId = String(options.r2AccessKeyId || '').trim();
   const r2SecretAccessKey = String(options.r2SecretAccessKey || '').trim();
-  const r2StateKey = String(options.r2StateKey || 'state/runtime-config.json').trim();
+  const r2StateKey = String(options.r2StateKey || storageDefaults.stateKey).trim();
 
   const canUseR2 = Boolean(r2Endpoint && r2Bucket && r2AccessKeyId && r2SecretAccessKey);
   const lockClient = createWriteLockClientFromEnv();

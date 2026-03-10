@@ -13,6 +13,19 @@ function resolveBotEnvironment(raw) {
   throw new Error(`Invalid --env value '${raw}'. Use staging or production.`);
 }
 
+function envStorageNamespace(envName) {
+  return envName === 'staging' ? 'envs/staging' : 'envs/production';
+}
+
+function buildEnvScopedStorageDefaults(envName) {
+  const ns = envStorageNamespace(envName);
+  return {
+    requestPrefix: `${ns}/logs/requests`,
+    requestStatusKey: `${ns}/logs/requests/status.json`,
+    imagePrefix: `${ns}/images`
+  };
+}
+
 function firstNonEmpty(...values) {
   for (const v of values) {
     const s = String(v == null ? '' : v).trim();
@@ -119,7 +132,8 @@ async function findRequestByMarker(s3, bucket, marker, options = {}) {
   const startedAtTs = safeIsoDate(options.startedAt || '');
   const minTs = startedAtTs > 0 ? (startedAtTs - 120000) : 0;
   const expectedUrl = normalizeUrlForMatch(options.expectedUrl || '');
-  const status = await readJson(s3, bucket, process.env.R2_REQUEST_LOG_STATUS_KEY || 'logs/requests/status.json');
+  const requestStatusKey = String(options.requestStatusKey || process.env.R2_REQUEST_LOG_STATUS_KEY || '').trim();
+  const status = await readJson(s3, bucket, requestStatusKey);
   const logs = Array.isArray(status && status.logs) ? status.logs : [];
   const latest = logs.slice(-150).reverse();
   for (const row of latest) {
@@ -150,6 +164,7 @@ async function main() {
   if (metadataEnv && metadataEnv !== botEnv) {
     throw new Error(`Metadata environment mismatch: expected ${botEnv}, got ${metadataEnv}`);
   }
+  const storageDefaults = buildEnvScopedStorageDefaults(botEnv);
 
   loadEnvFiles([
     path.join(repoRoot, '.env.all'),
@@ -179,6 +194,9 @@ async function main() {
   const bucket = firstNonEmpty(args['r2-bucket'], process.env.R2_BUCKET, metadata.r2Bucket, inferredStageBucket, cfR2.bucket);
   const accessKeyId = firstNonEmpty(args['r2-access-key-id'], process.env.R2_ACCESS_KEY_ID, key2.access_key_id, key1.access_key_id, awsYaml.aws_access_key_id);
   const secretAccessKey = firstNonEmpty(args['r2-secret-access-key'], process.env.R2_SECRET_ACCESS_KEY, key2.secret_access_key, key1.secret_access_key, awsYaml.aws_secret_access_key);
+  const requestPrefix = firstNonEmpty(args['request-prefix'], process.env.R2_REQUEST_LOG_PREFIX, metadata.r2RequestLogPrefix, storageDefaults.requestPrefix);
+  const requestStatusKey = firstNonEmpty(args['request-status-key'], process.env.R2_REQUEST_LOG_STATUS_KEY, metadata.r2RequestLogStatusKey, `${requestPrefix.replace(/\/+$/, '')}/status.json`);
+  const imagePrefix = firstNonEmpty(args['image-prefix'], process.env.R2_IMAGE_PREFIX, metadata.r2ImagePrefix, storageDefaults.imagePrefix);
   const timeoutMs = Math.max(30000, Number(args['timeout-ms'] || 180000));
   const pollMs = Math.max(1000, Number(args['poll-ms'] || 5000));
   const warmupTimeoutMs = Math.max(10000, Number(args['warmup-timeout-ms'] || 90000));
@@ -187,7 +205,7 @@ async function main() {
     throw new Error('Missing required inputs for URL cycle test (service/webhook/chat/r2 credentials).');
   }
 
-  process.env.R2_REQUEST_LOG_STATUS_KEY = String(process.env.R2_REQUEST_LOG_STATUS_KEY || 'logs/requests/status.json').trim();
+  process.env.R2_REQUEST_LOG_STATUS_KEY = requestStatusKey;
 
   const s3 = new S3Client({
     region: 'auto',
@@ -213,7 +231,7 @@ async function main() {
     const marker = `urlcycle_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
     const testUrl = `${site}${site.includes('?') ? '&' : '?'}src=${marker}`;
     const cycleStartedAt = new Date().toISOString();
-    const beforeImages = await listKeys(s3, bucket, 'images/');
+    const beforeImages = await listKeys(s3, bucket, `${imagePrefix.replace(/\/+$/, '')}/`);
     const warm = await waitForHealthy(baseUrl, warmupTimeoutMs, pollMs);
     let h = warm.last;
     let posted = { status: 0, body: '' };
@@ -235,11 +253,12 @@ async function main() {
       try {
         requestEntry = await findRequestByMarker(s3, bucket, marker, {
           startedAt: cycleStartedAt,
-          expectedUrl: site
+          expectedUrl: site,
+          requestStatusKey
         });
       } catch (_) {}
       try {
-        const afterImages = await listKeys(s3, bucket, 'images/');
+        const afterImages = await listKeys(s3, bucket, `${imagePrefix.replace(/\/+$/, '')}/`);
         newImageCount = afterImages.filter((k) => !beforeImages.includes(k)).length;
       } catch (_) {}
       if (requestEntry || newImageCount > 0) break;
@@ -266,6 +285,8 @@ async function main() {
     service: baseUrl,
     bucket,
     statusKey: process.env.R2_REQUEST_LOG_STATUS_KEY,
+    requestPrefix,
+    imagePrefix,
     summary
   }, null, 2));
 }

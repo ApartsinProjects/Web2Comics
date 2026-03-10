@@ -4,6 +4,7 @@ const { loadLocalEnvFiles } = require('./env');
 const { loadConfig } = require('./config');
 const { loadSource } = require('./input');
 const { buildStoryboardPrompt, parseStoryboardResponse } = require('./prompts');
+const { sanitizeCanonicalStoryText } = require('./story-text');
 const { generateTextWithProvider, generateImageWithProvider, supportsImageReferenceInput } = require('./providers');
 const { composeComicSheet } = require('./compose');
 const {
@@ -225,12 +226,15 @@ async function runComicEngine(options) {
   const loaded = loadConfig(options.configPath);
   const config = loaded.config;
   const source = loadSource(options.inputPath, config.input);
+  const canonicalSourceText = sanitizeCanonicalStoryText(source.text, {
+    maxChars: Number(config?.input?.max_chars || 12000)
+  });
 
   const effectiveTitle = String(options.titleOverride || source.title || 'Comic Summary');
   const storyboardPrompt = buildStoryboardPrompt({
     sourceTitle: effectiveTitle,
     sourceLabel: source.sourceLabel,
-    sourceText: source.text,
+    sourceText: canonicalSourceText,
     panelCount: config.generation.panel_count,
     objective: config.generation.objective,
     objectiveDescription: config.generation.objective_description,
@@ -311,12 +315,15 @@ async function runComicEnginePanels(options) {
   const loaded = loadConfig(options.configPath);
   const config = loaded.config;
   const source = loadSource(options.inputPath, config.input);
+  const canonicalSourceText = sanitizeCanonicalStoryText(source.text, {
+    maxChars: Number(config?.input?.max_chars || 12000)
+  });
 
   const effectiveTitle = String(options.titleOverride || source.title || 'Comic Summary');
   const storyboardPrompt = buildStoryboardPrompt({
     sourceTitle: effectiveTitle,
     sourceLabel: source.sourceLabel,
-    sourceText: source.text,
+    sourceText: canonicalSourceText,
     panelCount: config.generation.panel_count,
     objective: config.generation.objective,
     objectiveDescription: config.generation.objective_description,
@@ -409,5 +416,6 @@ module.exports = {
   buildPanelImagePrompt,
   mapWithConcurrency,
   withRetries,
-  generateStoryboardWithRetries
+  generateStoryboardWithRetries,
+  sanitizeCanonicalStoryText
 };

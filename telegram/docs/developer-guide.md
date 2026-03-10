@@ -11,9 +11,9 @@ Scope note:
 
 ## Public Command Catalog (Implementation Scope)
 - Onboarding/info: `/start`, `/welcome`, `/help`, `/about`, `/version`, `/user`, `/config`, `/explain`, `/debug`
-- Generation inputs: text/URL, `/invent <story>`, `/random`
+- Generation inputs: text, web link, PDF, image, or voice/audio, `/invent <story>`, `/random`
 - Replay: `/peek`, `/peek <n>`, `/peek<n>`
-- Providers/models: `/vendor`, `/text_vendor`, `/image_vendor`, `/models`, `/test`
+- Providers/models: `/vendors`, `/vendor <role> <name>`, `/vendor <name>`, `/models [role] [model]`, `/test`
 - Output controls: `/panels`, `/objective`, `/objectives`, objective shortcuts, `/style`, style shortcuts, `/new_style`, `/language`, `/mode`, `/consistency`, `/detail`, `/crazyness`, `/concurrency`, `/retries`
 - Prompt/options: `/prompts`, `/set_prompt`, `/list_options`, `/options`
 - Credentials/state: `/keys`, `/setkey`, `/unsetkey`, `/reset_config`, `/restart`
@@ -33,13 +33,20 @@ Processing model:
 - One active job per chat queue preserves per-user order
 
 ## Input Classification
-Input from `message.text` or `message.caption` is classified as:
+Input from `message.text`, media attachments, or `message.caption` is classified as:
 - command
 - url
+- pdf
+- image
+- voice
 - text
 - empty/unsupported
 
-URL flow snapshots rendered page HTML before generation.
+Source-specific flows extract structured text before generation:
+- URL flow snapshots rendered page HTML before generation
+- PDF flow extracts document text from a link or uploaded file
+- Image flow extracts scene/story context from a link or uploaded file
+- Voice/audio flow transcribes the clip before story generation
 
 ## Generation Pipeline
 1. Resolve effective per-user config
@@ -65,6 +72,7 @@ Notable UX behavior:
 - `/crazyness <0..2>` controls story invention temperature
 - `/options` without args explains valid paths/options; apply via dedicated commands (`/objective`, `/panels`, `/mode`, `/vendor`, `/models`, etc.)
 - `/keys` shows runtime key status
+- `/vendors [role]` prints available provider roles and options
 - URL flow sends `Detected link, parsing page: <url>` with the exact parsed URL
 
 ## Blacklist Model
@@ -81,7 +89,7 @@ Ban checks run before allowlist checks during message processing.
 
 ## Storage
 - R2 state object: user runtime config/secrets/profile + history
-- R2: images, request logs, crash logs, status markers
+- R2: env-scoped images, request logs, crash logs, runtime logs, and status markers
 - Capacity/retention cleanup is enforced by runtime/storage managers
 
 ## Testing
@@ -100,7 +108,7 @@ Secret checks before deploy/tests:
 Use:
 
 ```bash
-npm run bot:deploy:auto -- --target render --branch engine --env-only
+npm run bot:deploy:auto -- --target render --env staging --branch stage1 --env-only
 ```
 
 See:

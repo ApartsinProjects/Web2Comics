@@ -2,6 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const { S3Adapter } = require('./crash-log-store');
 const { createWriteLockClientFromEnv } = require('./r2-write-lock');
+const { storageDefaultsFromEnv } = require('./env-storage-defaults');
 
 function normalizeKnownUserEntry(entry) {
   const src = entry && typeof entry === 'object' ? entry : {};
@@ -56,8 +57,9 @@ class FileKnownUsersStore {
 
 class R2KnownUsersStore {
   constructor(options = {}) {
+    const storageDefaults = storageDefaultsFromEnv(process.env);
     this.bucket = String(options.bucket || '').trim();
-    this.key = String(options.key || 'state/known-users.json').trim();
+    this.key = String(options.key || storageDefaults.knownUsersKey).trim();
     this.lockClient = options.lockClient || null;
     if (!this.bucket) throw new Error('Missing R2 bucket for known users store.');
     this.adapter = options.adapter || new S3Adapter({
@@ -90,11 +92,12 @@ class R2KnownUsersStore {
 }
 
 function createKnownUsersStoreFromEnv() {
+  const storageDefaults = storageDefaultsFromEnv(process.env);
   const endpoint = String(process.env.R2_S3_ENDPOINT || '').trim();
   const bucket = String(process.env.R2_BUCKET || '').trim();
   const accessKeyId = String(process.env.R2_ACCESS_KEY_ID || '').trim();
   const secretAccessKey = String(process.env.R2_SECRET_ACCESS_KEY || '').trim();
-  const key = String(process.env.R2_KNOWN_USERS_KEY || 'state/known-users.json').trim();
+  const key = String(process.env.R2_KNOWN_USERS_KEY || storageDefaults.knownUsersKey).trim();
   const lockClient = createWriteLockClientFromEnv();
 
   if (endpoint && bucket && accessKeyId && secretAccessKey) {

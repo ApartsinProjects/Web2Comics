@@ -64,6 +64,41 @@ function defaultPeerServiceName(envName) {
     : 'web2comics-telegram-render-bot-stage';
 }
 
+function defaultBranchForEnv(envName) {
+  return envName === 'staging' ? 'stage1' : 'main';
+}
+
+function assertBranchMatchesEnv(envName, branchName) {
+  const branch = String(branchName || '').trim();
+  const expected = defaultBranchForEnv(envName);
+  if (!branch) {
+    throw new Error(`Missing branch for ${envName} deploy. Expected '${expected}'.`);
+  }
+  if (branch !== expected) {
+    throw new Error(`Refusing ${envName} deploy from branch '${branch}'. Expected '${expected}'.`);
+  }
+}
+
+function envStorageNamespace(envName) {
+  return envName === 'staging' ? 'envs/staging' : 'envs/production';
+}
+
+function buildEnvScopedStorageDefaults(envName) {
+  const ns = envStorageNamespace(envName);
+  return {
+    imagePrefix: `${ns}/images`,
+    imageStatusKey: `${ns}/status/image-storage-status.json`,
+    crashLogPrefix: `${ns}/crash-logs`,
+    crashLogStatusKey: `${ns}/crash-logs/status.json`,
+    requestLogPrefix: `${ns}/logs/requests`,
+    requestLogStatusKey: `${ns}/logs/requests/status.json`,
+    runtimeLogPrefix: `${ns}/logs/runtime`,
+    stateKey: `${ns}/state/runtime-config.json`,
+    blacklistKey: `${ns}/state/blacklist.json`,
+    knownUsersKey: `${ns}/state/known-users.json`
+  };
+}
+
 function getEnvVarValue(rows, key) {
   const list = Array.isArray(rows) ? rows : [];
   const target = String(key || '').trim();
@@ -75,14 +110,25 @@ function assertCrossEnvironmentSeparation(current, peer, envName) {
   const checks = [
     ['TELEGRAM_BOT_TOKEN', current.telegramToken, peer.telegramToken],
     ['TELEGRAM_NOTIFY_CHAT_ID', current.notifyChatId, peer.notifyChatId],
-    ['TELEGRAM_TEST_CHAT_ID', current.telegramTestChatId, peer.telegramTestChatId]
+    ['TELEGRAM_TEST_CHAT_ID', current.telegramTestChatId, peer.telegramTestChatId],
+    ['R2_BUCKET', current.r2Bucket, peer.r2Bucket],
+    ['R2_STATE_KEY', current.r2StateKey, peer.r2StateKey],
+    ['R2_BLACKLIST_KEY', current.r2BlacklistKey, peer.r2BlacklistKey],
+    ['R2_KNOWN_USERS_KEY', current.r2KnownUsersKey, peer.r2KnownUsersKey],
+    ['R2_IMAGE_PREFIX', current.r2ImagePrefix, peer.r2ImagePrefix],
+    ['R2_IMAGE_STATUS_KEY', current.r2ImageStatusKey, peer.r2ImageStatusKey],
+    ['R2_CRASH_LOG_PREFIX', current.r2CrashLogPrefix, peer.r2CrashLogPrefix],
+    ['R2_CRASH_LOG_STATUS_KEY', current.r2CrashLogStatusKey, peer.r2CrashLogStatusKey],
+    ['R2_REQUEST_LOG_PREFIX', current.r2RequestLogPrefix, peer.r2RequestLogPrefix],
+    ['R2_REQUEST_LOG_STATUS_KEY', current.r2RequestLogStatusKey, peer.r2RequestLogStatusKey],
+    ['R2_RUNTIME_LOG_PREFIX', current.r2RuntimeLogPrefix, peer.r2RuntimeLogPrefix]
   ];
   const collisions = checks.filter(([, mine, other]) => String(mine || '').trim() && String(other || '').trim() && String(mine) === String(other));
   if (collisions.length) {
     const labels = collisions.map(([name]) => name).join(', ');
     throw new Error(
       `Environment separation check failed for ${envName}: identical values detected with peer service for ${labels}. ` +
-      'Use different bot token and chat IDs between staging and production.'
+      'Use fully separate bot tokens, chat IDs, buckets, and storage paths between staging and production.'
     );
   }
   if (String(current.publicUrl || '').trim() && String(peer.publicUrl || '').trim() && String(current.publicUrl).trim() === String(peer.publicUrl).trim()) {
@@ -783,7 +829,8 @@ async function main() {
   const renderApiKey = firstNonEmpty(args['render-api-key'], process.env.RENDER_API_KEY);
   globalRenderApiKey = renderApiKey;
   const repoUrl = firstNonEmpty(args['repo-url'], process.env.RENDER_REPO_URL, 'https://github.com/ApartsinProjects/Web2Comics');
-  const branch = firstNonEmpty(args.branch, process.env.RENDER_REPO_BRANCH, 'main');
+  const branch = firstNonEmpty(args.branch, process.env.RENDER_REPO_BRANCH, defaultBranchForEnv(botEnv));
+  assertBranchMatchesEnv(botEnv, branch);
   const defaultServiceName = botEnv === 'staging'
     ? (testDeployment ? 'web2comics-telegram-render-bot-stage-test' : 'web2comics-telegram-render-bot-stage')
     : (testDeployment ? 'web2comics-telegram-render-bot-test' : 'web2comics-telegram-render-bot');
@@ -839,17 +886,18 @@ async function main() {
     ASSEMBLYAI_API_KEY: firstNonEmpty(args['assemblyai-key'], process.env.ASSEMBLYAI_API_KEY)
   };
   const resolvedR2 = resolveR2Config(args, cfYaml, awsYaml, serviceName);
+  const storageDefaults = buildEnvScopedStorageDefaults(botEnv);
   const r2Env = {
     R2_S3_ENDPOINT: resolvedR2.endpoint,
     R2_BUCKET: resolvedR2.bucket,
     R2_ACCESS_KEY_ID: resolvedR2.accessKeyId,
     R2_SECRET_ACCESS_KEY: resolvedR2.secretAccessKey,
-    R2_IMAGE_PREFIX: firstNonEmpty(args['r2-image-prefix'], process.env.R2_IMAGE_PREFIX, 'images'),
-    R2_IMAGE_STATUS_KEY: firstNonEmpty(args['r2-image-status-key'], process.env.R2_IMAGE_STATUS_KEY, 'status/image-storage-status.json'),
-    R2_CRASH_LOG_PREFIX: firstNonEmpty(args['r2-crash-log-prefix'], process.env.R2_CRASH_LOG_PREFIX, 'crash-logs'),
-    R2_CRASH_LOG_STATUS_KEY: firstNonEmpty(args['r2-crash-log-status-key'], process.env.R2_CRASH_LOG_STATUS_KEY, 'crash-logs/status.json'),
-    R2_REQUEST_LOG_PREFIX: firstNonEmpty(args['r2-request-log-prefix'], process.env.R2_REQUEST_LOG_PREFIX, 'logs/requests'),
-    R2_REQUEST_LOG_STATUS_KEY: firstNonEmpty(args['r2-request-log-status-key'], process.env.R2_REQUEST_LOG_STATUS_KEY, 'logs/requests/status.json'),
+    R2_IMAGE_PREFIX: firstNonEmpty(args['r2-image-prefix'], process.env.R2_IMAGE_PREFIX, storageDefaults.imagePrefix),
+    R2_IMAGE_STATUS_KEY: firstNonEmpty(args['r2-image-status-key'], process.env.R2_IMAGE_STATUS_KEY, storageDefaults.imageStatusKey),
+    R2_CRASH_LOG_PREFIX: firstNonEmpty(args['r2-crash-log-prefix'], process.env.R2_CRASH_LOG_PREFIX, storageDefaults.crashLogPrefix),
+    R2_CRASH_LOG_STATUS_KEY: firstNonEmpty(args['r2-crash-log-status-key'], process.env.R2_CRASH_LOG_STATUS_KEY, storageDefaults.crashLogStatusKey),
+    R2_REQUEST_LOG_PREFIX: firstNonEmpty(args['r2-request-log-prefix'], process.env.R2_REQUEST_LOG_PREFIX, storageDefaults.requestLogPrefix),
+    R2_REQUEST_LOG_STATUS_KEY: firstNonEmpty(args['r2-request-log-status-key'], process.env.R2_REQUEST_LOG_STATUS_KEY, storageDefaults.requestLogStatusKey),
     R2_CRASH_LOG_RETENTION_DAYS: firstNonEmpty(args['r2-crash-retention-days'], process.env.R2_CRASH_LOG_RETENTION_DAYS, '5'),
     R2_REQUEST_LOG_RETENTION_DAYS: firstNonEmpty(args['r2-request-retention-days'], process.env.R2_REQUEST_LOG_RETENTION_DAYS, '5')
   };
@@ -975,13 +1023,35 @@ async function main() {
             telegramToken,
             notifyChatId,
             telegramTestChatId,
-            publicUrl: ''
+            publicUrl: '',
+            r2Bucket: resolvedR2.bucket,
+            r2StateKey: firstNonEmpty(args['r2-state-key'], process.env.R2_STATE_KEY, storageDefaults.stateKey),
+            r2BlacklistKey: firstNonEmpty(args['r2-blacklist-key'], process.env.R2_BLACKLIST_KEY, storageDefaults.blacklistKey),
+            r2KnownUsersKey: firstNonEmpty(args['r2-known-users-key'], process.env.R2_KNOWN_USERS_KEY, storageDefaults.knownUsersKey),
+            r2ImagePrefix: r2Env.R2_IMAGE_PREFIX,
+            r2ImageStatusKey: r2Env.R2_IMAGE_STATUS_KEY,
+            r2CrashLogPrefix: r2Env.R2_CRASH_LOG_PREFIX,
+            r2CrashLogStatusKey: r2Env.R2_CRASH_LOG_STATUS_KEY,
+            r2RequestLogPrefix: r2Env.R2_REQUEST_LOG_PREFIX,
+            r2RequestLogStatusKey: r2Env.R2_REQUEST_LOG_STATUS_KEY,
+            r2RuntimeLogPrefix: firstNonEmpty(args['r2-runtime-log-prefix'], process.env.R2_RUNTIME_LOG_PREFIX, storageDefaults.runtimeLogPrefix)
           },
           {
             telegramToken: getEnvVarValue(peerEnvRows, 'TELEGRAM_BOT_TOKEN'),
             notifyChatId: getEnvVarValue(peerEnvRows, 'TELEGRAM_NOTIFY_CHAT_ID'),
             telegramTestChatId: getEnvVarValue(peerEnvRows, 'TELEGRAM_TEST_CHAT_ID'),
-            publicUrl: String(peerServiceRecord?.service?.serviceDetails?.url || peerServiceRecord?.serviceDetails?.url || '').trim()
+            publicUrl: String(peerServiceRecord?.service?.serviceDetails?.url || peerServiceRecord?.serviceDetails?.url || '').trim(),
+            r2Bucket: getEnvVarValue(peerEnvRows, 'R2_BUCKET'),
+            r2StateKey: getEnvVarValue(peerEnvRows, 'R2_STATE_KEY'),
+            r2BlacklistKey: getEnvVarValue(peerEnvRows, 'R2_BLACKLIST_KEY'),
+            r2KnownUsersKey: getEnvVarValue(peerEnvRows, 'R2_KNOWN_USERS_KEY'),
+            r2ImagePrefix: getEnvVarValue(peerEnvRows, 'R2_IMAGE_PREFIX'),
+            r2ImageStatusKey: getEnvVarValue(peerEnvRows, 'R2_IMAGE_STATUS_KEY'),
+            r2CrashLogPrefix: getEnvVarValue(peerEnvRows, 'R2_CRASH_LOG_PREFIX'),
+            r2CrashLogStatusKey: getEnvVarValue(peerEnvRows, 'R2_CRASH_LOG_STATUS_KEY'),
+            r2RequestLogPrefix: getEnvVarValue(peerEnvRows, 'R2_REQUEST_LOG_PREFIX'),
+            r2RequestLogStatusKey: getEnvVarValue(peerEnvRows, 'R2_REQUEST_LOG_STATUS_KEY'),
+            r2RuntimeLogPrefix: getEnvVarValue(peerEnvRows, 'R2_RUNTIME_LOG_PREFIX')
           },
           botEnv
         );
@@ -1046,13 +1116,35 @@ async function main() {
           telegramToken,
           notifyChatId,
           telegramTestChatId,
-          publicUrl: currentPublicUrl
+          publicUrl: currentPublicUrl,
+          r2Bucket: resolvedR2.bucket,
+          r2StateKey: firstNonEmpty(args['r2-state-key'], process.env.R2_STATE_KEY, storageDefaults.stateKey),
+          r2BlacklistKey: firstNonEmpty(args['r2-blacklist-key'], process.env.R2_BLACKLIST_KEY, storageDefaults.blacklistKey),
+          r2KnownUsersKey: firstNonEmpty(args['r2-known-users-key'], process.env.R2_KNOWN_USERS_KEY, storageDefaults.knownUsersKey),
+          r2ImagePrefix: r2Env.R2_IMAGE_PREFIX,
+          r2ImageStatusKey: r2Env.R2_IMAGE_STATUS_KEY,
+          r2CrashLogPrefix: r2Env.R2_CRASH_LOG_PREFIX,
+          r2CrashLogStatusKey: r2Env.R2_CRASH_LOG_STATUS_KEY,
+          r2RequestLogPrefix: r2Env.R2_REQUEST_LOG_PREFIX,
+          r2RequestLogStatusKey: r2Env.R2_REQUEST_LOG_STATUS_KEY,
+          r2RuntimeLogPrefix: firstNonEmpty(args['r2-runtime-log-prefix'], process.env.R2_RUNTIME_LOG_PREFIX, storageDefaults.runtimeLogPrefix)
         },
         {
           telegramToken: '',
           notifyChatId: '',
           telegramTestChatId: '',
-          publicUrl: peerPublicUrl
+          publicUrl: peerPublicUrl,
+          r2Bucket: '',
+          r2StateKey: '',
+          r2BlacklistKey: '',
+          r2KnownUsersKey: '',
+          r2ImagePrefix: '',
+          r2ImageStatusKey: '',
+          r2CrashLogPrefix: '',
+          r2CrashLogStatusKey: '',
+          r2RequestLogPrefix: '',
+          r2RequestLogStatusKey: '',
+          r2RuntimeLogPrefix: ''
         },
         botEnv
       );
@@ -1098,7 +1190,10 @@ async function main() {
     RENDER_BOT_PERSISTENCE_MODE: 'r2',
     RENDER_BOT_BASE_CONFIG: 'telegram/config/default.render.yml',
     RENDER_BOT_STATE_FILE: 'telegram/data/runtime-state.json',
-    R2_STATE_KEY: firstNonEmpty(args['r2-state-key'], process.env.R2_STATE_KEY, 'state/runtime-config.json'),
+    R2_STATE_KEY: firstNonEmpty(args['r2-state-key'], process.env.R2_STATE_KEY, storageDefaults.stateKey),
+    R2_BLACKLIST_KEY: firstNonEmpty(args['r2-blacklist-key'], process.env.R2_BLACKLIST_KEY, storageDefaults.blacklistKey),
+    R2_KNOWN_USERS_KEY: firstNonEmpty(args['r2-known-users-key'], process.env.R2_KNOWN_USERS_KEY, storageDefaults.knownUsersKey),
+    R2_RUNTIME_LOG_PREFIX: firstNonEmpty(args['r2-runtime-log-prefix'], process.env.R2_RUNTIME_LOG_PREFIX, storageDefaults.runtimeLogPrefix),
     RENDER_BOT_OUT_DIR: 'telegram/out',
     RENDER_BOT_FETCH_TIMEOUT_MS: '45000',
     RENDER_BOT_DEBUG_ARTIFACTS: 'false',
@@ -1208,6 +1303,16 @@ async function main() {
       webhookUrl,
       webhookSecret,
       r2Bucket: r2Env.R2_BUCKET,
+      r2StateKey: envVars.R2_STATE_KEY,
+      r2BlacklistKey: envVars.R2_BLACKLIST_KEY,
+      r2KnownUsersKey: envVars.R2_KNOWN_USERS_KEY,
+      r2ImagePrefix: envVars.R2_IMAGE_PREFIX,
+      r2ImageStatusKey: envVars.R2_IMAGE_STATUS_KEY,
+      r2CrashLogPrefix: envVars.R2_CRASH_LOG_PREFIX,
+      r2CrashLogStatusKey: envVars.R2_CRASH_LOG_STATUS_KEY,
+      r2RequestLogPrefix: envVars.R2_REQUEST_LOG_PREFIX,
+      r2RequestLogStatusKey: envVars.R2_REQUEST_LOG_STATUS_KEY,
+      r2RuntimeLogPrefix: envVars.R2_RUNTIME_LOG_PREFIX,
       telegramTestChatId,
       notifyChatId
     }, null, 2), 'utf8');

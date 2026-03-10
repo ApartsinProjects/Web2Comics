@@ -220,13 +220,28 @@ describe('full stack interfaces e2e', () => {
       process.env.RENDER_PUBLIC_BASE_URL,
       deployMetadata.publicUrl
     );
-    const webhookSecret = firstNonEmpty(process.env.TELEGRAM_WEBHOOK_SECRET);
+    const webhookSecret = firstNonEmpty(process.env.TELEGRAM_WEBHOOK_SECRET, deployMetadata.webhookSecret);
     const telegramToken = firstNonEmpty(process.env.TELEGRAM_BOT_TOKEN);
     const chatId = firstNonEmpty(
       process.env.TELEGRAM_TEST_CHAT_ID,
       process.env.TELEGRAM_NOTIFY_CHAT_ID,
       deployMetadata.telegramTestChatId
     ).split(',')[0].trim();
+    const requestPrefix = firstNonEmpty(
+      process.env.R2_REQUEST_LOG_PREFIX,
+      deployMetadata.r2RequestLogPrefix,
+      'logs/requests'
+    ).replace(/\/+$/, '');
+    const imagePrefix = firstNonEmpty(
+      process.env.R2_IMAGE_PREFIX,
+      deployMetadata.r2ImagePrefix,
+      'images'
+    ).replace(/\/+$/, '');
+    const crashPrefix = firstNonEmpty(
+      process.env.R2_CRASH_LOG_PREFIX,
+      deployMetadata.r2CrashLogPrefix,
+      'crash-logs'
+    ).replace(/\/+$/, '');
 
     const cfR2 = (cfYaml && cfYaml.r2) || {};
     const s3Clients = (cfR2 && cfR2.s3_clients) || {};
@@ -256,9 +271,9 @@ describe('full stack interfaces e2e', () => {
     expect(String(webhookInfo.url || '')).toContain(serviceBase.replace(/\/+$/, ''));
 
     const s3 = buildS3Client(endpoint, accessKeyId, secretAccessKey);
-    const beforeRequestKeys = await listKeys(s3, bucket, 'logs/requests/');
-    const beforeImageKeys = await listKeys(s3, bucket, 'images/');
-    const beforeCrashKeys = await listKeys(s3, bucket, 'crash-logs/');
+    const beforeRequestKeys = await listKeys(s3, bucket, `${requestPrefix}/`);
+    const beforeImageKeys = await listKeys(s3, bucket, `${imagePrefix}/`);
+    const beforeCrashKeys = await listKeys(s3, bucket, `${crashPrefix}/`);
     const beforeRequestSet = new Set(beforeRequestKeys);
     const beforeImageSet = new Set(beforeImageKeys);
 
@@ -294,7 +309,13 @@ describe('full stack interfaces e2e', () => {
       R2_S3_ENDPOINT: endpoint,
       R2_BUCKET: bucket,
       R2_ACCESS_KEY_ID: accessKeyId,
-      R2_SECRET_ACCESS_KEY: secretAccessKey
+      R2_SECRET_ACCESS_KEY: secretAccessKey,
+      R2_IMAGE_PREFIX: imagePrefix,
+      R2_REQUEST_LOG_PREFIX: requestPrefix,
+      R2_CRASH_LOG_PREFIX: crashPrefix,
+      R2_IMAGE_STATUS_KEY: firstNonEmpty(process.env.R2_IMAGE_STATUS_KEY, deployMetadata.r2ImageStatusKey, `${imagePrefix}/status.json`),
+      R2_REQUEST_LOG_STATUS_KEY: firstNonEmpty(process.env.R2_REQUEST_LOG_STATUS_KEY, deployMetadata.r2RequestLogStatusKey, `${requestPrefix}/status.json`),
+      R2_CRASH_LOG_STATUS_KEY: firstNonEmpty(process.env.R2_CRASH_LOG_STATUS_KEY, deployMetadata.r2CrashLogStatusKey, `${crashPrefix}/status.json`)
     });
 
     try {
@@ -303,7 +324,7 @@ describe('full stack interfaces e2e', () => {
       expect(localOut.body.ok).toBe(true);
 
       await waitFor(async () => {
-        const keys = await listKeys(s3, bucket, 'logs/requests/');
+        const keys = await listKeys(s3, bucket, `${requestPrefix}/`);
         const candidates = keys.filter((k) => !beforeRequestSet.has(k)).slice(-30);
         if (!candidates.length) return false;
         for (const key of candidates) {
@@ -314,7 +335,7 @@ describe('full stack interfaces e2e', () => {
       }, 180000, 2500);
 
       await waitFor(async () => {
-        const keys = await listKeys(s3, bucket, 'images/');
+        const keys = await listKeys(s3, bucket, `${imagePrefix}/`);
         return keys.some((k) => !beforeImageSet.has(k));
       }, 180000, 2500);
     } finally {
@@ -325,7 +346,7 @@ describe('full stack interfaces e2e', () => {
     const telegramOut = await sendTelegramMessage(telegramToken, chatId, `Interface e2e observer ${remoteMarker}`);
     expect(Number(telegramOut.message_id || 0)).toBeGreaterThan(0);
 
-    const afterCrashKeys = await listKeys(s3, bucket, 'crash-logs/');
+    const afterCrashKeys = await listKeys(s3, bucket, `${crashPrefix}/`);
     expect(afterCrashKeys.length).toBeGreaterThanOrEqual(beforeCrashKeys.length);
   }, 300000);
 });

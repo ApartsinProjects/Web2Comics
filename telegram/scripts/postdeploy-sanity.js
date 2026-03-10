@@ -27,6 +27,19 @@ function parseBool(value) {
   return v === '1' || v === 'true' || v === 'yes' || v === 'on';
 }
 
+function envStorageNamespace(envName) {
+  return envName === 'staging' ? 'envs/staging' : 'envs/production';
+}
+
+function buildEnvScopedStorageDefaults(envName) {
+  const ns = envStorageNamespace(envName);
+  return {
+    requestPrefix: `${ns}/logs/requests`,
+    requestStatusKey: `${ns}/logs/requests/status.json`,
+    crashStatusKey: `${ns}/crash-logs/status.json`
+  };
+}
+
 async function waitFor(fn, timeoutMs = 180000, stepMs = 2500, label = 'condition') {
   const start = Date.now();
   let lastError = '';
@@ -89,8 +102,9 @@ async function assertHealth(baseUrl, stage = 'health') {
   return st;
 }
 
-async function findMarkerRequestEntry(s3, bucket, beforeSet, marker) {
-  const keys = await listKeys(s3, bucket, 'logs/requests/');
+async function findMarkerRequestEntry(s3, bucket, beforeSet, marker, requestPrefix) {
+  const prefix = `${String(requestPrefix || '').trim().replace(/\/+$/, '')}/`;
+  const keys = await listKeys(s3, bucket, prefix);
   const candidates = keys.filter((k) => !beforeSet.has(k)).slice(-120);
   for (let i = candidates.length - 1; i >= 0; i -= 1) {
     const key = candidates[i];
@@ -102,8 +116,9 @@ async function findMarkerRequestEntry(s3, bucket, beforeSet, marker) {
   return null;
 }
 
-async function findAnyNewRequestEntry(s3, bucket, beforeSet, chatId) {
-  const keys = await listKeys(s3, bucket, 'logs/requests/');
+async function findAnyNewRequestEntry(s3, bucket, beforeSet, chatId, requestPrefix) {
+  const prefix = `${String(requestPrefix || '').trim().replace(/\/+$/, '')}/`;
+  const keys = await listKeys(s3, bucket, prefix);
   const candidates = keys.filter((k) => !beforeSet.has(k)).slice(-120);
   for (let i = candidates.length - 1; i >= 0; i -= 1) {
     const key = candidates[i];
@@ -114,10 +129,11 @@ async function findAnyNewRequestEntry(s3, bucket, beforeSet, chatId) {
   return null;
 }
 
-async function loadR2Diagnostics(s3, bucket) {
+async function loadR2Diagnostics(s3, bucket, options = {}) {
   const out = { latestCrash: null, latestRequests: [] };
   try {
-    const crashStatus = await readJson(s3, bucket, 'crash-logs/status.json');
+    const crashStatusKey = String(options.crashStatusKey || '').trim();
+    const crashStatus = await readJson(s3, bucket, crashStatusKey);
     const crashRows = Array.isArray(crashStatus?.logs) ? crashStatus.logs : [];
     const lastCrash = crashRows.slice().sort((a, b) => Date.parse(String(b?.createdAt || '')) - Date.parse(String(a?.createdAt || '')))[0];
     if (lastCrash && lastCrash.key) {
@@ -125,7 +141,8 @@ async function loadR2Diagnostics(s3, bucket) {
     }
   } catch (_) {}
   try {
-    const reqStatus = await readJson(s3, bucket, 'logs/requests/status.json');
+    const requestStatusKey = String(options.requestStatusKey || '').trim();
+    const reqStatus = await readJson(s3, bucket, requestStatusKey);
     const reqRows = Array.isArray(reqStatus?.logs) ? reqStatus.logs : [];
     const latest = reqRows
       .slice()
@@ -236,6 +253,7 @@ async function main() {
   if (metadataEnv && metadataEnv !== botEnv) {
     throw new Error(`Metadata environment mismatch: expected ${botEnv}, got ${metadataEnv}`);
   }
+  const storageDefaults = buildEnvScopedStorageDefaults(botEnv);
   const cfYaml = envOnly ? {} : readCloudflareYaml(repoRoot);
   const awsYaml = envOnly ? {} : readAwsYaml(repoRoot);
   const cfR2 = (cfYaml && cfYaml.r2) || {};
@@ -252,6 +270,9 @@ async function main() {
     process.env.TELEGRAM_NOTIFY_CHAT_ID,
     metadata.telegramTestChatId
   ).split(',').map((v) => v.trim()).find(Boolean);
+  const requestPrefix = firstNonEmpty(args['request-prefix'], process.env.R2_REQUEST_LOG_PREFIX, metadata.r2RequestLogPrefix, storageDefaults.requestPrefix);
+  const requestStatusKey = firstNonEmpty(args['request-status-key'], process.env.R2_REQUEST_LOG_STATUS_KEY, metadata.r2RequestLogStatusKey, `${requestPrefix.replace(/\/+$/, '')}/status.json`);
+  const crashStatusKey = firstNonEmpty(args['crash-status-key'], process.env.R2_CRASH_LOG_STATUS_KEY, metadata.r2CrashLogStatusKey, storageDefaults.crashStatusKey);
   const endpoint = firstNonEmpty(
     args['r2-endpoint'],
     process.env.R2_S3_ENDPOINT,
@@ -275,7 +296,7 @@ async function main() {
 
   console.log('[sanity] capture R2 baseline');
   const s3 = createS3(endpoint, accessKeyId, secretAccessKey);
-  const beforeReq = new Set(await listKeys(s3, bucket, 'logs/requests/'));
+  const beforeReq = new Set(await listKeys(s3, bucket, `${requestPrefix.replace(/\/+$/, '')}/`));
 
   const marker = `sanity-${Date.now()}`;
   const commandText = `/__${marker}`;
@@ -287,7 +308,7 @@ async function main() {
   try {
     const requestEntry = await waitFor(async () => {
       await assertHealth(baseUrl, 'request-log-wait');
-      const found = await findAnyNewRequestEntry(s3, bucket, beforeReq, chatId);
+      const found = await findAnyNewRequestEntry(s3, bucket, beforeReq, chatId, requestPrefix);
       if (!found) return false;
       if (found.obj && found.obj.result && found.obj.result.ok === false) {
         throw new Error(`Remote generation failed early: ${String(found.obj.result.error || 'unknown error')}`);
@@ -321,9 +342,13 @@ main().catch(async (error) => {
     const cfYaml = envOnly ? {} : readCloudflareYaml(repoRoot);
     const awsYaml = envOnly ? {} : readAwsYaml(repoRoot);
     const cfR2 = (cfYaml && cfYaml.r2) || {};
+    const storageDefaults = buildEnvScopedStorageDefaults(botEnv);
     const s3Clients = (cfR2 && cfR2.s3_clients) || {};
     const key2 = s3Clients.keypair_2 || {};
     const key1 = s3Clients.keypair_1 || {};
+    const requestPrefix = firstNonEmpty(args['request-prefix'], process.env.R2_REQUEST_LOG_PREFIX, metadata.r2RequestLogPrefix, storageDefaults.requestPrefix);
+    const requestStatusKey = firstNonEmpty(args['request-status-key'], process.env.R2_REQUEST_LOG_STATUS_KEY, metadata.r2RequestLogStatusKey, `${requestPrefix.replace(/\/+$/, '')}/status.json`);
+    const crashStatusKey = firstNonEmpty(args['crash-status-key'], process.env.R2_CRASH_LOG_STATUS_KEY, metadata.r2CrashLogStatusKey, storageDefaults.crashStatusKey);
     const endpoint = firstNonEmpty(
       args['r2-endpoint'],
       process.env.R2_S3_ENDPOINT,
@@ -335,7 +360,7 @@ main().catch(async (error) => {
     const secretAccessKey = firstNonEmpty(args['r2-secret-access-key'], process.env.R2_SECRET_ACCESS_KEY, key2.secret_access_key, key1.secret_access_key, awsYaml.aws_secret_access_key);
     if (endpoint && bucket && accessKeyId && secretAccessKey) {
       const s3 = createS3(endpoint, accessKeyId, secretAccessKey);
-      const diag = await loadR2Diagnostics(s3, bucket);
+      const diag = await loadR2Diagnostics(s3, bucket, { requestStatusKey, crashStatusKey });
       if (diag.latestCrash) {
         console.error('[sanity] Latest R2 crash log:');
         console.error(JSON.stringify(diag.latestCrash, null, 2));
