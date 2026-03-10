@@ -154,7 +154,7 @@ async function main() {
   const region = firstNonEmpty(args.region, process.env.RENDER_REGION, 'oregon');
   const telegramToken = firstNonEmpty(args['telegram-token'], process.env.TELEGRAM_BOT_TOKEN, tgYaml.bot_token);
   const webhookSecret = firstNonEmpty(args['webhook-secret'], process.env.TELEGRAM_WEBHOOK_SECRET, tgYaml.webhook_secret);
-  const adminChatIds = firstNonEmpty(args['admin-chat-ids'], process.env.TELEGRAM_ADMIN_CHAT_IDS, tgYaml.admin_chat_id, tgYaml.admin_chat_ids, '1796415913');
+  const adminChatIds = firstNonEmpty(args['admin-chat-ids'], process.env.TELEGRAM_ADMIN_CHAT_IDS, tgYaml.admin_chat_id, tgYaml.admin_chat_ids);
   const allowedChatIds = firstNonEmpty(args['allowed-chat-ids'], process.env.COMICBOT_ALLOWED_CHAT_IDS, 'all');
 
   if (!renderApiKey) throw new Error('Missing Render API key (--render-api-key or RENDER_API_KEY)');
