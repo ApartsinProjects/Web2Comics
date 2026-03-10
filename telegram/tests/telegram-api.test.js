@@ -87,4 +87,56 @@ describe('telegram api payload safety', () => {
     expect(media[0].caption).toBe('1(2) one');
     expect(media[1].caption).toBe('2(2) two');
   });
+
+  it('calls getFile and downloads bytes from Telegram file endpoint', async () => {
+    const calls = [];
+    global.fetch = vi.fn(async (url, init) => {
+      calls.push({ url: String(url), init });
+      if (String(url).endsWith('/getFile')) {
+        return {
+          ok: true,
+          text: async () => JSON.stringify({ ok: true, result: { file_path: 'documents/x.pdf' } })
+        };
+      }
+      if (String(url).includes('/file/botTEST_TOKEN/documents/x.pdf')) {
+        return {
+          ok: true,
+          arrayBuffer: async () => Uint8Array.from([1, 2, 3, 4]).buffer
+        };
+      }
+      return {
+        ok: false,
+        text: async () => 'unexpected'
+      };
+    });
+
+    const api = new TelegramApi('TEST_TOKEN', 'https://api.telegram.org/botTEST_TOKEN');
+    const file = await api.getFile('abc');
+    expect(file.file_path).toBe('documents/x.pdf');
+    const bytes = await api.downloadFile(file.file_path);
+    expect(Buffer.isBuffer(bytes)).toBe(true);
+    expect(Array.from(bytes)).toEqual([1, 2, 3, 4]);
+    expect(calls.some((c) => c.url.endsWith('/getFile'))).toBe(true);
+    expect(calls.some((c) => c.url.includes('/file/botTEST_TOKEN/documents/x.pdf'))).toBe(true);
+  });
+
+  it('splits oversized text into multiple sendMessage calls', async () => {
+    const calls = [];
+    global.fetch = vi.fn(async (url, init) => {
+      calls.push({ url, init });
+      return {
+        ok: true,
+        text: async () => JSON.stringify({ ok: true, result: { message_id: calls.length } })
+      };
+    });
+
+    const api = new TelegramApi('TEST_TOKEN', 'http://127.0.0.1/fake');
+    const longText = 'A'.repeat(9500);
+    await api.sendMessage(777, longText);
+
+    expect(calls.length).toBeGreaterThan(1);
+    const chunks = calls.map((c) => JSON.parse(String(c.init.body || '{}')).text);
+    expect(chunks.every((t) => String(t).length <= 4096)).toBe(true);
+    expect(chunks.join('')).toBe(longText);
+  });
 });

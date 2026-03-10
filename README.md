@@ -2,7 +2,7 @@
 
 ![Status](https://img.shields.io/badge/status-experimental-orange)
 ![Platform](https://img.shields.io/badge/platform-chrome%20extension-blue)
-![Release](https://img.shields.io/badge/release-v1.0.3-success)
+![Release](https://img.shields.io/badge/release-v1.0.4-success)
 ![License](https://img.shields.io/badge/%C2%A9%202026-Alexander%20Apartsin-red)
 [![Docs](https://img.shields.io/badge/Docs-GitHub%20Pages-0ea5e9?logo=githubpages&logoColor=white)](https://apartsinprojects.github.io/Web2Comics/)
 
@@ -17,21 +17,26 @@ Web2Comics is a Chrome extension that:
 - shows the result in a comic viewer side panel
 - saves history and exports a single composite comic image
 - supports right-click selected-text flows (instant generate or open composer prefilled)
-- includes a Telegram bot version: [telegram/README.md](telegram/README.md)
+
+Separate product documents:
+- Extension overview: [docs/extension.md](docs/extension.md)
+- Telegram bot overview: [docs/telegram-bot.md](docs/telegram-bot.md)
+- Shared engine overview: [docs/engine.md](docs/engine.md)
 
 ## Install (Release ZIP)
 
 Release links:
 - [Releases page](https://github.com/ApartsinProjects/Web2Comics/releases)
-- [Current release (`v1.0.3`) ZIP](https://github.com/ApartsinProjects/Web2Comics/releases/download/v1.0.3/Web2Comics-v1.0.3-extension.zip)
+- [Current extension release (`v1.0.4`) ZIP](https://github.com/ApartsinProjects/Web2Comics/releases/download/v1.0.4/Web2Comics-v1.0.4-extension.zip)
+- [Current Telegram bot release (`v1.0.4`) deploy ZIP](https://github.com/ApartsinProjects/Web2Comics/releases/download/v1.0.4/Web2Comics-TelegramBot-v1.0.4-deploy.zip)
 
 1. Open the repository `Releases` page on GitHub (link above).
-2. Download the latest release asset ZIP (for example `Web2Comics-v1.0.3-extension.zip`).
+2. Download the latest extension release asset ZIP (for example `Web2Comics-v1.0.4-extension.zip`).
 3. Extract the ZIP to a folder (for example `C:\Web2Comics`).
 4. Open Chrome and go to `chrome://extensions`.
 5. Turn on `Developer mode` (top-right).
 6. Click `Load unpacked`.
-7. Select the extracted folder that contains `manifest.json` (for example `Web2Comics-v1.0.3`).
+7. Select the extracted folder that contains `manifest.json` (for example `Web2Comics-v1.0.4`).
 8. In `chrome://extensions`, confirm the `Web2Comics` card is enabled (toggle ON).
 9. Open the Chrome Extensions menu (puzzle icon), find `Web2Comics`, and click the pin icon to show it in the toolbar.
 10. Open the extension and configure a [`Google Gemini` API key (free tier)](docs/Gemini_key.md) in `Options -> Providers` (recommended first-run setup).
@@ -209,14 +214,18 @@ HUGGINGFACE_INFERENCE_API_TOKEN=...
 
 ## Documentation
 
+- Extension overview: [docs/extension.md](docs/extension.md)
 - User manual: [docs/user-manual.html](docs/user-manual.html)
 - Additional specs: [`docs/INSTALL.md`](docs/INSTALL.md)
 - Privacy policy: [docs/privacy.html](docs/privacy.html)
 - Extension docs index (Markdown): [docs/README.md](docs/README.md)
 - Extension docs home (GitHub Pages): <https://apartsinprojects.github.io/Web2Comics/>
+- Telegram bot overview: [docs/telegram-bot.md](docs/telegram-bot.md)
 - Telegram bot README (Markdown): [telegram/README.md](telegram/README.md)
 - Telegram bot docs page (GitHub Pages): <https://apartsinprojects.github.io/Web2Comics/HTML/telegram-bot.html>
 - Telegram bot manual (Markdown): [telegram/docs/user-manual.md](telegram/docs/user-manual.md)
+- Shared engine overview: [docs/engine.md](docs/engine.md)
+- Engine manual source: [engine/manual.md](engine/manual.md)
 
 Copyright (c) 2026 Alexander Apartsin. All rights reserved.
 

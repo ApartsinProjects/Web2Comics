@@ -1,7 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const { execFileSync } = require('child_process');
-const { validateCloudflareTokenRoles } = require('../scripts/predeploy-check');
+const { validateCloudflareTokenRoles, isTransientVendorFailure } = require('../scripts/predeploy-check');
 
 describe('predeploy script portability', () => {
   it('uses shell execSync for cross-platform npm execution', () => {
@@ -57,5 +57,11 @@ describe('predeploy script portability', () => {
     });
     expect(result.enabled).toBe(true);
     expect(result.issues).toEqual([]);
+  });
+
+  it('classifies transient provider failures separately from hard auth failures', () => {
+    expect(isTransientVendorFailure('Firecrawl auth failed (502): Bad Gateway')).toBe(true);
+    expect(isTransientVendorFailure('Provider timeout after 30s')).toBe(true);
+    expect(isTransientVendorFailure('OpenAI auth failed (401): Unauthorized')).toBe(false);
   });
 });

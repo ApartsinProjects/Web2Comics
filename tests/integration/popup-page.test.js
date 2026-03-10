@@ -658,6 +658,106 @@ describe('Popup Page Startup', () => {
     expect(listText).toContain('Markets React to Policy Signals');
   });
 
+  it('sends provider-selected page story text into START_GENERATION for page mode', async () => {
+    chrome.storage.local.get.mockImplementation(async (keys) => {
+      if (Array.isArray(keys)) {
+        return {
+          providers: {},
+          settings: { activeTextProvider: 'openai', activeImageProvider: 'openai', panelCount: 3 },
+          apiKeys: { openai: global.TEST_OPENAI_API_KEY },
+          providerValidation: { openai: { valid: true, validatedAt: new Date().toISOString() } }
+        };
+      }
+      if (keys === 'history') return { history: [] };
+      if (keys === 'currentJob') return { currentJob: null };
+      if (keys === 'apiKeys') return { apiKeys: { openai: global.TEST_OPENAI_API_KEY } };
+      if (keys === 'providerValidation') {
+        return { providerValidation: { openai: { valid: true, validatedAt: new Date().toISOString() } } };
+      }
+      return {};
+    });
+    chrome.tabs.query.mockResolvedValue([{ id: 1, status: 'complete', url: 'https://www.cnn.com/world', title: 'CNN World' }]);
+    chrome.tabs.sendMessage.mockImplementation(async (_tabId, msg) => {
+      if (msg.type === 'EXTRACT_CONTENT') {
+        return {
+          success: true,
+          text: 'Lead article raw extraction. '.repeat(80),
+          sourceHtml: '<html><body><main><article><h1>World News</h1><p>Lead article raw extraction.</p></article></main></body></html>',
+          selectedCandidateId: 'candidate_0',
+          autoSelectedCandidateId: 'candidate_0',
+          fullSourceText: 'Lead article raw extraction. '.repeat(200),
+          candidatePayloads: [
+            { id: 'candidate_0', summary: 'Politics lead summary', chars: 1300, score: 120, text: 'Lead candidate text. '.repeat(80) },
+            { id: 'candidate_1', summary: 'Markets summary', chars: 1050, score: 110, text: 'Markets candidate text. '.repeat(70) }
+          ],
+          candidates: [
+            { id: 'candidate_0', summary: 'Politics lead summary', chars: 1300, score: 120 },
+            { id: 'candidate_1', summary: 'Markets summary', chars: 1050, score: 110 }
+          ]
+        };
+      }
+      if (msg.type === 'START_GENERATION') {
+        return { success: true, jobId: 'job-page-story-provider' };
+      }
+      return { success: true };
+    });
+    chrome.runtime.sendMessage.mockImplementation(async (msg) => {
+      if (msg?.type !== 'PROCESS_CONTENT_STORIES') return { success: true };
+      return {
+        success: true,
+        providerUsed: 'gemini-free',
+        selectedStoryId: 'story_2',
+        stories: [
+          {
+            id: 'story_1',
+            title: 'Election Pressure Builds',
+            summary: 'Campaign pressure rises as parties react to new polling and turnout concerns.',
+            score: 84,
+            chars: 1260,
+            text: 'Election story text. '.repeat(60)
+          },
+          {
+            id: 'story_2',
+            title: 'Markets React to Policy Signals',
+            summary: 'Global markets moved after policy guidance and inflation updates shaped expectations.',
+            score: 91,
+            chars: 1040,
+            text: 'Markets story text. '.repeat(60)
+          }
+        ]
+      };
+    });
+
+    await import('../../popup/popup.js');
+    document.dispatchEvent(new Event('DOMContentLoaded'));
+    await flush();
+    await flush();
+
+    document.getElementById('create-comic-btn').click();
+    await flush();
+    await flush();
+
+    await waitForCondition(() => !document.getElementById('generate-btn').disabled, 6000);
+    document.getElementById('generate-btn').click();
+    await flush();
+
+    const llmCall = chrome.runtime.sendMessage.mock.calls.find((call) => call[0]?.type === 'PROCESS_CONTENT_STORIES');
+    expect(llmCall).toBeTruthy();
+    expect(llmCall[0].payload.preferredProvider).toBe('openai');
+    expect(String(llmCall[0].payload.sourceHtml || '')).toContain('<html>');
+    expect(String(llmCall[0].payload.sourceText || '')).toContain('Lead article raw extraction.');
+
+    const startCall = chrome.runtime.sendMessage.mock.calls.find((call) => call[0]?.type === 'START_GENERATION');
+    expect(startCall).toBeTruthy();
+    expect(startCall[0].payload.text).toContain('Markets story text.');
+    expect(startCall[0].payload.text).not.toContain('Lead article raw extraction.');
+    expect(startCall[0].payload.sourceMode).toBe('page');
+    expect(startCall[0].payload.manualSourceText).toBe('');
+    expect(startCall[0].payload.manualSourceTitle).toBe('');
+    expect(startCall[0].payload.url).toBe('https://www.cnn.com/world');
+    expect(startCall[0].payload.title).toBe('Markets React to Policy Signals');
+  }, 15000);
+
   it('shows low grounding confidence indicator and keeps Stories button available when candidates exist', async () => {
     chrome.tabs.query.mockResolvedValue([{ id: 1, status: 'complete', url: 'https://www.cnn.com/world' }]);
     chrome.tabs.sendMessage.mockImplementation(async (_tabId, msg) => {
@@ -965,6 +1065,7 @@ describe('Popup Page Startup', () => {
 
   it('reinjects content script and retries on missing receiving end', async () => {
     let extractCalls = 0;
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
     chrome.tabs.query.mockResolvedValue([{ id: 1, status: 'complete', url: 'https://example.com' }]);
     chrome.scripting = chrome.scripting || {};
     chrome.scripting.executeScript = vi.fn().mockResolvedValue([]);
@@ -989,9 +1090,11 @@ describe('Popup Page Startup', () => {
     });
     expect(extractCalls).toBeGreaterThanOrEqual(2);
     expect(String(document.getElementById('preview-text').textContent)).toContain('x');
+    consoleError.mockRestore();
   });
 
   it('does not try content-script reinjection on non-http pages when receiving end is missing', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
     chrome.tabs.query.mockResolvedValue([{ id: 1, status: 'complete', url: 'chrome://extensions/' }]);
     chrome.scripting = chrome.scripting || {};
     chrome.scripting.executeScript = vi.fn().mockResolvedValue([]);
@@ -1009,6 +1112,7 @@ describe('Popup Page Startup', () => {
 
     expect(chrome.scripting.executeScript).not.toHaveBeenCalled();
     expect(String(document.getElementById('preview-text').textContent)).toContain('Retrying');
+    consoleError.mockRestore();
   });
 
   it('asks for confirmation before deleting a history item and only deletes on confirm', async () => {
@@ -1019,9 +1123,11 @@ describe('Popup Page Startup', () => {
     let storedHistory = history.slice();
     chrome.storage.local.get.mockImplementation(async (keys) => {
       if (Array.isArray(keys)) {
+        if (keys.includes('history')) return { history: storedHistory, historyThumbnails: {} };
         return { settings: { activeTextProvider: 'openai', activeImageProvider: 'openai' }, providers: {} };
       }
       if (keys === 'history') return { history: storedHistory };
+      if (keys === 'historyThumbnails') return { historyThumbnails: {} };
       if (keys === 'currentJob') return { currentJob: null };
       if (keys === 'apiKeys') return { apiKeys: { openai: global.TEST_OPENAI_API_KEY } };
       return {};
@@ -1062,8 +1168,12 @@ describe('Popup Page Startup', () => {
     ];
     const setCalls = [];
     chrome.storage.local.get.mockImplementation(async (keys) => {
-      if (Array.isArray(keys)) return { settings: { activeTextProvider: 'openai', activeImageProvider: 'openai' }, providers: {} };
+      if (Array.isArray(keys)) {
+        if (keys.includes('history')) return { history, historyThumbnails: {} };
+        return { settings: { activeTextProvider: 'openai', activeImageProvider: 'openai' }, providers: {} };
+      }
       if (keys === 'history') return { history };
+      if (keys === 'historyThumbnails') return { historyThumbnails: {} };
       if (keys === 'currentJob') return { currentJob: null };
       if (keys === 'apiKeys') return { apiKeys: { openai: global.TEST_OPENAI_API_KEY } };
       return {};
@@ -1218,7 +1328,7 @@ describe('Popup Page Startup', () => {
     expect(startCall).toBeTruthy();
     expect(startCall[1].payload.settings.panel_count).toBe(3);
     expect(startCall[1].payload.settings.objective).toBe('explain-like-im-five');
-  });
+  }, 15000);
 
   it('sends selected objective in START_GENERATION payload', async () => {
     const selectedText = 'Objective payload test selected text '.repeat(16);
@@ -1742,6 +1852,15 @@ describe('Popup Page Startup', () => {
   it('opens history modal even when history entries are partially malformed', async () => {
     chrome.storage.local.get.mockImplementation(async (keys) => {
       if (Array.isArray(keys)) {
+        if (keys.includes('history')) {
+          return {
+            history: [
+              { id: 'bad-1' },
+              { id: 'ok-1', source: { title: 'Saved Comic' }, generated_at: '2026-02-24T00:00:00.000Z' }
+            ],
+            historyThumbnails: {}
+          };
+        }
         return {
           settings: {
             activeTextProvider: 'openai',
@@ -1761,6 +1880,7 @@ describe('Popup Page Startup', () => {
           ]
         };
       }
+      if (keys === 'historyThumbnails') return { historyThumbnails: {} };
       if (keys === 'currentJob') return { currentJob: null };
       if (keys === 'debugLogs') return { debugLogs: [] };
       return {};
@@ -1785,6 +1905,19 @@ describe('Popup Page Startup', () => {
   it('escapes popup history item titles when rendering history modal', async () => {
     chrome.storage.local.get.mockImplementation(async (keys) => {
       if (Array.isArray(keys)) {
+        if (keys.includes('history')) {
+          return {
+            history: [
+              {
+                id: 'bad1',
+                source: { title: '<img src=x onerror=alert(1)> Unsafe' },
+                generated_at: '2026-02-24T00:00:00.000Z',
+                thumbnail: ''
+              }
+            ],
+            historyThumbnails: {}
+          };
+        }
         return {
           settings: { activeTextProvider: 'openai', activeImageProvider: 'openai', debugFlag: true },
           providers: {}
@@ -1827,6 +1960,28 @@ describe('Popup Page Startup', () => {
   it('renders popup history thumbnail from storyboard panel image when thumbnail is missing', async () => {
     chrome.storage.local.get.mockImplementation(async (keys) => {
       if (Array.isArray(keys)) {
+        if (keys.includes('history')) {
+          return {
+            history: [
+              {
+                id: 'panel-thumb-1',
+                source: { title: 'Panel Thumbnail Fallback' },
+                generated_at: '2026-02-24T00:00:00.000Z',
+                thumbnail: '',
+                storyboard: {
+                  panels: [
+                    {
+                      artifacts: {
+                        image_blob_ref: 'data:image/png;base64,AAAABBBB'
+                      }
+                    }
+                  ]
+                }
+              }
+            ],
+            historyThumbnails: {}
+          };
+        }
         return {
           settings: { activeTextProvider: 'openai', activeImageProvider: 'openai', debugFlag: true },
           providers: {}
@@ -1855,6 +2010,7 @@ describe('Popup Page Startup', () => {
           ]
         };
       }
+      if (keys === 'historyThumbnails') return { historyThumbnails: {} };
       if (keys === 'currentJob') return { currentJob: null };
       if (keys === 'debugLogs') return { debugLogs: [] };
       return {};
@@ -1877,6 +2033,28 @@ describe('Popup Page Startup', () => {
   it('renders popup history thumbnail when panel image_url is object-shaped', async () => {
     chrome.storage.local.get.mockImplementation(async (keys) => {
       if (Array.isArray(keys)) {
+        if (keys.includes('history')) {
+          return {
+            history: [
+              {
+                id: 'panel-thumb-object-1',
+                source: { title: 'Panel Thumbnail Object Fallback' },
+                generated_at: '2026-02-24T00:00:00.000Z',
+                thumbnail: '',
+                storyboard: {
+                  panels: [
+                    {
+                      artifacts: {
+                        image_url: { url: 'data:image/png;base64,OBJECT_POPUP_1' }
+                      }
+                    }
+                  ]
+                }
+              }
+            ],
+            historyThumbnails: {}
+          };
+        }
         return {
           settings: { activeTextProvider: 'openai', activeImageProvider: 'openai', debugFlag: true },
           providers: {}
@@ -1905,6 +2083,7 @@ describe('Popup Page Startup', () => {
           ]
         };
       }
+      if (keys === 'historyThumbnails') return { historyThumbnails: {} };
       if (keys === 'currentJob') return { currentJob: null };
       if (keys === 'debugLogs') return { debugLogs: [] };
       return {};

@@ -54,8 +54,8 @@
 </li>
 <li>Generation/config:
 <ul>
-<li>text/URL input, <code>/invent</code>, <code>/random</code>, <code>/peek</code></li>
-<li><code>/vendor</code>, <code>/text_vendor</code>, <code>/image_vendor</code>, <code>/models</code>, <code>/test</code></li>
+<li>text, link, PDF, image, or voice/audio input, <code>/invent</code>, <code>/random</code>, <code>/peek</code></li>
+<li><code>/vendors</code>, <code>/vendor</code>, <code>/text_vendor</code>, <code>/image_vendor</code>, <code>/models</code>, <code>/test</code></li>
 <li><code>/panels</code>, <code>/objective</code>, objective shortcuts, <code>/style</code>, style shortcuts, <code>/new_style</code></li>
 <li><code>/language</code>, <code>/mode</code>, <code>/consistency</code>, <code>/detail</code>, <code>/crazyness</code>, <code>/concurrency</code>, <code>/retries</code></li>
 <li><code>/prompts</code>, <code>/set_prompt</code>, <code>/list_options</code>, <code>/options</code></li>
@@ -64,15 +64,22 @@
 </ul>
 <h2 id="storage-classes-used">Storage classes used</h2>
 <ul>
-<li><code>logs/requests/</code> for request audit records.</li>
-<li><code>crash-logs/</code> for crash records and latest pointer.</li>
-<li><code>images/</code> for generated panel images.</li>
+<li><code>envs/&lt;environment&gt;/logs/requests/</code> for request audit records.</li>
+<li><code>envs/&lt;environment&gt;/crash-logs/</code> for crash records and latest pointer.</li>
+<li><code>envs/&lt;environment&gt;/images/</code> for generated panel images.</li>
+<li><code>envs/&lt;environment&gt;/logs/runtime/</code> for runtime logs.</li>
 <li>status objects:
 <ul>
-<li><code>status/image-storage-status.json</code></li>
-<li><code>crash-logs/status.json</code></li>
+<li><code>envs/&lt;environment&gt;/status/image-storage-status.json</code></li>
+<li><code>envs/&lt;environment&gt;/crash-logs/status.json</code></li>
+<li><code>envs/&lt;environment&gt;/logs/requests/status.json</code></li>
 </ul>
 </li>
+</ul>
+<p>Environment examples:</p>
+<ul>
+<li>staging: <code>envs/staging/...</code></li>
+<li>production: <code>envs/production/...</code></li>
 </ul>
 <h2 id="free-tier-safety-defaults">Free-tier safety defaults</h2>
 <p>Applied by deploy script and runtime defaults:</p>
@@ -101,6 +108,9 @@
 <li><code>R2_IMAGE_STATUS_KEY</code></li>
 <li><code>R2_CRASH_LOG_PREFIX</code></li>
 <li><code>R2_CRASH_LOG_STATUS_KEY</code></li>
+<li><code>R2_REQUEST_LOG_PREFIX</code></li>
+<li><code>R2_REQUEST_LOG_STATUS_KEY</code></li>
+<li><code>R2_RUNTIME_LOG_PREFIX</code></li>
 <li><code>RENDER_BOT_IMAGE_CAPACITY_BYTES</code></li>
 <li><code>RENDER_BOT_IMAGE_CLEANUP_THRESHOLD_RATIO</code></li>
 <li><code>R2_CRASH_LOG_CAPACITY_BYTES</code></li>

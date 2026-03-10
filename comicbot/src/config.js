@@ -7,6 +7,7 @@ const BOT_ROOT = path.resolve(__dirname, '..');
 
 loadEnvFiles([
   path.join(BOT_ROOT, '.env'),
+  path.join(REPO_ROOT, '.env.all'),
   path.join(REPO_ROOT, '.env.e2e.local'),
   path.join(REPO_ROOT, '.env.local')
 ]);

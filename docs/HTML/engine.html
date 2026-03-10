@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>engine - Web2Comics Docs</title>
+  <style>
+    :root { --bg:#f7f4ed; --panel:#fff; --ink:#1d2a3f; --muted:#5c6b82; --line:#ddd6ca; --link:#155eef; }
+    * { box-sizing: border-box; }
+    body { margin:0; font-family:"Segoe UI",Tahoma,Arial,sans-serif; color:var(--ink); background:var(--bg); line-height:1.6; }
+    .wrap { max-width:980px; margin:0 auto; padding:18px; }
+    .topbar { display:flex; flex-wrap:wrap; gap:10px; align-items:center; margin-bottom:14px; padding:10px 12px; border:1px solid var(--line); background:#fff; border-radius:10px; }
+    .topbar a { color:var(--link); text-decoration:none; font-weight:600; }
+    article { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:20px; overflow-wrap:anywhere; }
+    h1,h2,h3 { line-height:1.25; }
+    pre { background:#0f172a; color:#e2e8f0; padding:12px; border-radius:8px; overflow:auto; }
+    code { font-family:Consolas,"Courier New",monospace; font-size:0.92em; }
+    a { color:var(--link); }
+    table { border-collapse:collapse; width:100%; display:block; overflow-x:auto; }
+    th,td { border:1px solid #cdd5e1; padding:6px 8px; text-align:left; vertical-align:top; }
+    .footer { margin-top:12px; color:var(--muted); font-size:0.92rem; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <nav class="topbar">
+      <a href="../index.html">Docs Home</a>
+      <a href="../user-manual.html">User Manual</a>
+      <a href="https://github.com/ApartsinProjects/Web2Comics" target="_blank" rel="noopener noreferrer">GitHub Repo</a>
+      <a href="https://github.com/ApartsinProjects/Web2Comics#readme" target="_blank" rel="noopener noreferrer">Project README</a>
+      <a href="https://www.apartsin.com" target="_blank" rel="noopener noreferrer">Creator Site</a>
+      <a href="../privacy.html">Privacy</a>
+      <a href="../support.html">Support</a>
+    </nav>
+    <article>
+<h1 id="web2comics-shared-engine">Web2Comics Shared Engine</h1>
+<p>The shared engine is the common comic-generation core used by both the Chrome extension and the Telegram bot.</p>
+<h2 id="product-boundaries">Product Boundaries</h2>
+<ul>
+<li>This document describes the shared engine as common infrastructure.</li>
+<li>Extension-specific UI behavior belongs in <a href="extension.html"><code>./extension.md</code></a>.</li>
+<li>Telegram-bot-specific transport, storage, and command behavior belongs in <a href="telegram-bot.html"><code>./telegram-bot.md</code></a>.</li>
+</ul>
+<h2 id="cross-references">Cross References</h2>
+<ul>
+<li>Extension overview: <a href="extension.html"><code>./extension.md</code></a></li>
+<li>Telegram bot overview: <a href="telegram-bot.html"><code>./telegram-bot.md</code></a></li>
+<li>Engine manual source: <a href="../engine/manual.md"><code>../engine/manual.md</code></a></li>
+</ul>
+<h2 id="what-the-engine-does">What The Engine Does</h2>
+<ul>
+<li>Accepts normalized source text or fetched content</li>
+<li>Builds storyboard prompts</li>
+<li>Calls configured text and image providers</li>
+<li>Produces storyboard data and composed comic output</li>
+<li>Provides shared prompt and composition behavior across products</li>
+</ul>
+<h2 id="where-it-is-used">Where It Is Used</h2>
+<ul>
+<li>Chrome extension: page extraction feeds into shared storyboard and panel-generation logic</li>
+<li>Telegram bot: text, URL, PDF, image, and voice extraction feed into the same shared generation core</li>
+</ul>
+<h2 id="primary-engine-reference">Primary Engine Reference</h2>
+<ul>
+<li>Full engine manual: <a href="../engine/manual.md"><code>../engine/manual.md</code></a></li>
+<li>Engine source: <a href="../engine/src/"><code>../engine/src/</code></a></li>
+<li>Engine CLI: <a href="../engine/cli/comic-engine-cli.js"><code>../engine/cli/comic-engine-cli.js</code></a></li>
+</ul>
+<h2 id="validation">Validation</h2>
+<ul>
+<li>Engine tests: <code>npm run test:engine</code></li>
+<li>Docs build consumers: extension and bot overview pages both reference this engine page</li>
+</ul>
+
+    </article>
+    <div class="footer">
+      Generated from <code>engine.md</code> •
+      <span>&copy; 2026 Alexander Apartsin</span> •
+      Creator: <a href="https://www.apartsin.com" target="_blank" rel="noopener noreferrer">www.apartsin.com</a>
+    </div>
+  </div>
+</body>
+</html>

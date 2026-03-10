@@ -1,15 +1,19 @@
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
+const yaml = require('js-yaml');
 const { loadEnvFiles, loadSecretValues } = require('./env');
 const { TelegramApi } = require('./telegram-api');
 const { RuntimeConfigStore } = require('./config-store');
+const { normalizeSecretKey } = require('./config-store');
 const { allOptionPaths, getOptions, parseUserValue, formatOptionsMessage, SECRET_KEYS } = require('./options');
 const {
   generatePanelsWithRuntimeConfig,
   inventStoryText,
   normalizeUrlExtractor,
-  warmupPlaywrightChromiumInBackground
+  normalizeEnrichmentProvider,
+  warmupPlaywrightChromiumInBackground,
+  isProviderOrModelFailure
 } = require('./generate');
 const { createPersistence } = require('./persistence');
 const { createBlacklistStoreFromEnv } = require('./blacklist-store');
@@ -19,17 +23,31 @@ const { createCrashLogStoreFromEnv, FileCrashLogStore } = require('./crash-log-s
 const { createRequestLogStoreFromEnv } = require('./request-log-store');
 const { createRuntimeLogStoreFromEnv } = require('./runtime-log-store');
 const { normalizeCloudflareR2Endpoint } = require('./r2-endpoint');
+const { storageDefaultsFromEnv } = require('./env-storage-defaults');
 const {
   classifyMessageInput,
-  isLikelyWebPageUrl,
   extractTextFallbackFromUrlMessage,
-  inferLikelyWebUrlFromText,
   extractMessageInputText
 } = require('./message-utils');
+const { decideInputIntent, NON_TEXT_SOURCE_TYPES } = require('./intent-routing');
+const {
+  normalizePdfExtractor,
+} = require('./pdf-extract');
+const {
+  normalizeImageExtractor,
+  normalizeVoiceExtractor,
+  detectStoryExtractionSource,
+  extractStoryFromSource,
+  extractImageFromTelegramMessage,
+  extractAudioFromTelegramMessage,
+  extractPdfFromTelegramDocument
+} = require('./story-extraction');
 const {
   PROVIDER_DEFAULT_MODELS,
   PROVIDER_MODEL_CATALOG,
   PROVIDER_REQUIRED_KEYS,
+  PROVIDER_TEXT_NAMES,
+  PROVIDER_IMAGE_NAMES,
   PROVIDER_NAMES
 } = require('./data/providers');
 const {
@@ -40,7 +58,8 @@ const {
   getStyleMeta
 } = require('./data/styles-objectives');
 const {
-  SHORT_STORY_PROMPT_MAX_CHARS
+  SHORT_STORY_PROMPT_MAX_CHARS,
+  SUMMARY_MIN_CHARS
 } = require('./data/thresholds');
 const {
   BOT_DISPLAY_NAME,
@@ -51,6 +70,7 @@ const {
 } = require('./data/messages');
 const { buildStoryboardPrompt } = require('../../engine/src/prompts');
 const { buildPanelImagePrompt, buildStyleReferencePrompt } = require('../../engine/src');
+const { sanitizeCanonicalStoryText } = require('../../engine/src/story-text');
 const { generateTextWithProvider, generateImageWithProvider } = require('../../engine/src/providers');
 const { buildInventStoryPrompt } = require('./generate');
 const { composeComicSheet } = require('../../engine/src/compose');
@@ -58,6 +78,7 @@ const packageJson = require('../../package.json');
 
 const repoRoot = path.resolve(__dirname, '../..');
 loadEnvFiles([
+  path.join(repoRoot, '.env.all'),
   path.join(repoRoot, '.env.e2e.local'),
   path.join(repoRoot, '.env.local'),
   path.join(repoRoot, '.crawler'),
@@ -77,6 +98,12 @@ loadSecretValues([
   'CLOUDFLARE_API_TOKEN',
   'FIRECRAWL_API_KEY',
   'JINA_API_KEY',
+  'DRIFTBOT_API_KEY',
+  'UNSTRUCTURED_API_KEY',
+  'LLAMA_CLOUD_API_KEY',
+  'ASSEMBLYAI_API_KEY',
+  'GROQ_API_KEY',
+  'COHERE_API_KEY',
   'R2_ACCESS_KEY_ID',
   'R2_SECRET_ACCESS_KEY'
 ]);
@@ -111,6 +138,7 @@ const allowedChatConfig = parseAllowedChats(
   process.env.COMICBOT_ALLOWED_CHAT_IDS,
   parseAllowAllFlag(process.env.RENDER_ALLOW_ALL_CHATS)
 );
+const storageDefaults = storageDefaultsFromEnv(process.env);
 
 const runtime = {
   repoRoot,
@@ -122,8 +150,8 @@ const runtime = {
   r2Bucket: String(process.env.R2_BUCKET || '').trim(),
   r2AccessKeyId: String(process.env.R2_ACCESS_KEY_ID || '').trim(),
   r2SecretAccessKey: String(process.env.R2_SECRET_ACCESS_KEY || '').trim(),
-  r2ImagePrefix: String(process.env.R2_IMAGE_PREFIX || 'images').trim(),
-  r2ImageStatusKey: String(process.env.R2_IMAGE_STATUS_KEY || 'status/image-storage-status.json').trim(),
+  r2ImagePrefix: String(process.env.R2_IMAGE_PREFIX || storageDefaults.imagePrefix).trim(),
+  r2ImageStatusKey: String(process.env.R2_IMAGE_STATUS_KEY || storageDefaults.imageStatusKey).trim(),
   fetchTimeoutMs: Math.max(5000, Number(process.env.RENDER_BOT_FETCH_TIMEOUT_MS || 45000)),
   debugArtifacts: String(process.env.RENDER_BOT_DEBUG_ARTIFACTS || '').toLowerCase() === 'true',
   allowedChatIds: allowedChatConfig.ids,
@@ -131,7 +159,7 @@ const runtime = {
 };
 const notifyOnStart = String(process.env.TELEGRAM_NOTIFY_ON_START || '').trim().toLowerCase() === 'true';
 const notifyChatId = Number(process.env.TELEGRAM_NOTIFY_CHAT_ID || 0);
-const adminChatIds = String(process.env.TELEGRAM_ADMIN_CHAT_IDS || '1796415913')
+const adminChatIds = String(process.env.TELEGRAM_ADMIN_CHAT_IDS || '')
   .split(',').map((v) => Number(v.trim())).filter((n) => Number.isFinite(n));
 if (Number.isFinite(notifyChatId) && notifyChatId > 0 && !adminChatIds.includes(notifyChatId)) {
   adminChatIds.push(notifyChatId);
@@ -166,7 +194,10 @@ const BOT_PROCESS_START_TIME = new Date().toISOString();
 const BOT_TEST_MODE = String(process.env.RENDER_BOT_TEST_MODE || process.env.RENDER_BOT_FAKE_GENERATOR || '')
   .trim()
   .toLowerCase() === 'true';
-const BOT_RAW_VERSION = String(packageJson && packageJson.version ? packageJson.version : '0.0.0');
+const BOT_RAW_VERSION = String(
+  process.env.RENDER_BOT_VERSION
+  || (packageJson && packageJson.version ? packageJson.version : '0.0.0')
+);
 const BOT_VERSION = (() => {
   const m = BOT_RAW_VERSION.match(/^(\d+)\.(\d+)/);
   if (!m) return BOT_RAW_VERSION;
@@ -331,6 +362,11 @@ function installRuntimeLogConsoleTee() {
 
 api.sendMessage = async (chatId, text, extra) => {
   const redacted = redactSensitiveText(text, collectSensitiveValues(chatId));
+  logRuntimeEvent('info', 'output_sent', {
+    chatId: Number(chatId || 0),
+    textPreview: previewForLog(redacted, 500),
+    hasExtra: Boolean(extra)
+  });
   return rawSendMessage(chatId, redacted, extra);
 };
 
@@ -446,6 +482,266 @@ async function seedAdminRuntimeSecretsFromEnv() {
 }
 
 const chatQueues = new Map();
+const SECRET_KEY_ALIAS_LIST = ['CLOUDFLARE_WORKERS_AI_TOKEN', 'LLAMAPARSE_API_KEY', 'HUGGINGFACE_API_KEY'];
+const SUPPORTED_SECRET_KEYS_FOR_COMMANDS = [...new Set([...SECRET_KEYS, ...SECRET_KEY_ALIAS_LIST])];
+
+const VENDOR_ROLE_ALIASES = {
+  text: 'text',
+  txt: 'text',
+  image: 'image',
+  img: 'image',
+  url: 'url',
+  web: 'url',
+  page: 'url',
+  extractor: 'url',
+  pdf: 'pdf',
+  pdf_extractor: 'pdf',
+  image_extract: 'image_extract',
+  image_extractor: 'image_extract',
+  vision_extract: 'image_extract',
+  voice: 'voice',
+  audio: 'voice',
+  voice_extractor: 'voice',
+  enrich: 'enrich',
+  enrichment: 'enrich',
+  enrich_fallback: 'enrich_fallback',
+  enrichment_fallback: 'enrich_fallback'
+};
+
+const VENDOR_ROLE_REQUIRED_KEYS = {
+  url: {
+    gemini: ['GEMINI_API_KEY'],
+    firecrawl: ['FIRECRAWL_API_KEY'],
+    jina: ['JINA_API_KEY'],
+    diffbot: ['DRIFTBOT_API_KEY'],
+    driftbot: ['DRIFTBOT_API_KEY'],
+    chromium: []
+  },
+  pdf: {
+    llamaparse: ['LLAMA_CLOUD_API_KEY'],
+    unstructured: ['UNSTRUCTURED_API_KEY']
+  },
+  image_extract: {
+    gemini: ['GEMINI_API_KEY'],
+    openai: ['OPENAI_API_KEY']
+  },
+  voice: {
+    assemblyai: ['ASSEMBLYAI_API_KEY']
+  },
+  enrich: {
+    wikipedia: [],
+    wikidata: [],
+    dbpedia: [],
+    gdelt: [],
+    googlekg: ['GOOGLE_KG_API_KEY'],
+    jina: ['JINA_API_KEY'],
+    firecrawl: ['FIRECRAWL_API_KEY'],
+    brave: ['BRAVE_SEARCH_API_KEY'],
+    tavily: ['TAVILY_API_KEY'],
+    exa: ['EXA_API_KEY'],
+    serper: ['SERPER_API_KEY'],
+    serpapi: ['SERPAPI_API_KEY'],
+    diffbot: ['DRIFTBOT_API_KEY'],
+    driftbot: ['DRIFTBOT_API_KEY'],
+    gemini: ['GEMINI_API_KEY']
+  },
+  enrich_fallback: {
+    wikipedia: [],
+    wikidata: [],
+    dbpedia: [],
+    gdelt: [],
+    googlekg: ['GOOGLE_KG_API_KEY'],
+    jina: ['JINA_API_KEY'],
+    firecrawl: ['FIRECRAWL_API_KEY'],
+    brave: ['BRAVE_SEARCH_API_KEY'],
+    tavily: ['TAVILY_API_KEY'],
+    exa: ['EXA_API_KEY'],
+    serper: ['SERPER_API_KEY'],
+    serpapi: ['SERPAPI_API_KEY'],
+    diffbot: ['DRIFTBOT_API_KEY'],
+    driftbot: ['DRIFTBOT_API_KEY'],
+    gemini: ['GEMINI_API_KEY']
+  }
+};
+
+const PROVIDER_ROTATION_META_KEY = 'provider_rotation_state_v1';
+const PROVIDER_ROTATION_PRIORITY = {
+  text: ['gemini', 'cloudflare', 'openai', 'groq', 'cohere', 'openrouter', 'huggingface'],
+  image: ['gemini', 'cloudflare', 'openai', 'openrouter', 'huggingface']
+};
+
+function parseProviderRotationState(raw) {
+  const value = String(raw || '').trim();
+  if (!value) return {};
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch (_) {
+    return {};
+  }
+}
+
+function getProviderRotationState() {
+  return parseProviderRotationState(configStore.getMeta(PROVIDER_ROTATION_META_KEY));
+}
+
+async function saveProviderRotationState(state) {
+  const safe = state && typeof state === 'object' ? state : {};
+  await configStore.setMetaValue(PROVIDER_ROTATION_META_KEY, JSON.stringify(safe));
+}
+
+function getProviderRotationOrder(role) {
+  const key = String(role || '').trim().toLowerCase();
+  const list = Array.isArray(PROVIDER_ROTATION_PRIORITY[key]) ? PROVIDER_ROTATION_PRIORITY[key] : [];
+  return list.filter((provider, idx, arr) => provider && arr.indexOf(provider) === idx);
+}
+
+function isProviderUsableForRole(chatId, role, provider) {
+  const key = String(role || '').trim().toLowerCase();
+  const name = String(provider || '').trim().toLowerCase();
+  if (!key || !name) return false;
+  const model = String((PROVIDER_DEFAULT_MODELS[name] || {})[key] || '').trim();
+  if (!model) return false;
+  const missing = getMissingProviderKeys(chatId, name);
+  return missing.length === 0;
+}
+
+function resolveProviderModel(role, provider) {
+  const key = String(role || '').trim().toLowerCase();
+  const name = String(provider || '').trim().toLowerCase();
+  return String((PROVIDER_DEFAULT_MODELS[name] || {})[key] || '').trim();
+}
+
+function resolveRoleSelectionFromState(chatId, role, currentConfig, state) {
+  const key = String(role || '').trim().toLowerCase();
+  const baseProvider = String(currentConfig?.providers?.[key]?.provider || '').trim().toLowerCase();
+  const baseModel = String(currentConfig?.providers?.[key]?.model || '').trim();
+  const order = getProviderRotationOrder(key);
+  const preferred = String(state?.[key]?.provider || '').trim().toLowerCase();
+
+  const candidates = [
+    preferred,
+    baseProvider,
+    ...order
+  ].filter((v, idx, arr) => v && arr.indexOf(v) === idx);
+
+  for (const provider of candidates) {
+    if (!isProviderUsableForRole(chatId, key, provider)) continue;
+    const model = resolveProviderModel(key, provider) || baseModel;
+    if (!model) continue;
+    return { provider, model };
+  }
+
+  if (baseProvider && baseModel) return { provider: baseProvider, model: baseModel };
+  for (const provider of order) {
+    const model = resolveProviderModel(key, provider);
+    if (!provider || !model) continue;
+    return { provider, model };
+  }
+  const emergencyProvider = 'gemini';
+  return {
+    provider: emergencyProvider,
+    model: resolveProviderModel(key, emergencyProvider) || ''
+  };
+}
+
+function applyProviderRotationToConfig(chatId, config, state) {
+  const next = JSON.parse(JSON.stringify(config || {}));
+  if (!next.providers || typeof next.providers !== 'object') next.providers = {};
+  if (!next.providers.text || typeof next.providers.text !== 'object') next.providers.text = {};
+  if (!next.providers.image || typeof next.providers.image !== 'object') next.providers.image = {};
+
+  const textSel = resolveRoleSelectionFromState(chatId, 'text', next, state);
+  const imageSel = resolveRoleSelectionFromState(chatId, 'image', next, state);
+  if (textSel.provider) {
+    next.providers.text.provider = textSel.provider;
+    next.providers.text.model = textSel.model;
+  }
+  if (imageSel.provider) {
+    next.providers.image.provider = imageSel.provider;
+    next.providers.image.model = imageSel.model;
+  }
+  return {
+    config: next,
+    selected: {
+      text: textSel,
+      image: imageSel
+    }
+  };
+}
+
+async function writeRotatedEffectiveConfigFile(chatId, outPath) {
+  const effective = configStore.getEffectiveConfig(chatId);
+  const state = getProviderRotationState();
+  const rotated = applyProviderRotationToConfig(chatId, effective, state);
+  const resolved = path.resolve(outPath);
+  fs.mkdirSync(path.dirname(resolved), { recursive: true });
+  fs.writeFileSync(resolved, yaml.dump(rotated.config, { lineWidth: 140 }), 'utf8');
+  return {
+    configPath: resolved,
+    config: rotated.config,
+    selected: rotated.selected
+  };
+}
+
+async function persistRotationSuccess(selected) {
+  const current = getProviderRotationState();
+  const now = new Date().toISOString();
+  const next = { ...current };
+  const textSel = selected && selected.text ? selected.text : null;
+  const imageSel = selected && selected.image ? selected.image : null;
+  if (textSel && textSel.provider && textSel.model) {
+    next.text = { provider: textSel.provider, model: textSel.model, updatedAt: now };
+  }
+  if (imageSel && imageSel.provider && imageSel.model) {
+    next.image = { provider: imageSel.provider, model: imageSel.model, updatedAt: now };
+  }
+  await saveProviderRotationState(next);
+}
+
+function inferFailedProviderRole(errorLike) {
+  const msg = String(errorLike?.message || errorLike || '').toLowerCase();
+  if (!msg) return '';
+  if (msg.includes('panel image') || msg.includes('image provider') || msg.includes('image generation')) return 'image';
+  if (
+    msg.includes('storyboard generation')
+    || msg.includes('story invention')
+    || msg.includes('text provider')
+    || msg.includes('text generation')
+  ) return 'text';
+  return '';
+}
+
+async function advanceProviderRotation(chatId, role, failedSelection) {
+  const key = String(role || '').trim().toLowerCase();
+  if (key !== 'text' && key !== 'image') return null;
+  const failedProvider = String(failedSelection?.provider || '').trim().toLowerCase();
+  const order = getProviderRotationOrder(key);
+  if (!failedProvider || !order.length) return null;
+  const idx = order.indexOf(failedProvider);
+  if (idx < 0) return null;
+
+  for (let i = idx + 1; i < order.length; i += 1) {
+    const candidate = order[i];
+    if (!isProviderUsableForRole(chatId, key, candidate)) continue;
+    const model = resolveProviderModel(key, candidate);
+    if (!model) continue;
+    const state = getProviderRotationState();
+    const now = new Date().toISOString();
+    const next = {
+      ...state,
+      [key]: {
+        provider: candidate,
+        model,
+        updatedAt: now,
+        reason: `failover_from_${failedProvider}`
+      }
+    };
+    await saveProviderRotationState(next);
+    return { role: key, from: failedProvider, to: candidate, model };
+  }
+  return null;
+}
 
 function getMissingProviderKeys(chatId, providerName) {
   const provider = String(providerName || '').trim().toLowerCase();
@@ -601,6 +897,32 @@ function classifyIncoming(text) {
   return { kind: 'text', command: '' };
 }
 
+function previewForLog(value, maxLen = 400) {
+  const raw = String(value == null ? '' : value).replace(/\s+/g, ' ').trim();
+  if (!raw) return '';
+  return raw.length > maxLen ? `${raw.slice(0, maxLen)}...` : raw;
+}
+
+function logRuntimeEvent(level, event, payload = {}) {
+  const lvl = String(level || 'info').trim().toLowerCase();
+  const eventName = String(event || 'runtime_event').trim();
+  const body = payload && typeof payload === 'object' ? payload : { value: String(payload || '') };
+  const msg = JSON.stringify({ event: eventName, ...body });
+  if (lvl === 'error') console.error('[render-bot:event]', msg);
+  else if (lvl === 'warn') console.warn('[render-bot:event]', msg);
+  else console.log('[render-bot:event]', msg);
+  if (runtimeLogStore && typeof runtimeLogStore.append === 'function') {
+    try {
+      runtimeLogStore.append({
+        timestamp: new Date().toISOString(),
+        level: lvl,
+        event: eventName,
+        message: redactSensitiveText(msg, collectSensitiveValues(0)).slice(0, 8000)
+      });
+    } catch (_) {}
+  }
+}
+
 function buildTestSourceEchoText(message, incoming) {
   const chatId = Number(message?.chat?.id || 0);
   const userId = Number(message?.from?.id || chatId || 0);
@@ -626,10 +948,88 @@ function formatProviderFallbackMessage(info) {
   return `Provider issue detected (${shortReason}). Switched from ${from} to ${to}.`;
 }
 
+function classifyProviderRotationReason(errorLike) {
+  const msg = String(errorLike?.message || errorLike || '').trim().toLowerCase();
+  if (!msg) return '';
+  if (
+    msg.includes('rate limit')
+    || msg.includes('quota')
+    || msg.includes('rpd')
+    || msg.includes('429')
+    || msg.includes('too many requests')
+  ) return 'rate_limit';
+  if (
+    msg.includes('unauthorized')
+    || msg.includes('authentication')
+    || msg.includes('forbidden')
+    || msg.includes('invalid api key')
+    || msg.includes('missing ')
+    || msg.includes('401')
+    || msg.includes('403')
+  ) return 'auth';
+  if (
+    msg.includes('timeout')
+    || msg.includes('timed out')
+    || msg.includes('etimedout')
+    || msg.includes('econnreset')
+    || msg.includes('abort')
+  ) return 'timeout';
+  if (
+    msg.includes('model')
+    || msg.includes('unsupported')
+    || msg.includes('not found')
+    || msg.includes('404')
+  ) return 'model';
+  if (
+    msg.includes('503')
+    || msg.includes('502')
+    || msg.includes('500')
+    || msg.includes('service unavailable')
+    || msg.includes('gateway')
+  ) return 'provider';
+  return 'provider';
+}
+
+function formatProviderRotationRetryMessage(role, fromProvider, toProvider, errorLike) {
+  const roleText = String(role || 'text').trim();
+  const fromText = String(fromProvider || 'unknown').trim();
+  const toText = String(toProvider || 'unknown').trim();
+  const reason = classifyProviderRotationReason(errorLike);
+  const suffix = reason ? ` Reason: ${reason}.` : '';
+  return `Provider rotated for ${roleText}: ${fromText} -> ${toText}. Retrying...${suffix}`;
+}
+
 function formatExtractorFallbackMessage(info) {
   const from = String(info?.from || 'unknown').trim();
   const to = String(info?.to || 'chromium').trim();
   return `URL extractor issue detected. Switched from ${from} to ${to}.`;
+}
+
+function formatPdfExtractorFallbackMessage(info) {
+  const from = String(info?.from || 'unknown').trim();
+  const to = String(info?.to || 'llamaparse').trim();
+  return `PDF extractor issue detected. Switched from ${from} to ${to}.`;
+}
+
+function formatImageExtractorFallbackMessage(info) {
+  const from = String(info?.from || 'unknown').trim();
+  const to = String(info?.to || 'gemini').trim();
+  return `Image extractor issue detected. Switched from ${from} to ${to}.`;
+}
+
+function formatEnrichmentMessage(info) {
+  const selected = String(info?.selectedProvider || '').trim();
+  const used = String(info?.usedProvider || '').trim();
+  const count = Number(info?.contextItems || 0);
+  if (!selected) return '';
+  if (used) {
+    if (selected !== used) {
+      return `Short-prompt enrichment: switched ${selected} -> ${used} (${count} context items).`;
+    }
+    return `Short-prompt enrichment: ${used} (${count} context items).`;
+  }
+  const reason = String(info?.reason || 'no_context').trim();
+  return `Short-prompt enrichment unavailable (${selected}): ${reason}. Using original prompt.`;
 }
 
 function isShortTextPrompt(text) {
@@ -648,6 +1048,116 @@ function formatInventedStoryMessage(storyText) {
   ].join('\n');
 }
 
+function isFakeGeneratorMode() {
+  return String(process.env.RENDER_BOT_FAKE_GENERATOR || '').trim().toLowerCase() === 'true';
+}
+
+function sanitizeSummaryText(text) {
+  return sanitizeCanonicalStoryText(text, { maxChars: 12000 });
+}
+
+function summarizeHeuristically(text) {
+  const cleaned = String(text || '').replace(/\s+/g, ' ').trim();
+  if (!cleaned) return '';
+  const sentences = cleaned.split(/(?<=[.!?])\s+/).filter(Boolean);
+  if (!sentences.length) return cleaned.slice(0, 2200);
+  return sentences.slice(0, Math.min(10, sentences.length)).join(' ').trim();
+}
+
+function buildKeyPointsSummaryPrompt(sourceText, cfg = {}) {
+  const objective = String(cfg?.generation?.objective || 'explain-like-im-five').trim();
+  const language = String(cfg?.generation?.output_language || 'auto').trim();
+  const detail = String(cfg?.generation?.detail_level || 'low').trim();
+  const source = String(sourceText || '').trim();
+  const capped = source.length > 12000 ? `${source.slice(0, 12000)}\n...[truncated]` : source;
+  return [
+    'Summarize the extracted content into concise key points for comic storyboard generation.',
+    'Return plain text only (no JSON, no markdown, no bullet list markers).',
+    'Keep factual grounding and chronological coherence.',
+    `Objective: ${objective}`,
+    `Output language: ${language}`,
+    `Detail level: ${detail}`,
+    '',
+    'Extracted content:',
+    capped
+  ].join('\n');
+}
+
+async function summarizeExtractedForStoryboard(sourceText, effectiveConfig, effectiveConfigPath, options = {}) {
+  const source = sanitizeCanonicalStoryText(sourceText, { maxChars: 12000 });
+  if (!source) throw new Error('Cannot summarize empty extracted text');
+  if (source.length >= SUMMARY_MIN_CHARS && source.length <= 12000) {
+    return {
+      text: source,
+      method: 'canonical_source',
+      sourceChars: source.length,
+      summaryChars: source.length,
+      reason: ''
+    };
+  }
+
+  if (isFakeGeneratorMode()) {
+    const local = sanitizeSummaryText(summarizeHeuristically(source));
+    const finalText = local || source;
+    return {
+      text: finalText,
+      method: 'heuristic',
+      sourceChars: source.length,
+      summaryChars: finalText.length,
+      reason: ''
+    };
+  }
+
+  const requestedProvider = String(effectiveConfig?.providers?.text?.provider || '').trim().toLowerCase();
+  const provider = PROVIDER_NAMES.includes(requestedProvider) ? requestedProvider : 'gemini';
+  const requestedModel = String(effectiveConfig?.providers?.text?.model || '').trim();
+  const model = requestedModel || resolveProviderModel('text', provider) || '';
+  if (!requestedProvider || requestedProvider !== provider) {
+    console.warn('[render-bot] summary_text_provider_fallback', JSON.stringify({
+      requestedProvider: requestedProvider || '(empty)',
+      fallbackProvider: provider
+    }));
+  }
+  const prompt = buildKeyPointsSummaryPrompt(source, effectiveConfig);
+  const raw = await generateTextWithProvider(provider, model, prompt, {
+    temperature: 0.2,
+    maxOutputTokens: 1800
+  });
+  let summary = sanitizeSummaryText(raw);
+  let method = 'llm';
+  let reason = '';
+
+  if (summary.length < SUMMARY_MIN_CHARS) {
+    try {
+      const invented = await inventStoryText(summary || source, effectiveConfigPath, {
+        onFallback: options.onFallback,
+        onEnrichment: options.onEnrichment
+      });
+      const improved = sanitizeSummaryText(invented);
+      if (improved.length >= SUMMARY_MIN_CHARS) {
+        summary = improved;
+        method = 'invent_fallback';
+      } else {
+        summary = source;
+        method = 'source_fallback';
+        reason = 'invented_summary_too_short';
+      }
+    } catch (error) {
+      summary = source;
+      method = 'source_fallback';
+      reason = String(error?.message || error).slice(0, 220);
+    }
+  }
+
+  return {
+    text: summary,
+    method,
+    sourceChars: source.length,
+    summaryChars: String(summary || '').length,
+    reason
+  };
+}
+
 function isAdminChat(chatId) {
   return adminChatIds.includes(Number(chatId));
 }
@@ -661,6 +1171,22 @@ function commandHelp(chatId) {
     objectiveShortcutLines,
     styleShortcutLines
   });
+}
+
+function onboardingDefaults(chatId) {
+  const cfg = configStore.getEffectiveConfig(chatId);
+  return {
+    textProvider: String(cfg?.providers?.text?.provider || 'gemini').trim().toLowerCase(),
+    textModel: String(cfg?.providers?.text?.model || '').trim(),
+    imageProvider: String(cfg?.providers?.image?.provider || 'gemini').trim().toLowerCase(),
+    imageModel: String(cfg?.providers?.image?.model || '').trim(),
+    extractor: normalizeUrlExtractor(cfg?.generation?.url_extractor || 'jina'),
+    pdfExtractor: normalizePdfExtractor(cfg?.generation?.pdf_extractor || 'llamaparse'),
+    imageExtractor: normalizeImageExtractor(cfg?.generation?.image_extractor || 'gemini'),
+    voiceExtractor: normalizeVoiceExtractor(cfg?.generation?.voice_extractor || 'assemblyai'),
+    enrichmentProvider: String(cfg?.generation?.enrichment_provider || 'wikipedia').trim().toLowerCase(),
+    enrichmentFallback: String(cfg?.generation?.enrichment_fallback_provider || 'gemini').trim().toLowerCase()
+  };
 }
 
 function keysStatusMessage(chatId) {
@@ -730,6 +1256,17 @@ function normalizeCommandToken(rawToken) {
   return token;
 }
 
+function getLegacyVendorAliasInfo(command) {
+  const cmd = String(command || '').trim().toLowerCase();
+  if (cmd === '/text_vendor') return { role: 'text', hint: 'Tip: use /vendor text <name>' };
+  if (cmd === '/image_vendor') return { role: 'image', hint: 'Tip: use /vendor image <name>' };
+  if (cmd === '/extractor' || cmd === '/exractor') return { role: 'url', hint: 'Tip: use /vendor url <name>' };
+  if (cmd === '/pdf_extractor' || cmd === '/pdfextractor') return { role: 'pdf', hint: 'Tip: use /vendor pdf <name>' };
+  if (cmd === '/image_extractor' || cmd === '/imageextractor') return { role: 'image_extract', hint: 'Tip: use /vendor image_extract <name>' };
+  if (cmd === '/voice_extractor' || cmd === '/voiceextractor') return { role: 'voice', hint: 'Tip: use /vendor voice <name>' };
+  return null;
+}
+
 function listModelsForProvider(providerName, kind, includeCurrent = '') {
   const provider = String(providerName || '').trim().toLowerCase();
   const section = String(kind || '').trim().toLowerCase();
@@ -738,6 +1275,70 @@ function listModelsForProvider(providerName, kind, includeCurrent = '') {
   const current = String(includeCurrent || '').trim();
   if (current) uniq.add(current);
   return Array.from(uniq);
+}
+
+function resolveExtractorModelSpec(chatId, target) {
+  const role = String(target || '').trim().toLowerCase();
+  if (role === 'url') {
+    const vendor = String(configStore.getCurrent(chatId, 'generation.url_extractor') || '').trim().toLowerCase();
+    if (vendor !== 'gemini') return null;
+    return {
+      role,
+      label: 'URL extraction',
+      vendor,
+      path: 'generation.url_extractor_gemini_model',
+      optionsPath: 'generation.url_extractor_gemini_model'
+    };
+  }
+  if (role === 'image_extract') {
+    const vendor = String(configStore.getCurrent(chatId, 'generation.image_extractor') || '').trim().toLowerCase();
+    if (vendor === 'gemini') {
+      return {
+        role,
+        label: 'Image story extraction',
+        vendor,
+        path: 'generation.image_extractor_gemini_model',
+        optionsPath: 'generation.image_extractor_gemini_model'
+      };
+    }
+    if (vendor === 'openai') {
+      return {
+        role,
+        label: 'Image story extraction',
+        vendor,
+        path: 'generation.image_extractor_openai_model',
+        optionsPath: 'generation.image_extractor_openai_model'
+      };
+    }
+    return null;
+  }
+  if (role === 'pdf') {
+    const vendor = String(configStore.getCurrent(chatId, 'generation.pdf_extractor') || '').trim().toLowerCase();
+    if (vendor === 'unstructured') {
+      return {
+        role,
+        label: 'PDF extraction',
+        vendor,
+        path: 'generation.pdf_extractor_unstructured_strategy',
+        optionsPath: 'generation.pdf_extractor_unstructured_strategy'
+      };
+    }
+    return null;
+  }
+  if (role === 'voice') {
+    const vendor = String(configStore.getCurrent(chatId, 'generation.voice_extractor') || '').trim().toLowerCase();
+    if (vendor === 'assemblyai') {
+      return {
+        role,
+        label: 'Voice extraction',
+        vendor,
+        path: 'generation.voice_extractor_assemblyai_model',
+        optionsPath: 'generation.voice_extractor_assemblyai_model'
+      };
+    }
+    return null;
+  }
+  return null;
 }
 
 function buildModelsStatusMessage(chatId, target = '') {
@@ -753,8 +1354,9 @@ function buildModelsStatusMessage(chatId, target = '') {
     ''
   ];
 
-  const includeText = !target || target === 'text';
-  const includeImage = !target || target === 'image';
+  const normalizedTarget = String(target || '').trim().toLowerCase();
+  const includeText = !normalizedTarget || normalizedTarget === 'text';
+  const includeImage = !normalizedTarget || normalizedTarget === 'image';
   if (includeText) {
     const models = listModelsForProvider(textProvider, 'text', textModel);
     lines.push(`Text models for ${textProvider || '-'}: ${models.length ? models.join(', ') : 'none'}`);
@@ -763,10 +1365,28 @@ function buildModelsStatusMessage(chatId, target = '') {
     const models = listModelsForProvider(imageProvider, 'image', imageModel);
     lines.push(`Image models for ${imageProvider || '-'}: ${models.length ? models.join(', ') : 'none'}`);
   }
+  const extractorTargets = ['url', 'image_extract', 'pdf', 'voice'];
+  extractorTargets.forEach((role) => {
+    if (normalizedTarget && normalizedTarget !== role) return;
+    const spec = resolveExtractorModelSpec(chatId, role);
+    if (!spec) {
+      if (!normalizedTarget) {
+        lines.push(`${role} model controls: not available for current vendor.`);
+      }
+      return;
+    }
+    const current = String(configStore.getCurrent(chatId, spec.path) || '').trim();
+    const options = getOptions(spec.optionsPath);
+    lines.push(`${spec.label} (${spec.vendor}) model config [${spec.path}]: current=${current || '-'}; allowed=${options.join(', ') || 'none'}`);
+  });
   lines.push('');
   lines.push('Usage: /models');
   lines.push('Usage: /models text <model>');
   lines.push('Usage: /models image <model>');
+  lines.push('Usage: /models url <model>');
+  lines.push('Usage: /models image_extract <model>');
+  lines.push('Usage: /models pdf <model>');
+  lines.push('Usage: /models voice <model>');
   return lines.join('\n');
 }
 
@@ -778,7 +1398,12 @@ function shortenProbeError(errorLike) {
 
 function getProbeTargets() {
   const out = [];
-  for (const provider of PROVIDER_NAMES) {
+  const providerSet = new Set([
+    ...Object.keys(PROVIDER_MODEL_CATALOG || {}),
+    ...PROVIDER_TEXT_NAMES,
+    ...PROVIDER_IMAGE_NAMES
+  ]);
+  for (const provider of providerSet) {
     const section = PROVIDER_MODEL_CATALOG[provider] || {};
     const textModels = Array.isArray(section.text) ? section.text : [];
     const imageModels = Array.isArray(section.image) ? section.image : [];
@@ -803,6 +1428,17 @@ async function runProviderAvailabilityCheck(chatId) {
   configStore.applySecretsToEnv(chatId);
   const lines = ['Availability report:'];
   const targets = getProbeTargets();
+  if (BOT_TEST_MODE) {
+    for (const target of targets) {
+      const missing = getMissingProviderKeys(chatId, target.provider);
+      if (missing.length) {
+        lines.push(`[SKIP] ${target.provider}/${target.kind}/${target.model} :: missing keys: ${missing.join(', ')}`);
+      } else {
+        lines.push(`[OK] ${target.provider}/${target.kind}/${target.model} :: test-mode preflight`);
+      }
+    }
+    return lines.join('\n');
+  }
   const runtimeConfig = { timeout_ms: 45000 };
 
   for (const target of targets) {
@@ -845,6 +1481,12 @@ async function applyProvider(chatId, providerName, applyText, applyImage) {
   if (!defaults) {
     throw new Error(`Unknown provider '${providerName}'. Use: ${PROVIDER_NAMES.join(', ')}`);
   }
+  if (applyText && !String(defaults.text || '').trim()) {
+    throw new Error(`Provider '${providerName}' does not support text generation`);
+  }
+  if (applyImage && !String(defaults.image || '').trim()) {
+    throw new Error(`Provider '${providerName}' does not support image generation`);
+  }
   if (applyText) {
     await configStore.setConfigValue(chatId, 'providers.text.provider', key);
     await configStore.setConfigValue(chatId, 'providers.text.model', defaults.text);
@@ -857,7 +1499,11 @@ async function applyProvider(chatId, providerName, applyText, applyImage) {
 }
 
 function onboardingMessage(chatId) {
-  return buildOnboardingMessage(chatId, { isAdmin: isAdminChat(chatId), promptManualUrl: PROMPT_MANUAL_URL });
+  return buildOnboardingMessage(chatId, {
+    isAdmin: isAdminChat(chatId),
+    promptManualUrl: PROMPT_MANUAL_URL,
+    defaults: onboardingDefaults(chatId)
+  });
 }
 
 function formatUsersMessage() {
@@ -998,6 +1644,9 @@ function summarizeConfig(cfg) {
     `obj=${cfg?.generation?.objective}`,
     `lang=${cfg?.generation?.output_language}`,
     `extractor=${normalizeUrlExtractor(cfg?.generation?.url_extractor || 'gemini')}`,
+    `pdf_extractor=${normalizePdfExtractor(cfg?.generation?.pdf_extractor || 'llamaparse')}`,
+    `image_extractor=${normalizeImageExtractor(cfg?.generation?.image_extractor || 'gemini')}`,
+    `voice_extractor=${normalizeVoiceExtractor(cfg?.generation?.voice_extractor || 'assemblyai')}`,
     `text=${cfg?.providers?.text?.provider}/${cfg?.providers?.text?.model}`,
     `image=${cfg?.providers?.image?.provider}/${cfg?.providers?.image?.model}`
   ];
@@ -1023,6 +1672,9 @@ function compactConfigString(cfg) {
     `l:${cfg?.generation?.output_language || '-'}`,
     `m:${cfg?.generation?.delivery_mode || 'default'}`,
     `x:${normalizeUrlExtractor(cfg?.generation?.url_extractor || 'gemini')}`,
+    `px:${normalizePdfExtractor(cfg?.generation?.pdf_extractor || 'llamaparse')}`,
+    `ix:${normalizeImageExtractor(cfg?.generation?.image_extractor || 'gemini')}`,
+    `vx:${normalizeVoiceExtractor(cfg?.generation?.voice_extractor || 'assemblyai')}`,
     `d:${cfg?.generation?.detail_level || '-'}`,
     `c:${cfg?.runtime?.image_concurrency ?? '-'}`,
     `r:${cfg?.runtime?.retries ?? '-'}`
@@ -1040,12 +1692,140 @@ function explainSummaryLineMessage() {
     'l:<output_language>',
     'm:<delivery_mode>',
     'x:<url_extractor>',
+    'px:<pdf_extractor>',
+    'ix:<image_extractor>',
+    'vx:<voice_extractor>',
     'd:<detail_level>',
     'c:<image_concurrency>',
     'r:<retries>',
     '',
     'Example:',
-    't:gemini/gemini-2.5-flash i:gemini/gemini-2.0-flash-exp-image-generation p:8 o:explain-like-im-five s:classic l:auto m:default d:low c:3 r:1'
+    't:gemini/gemini-2.5-flash i:gemini/gemini-2.0-flash-exp-image-generation p:8 o:explain-like-im-five s:classic l:auto m:default x:jina px:llamaparse ix:gemini d:low c:3 r:1'
+  ].join('\n');
+}
+
+function normalizeVendorRole(rawRole) {
+  const key = String(rawRole || '')
+    .trim()
+    .toLowerCase()
+    .replace(/-/g, '_')
+    .replace(/[^a-z0-9_]/g, '');
+  return VENDOR_ROLE_ALIASES[key] || '';
+}
+
+function getVendorRoleSpec(role) {
+  switch (String(role || '').trim().toLowerCase()) {
+    case 'text':
+      return { role: 'text', path: 'providers.text.provider', options: PROVIDER_TEXT_NAMES.slice(), label: 'Text generation' };
+    case 'image':
+      return { role: 'image', path: 'providers.image.provider', options: PROVIDER_IMAGE_NAMES.slice(), label: 'Image generation' };
+    case 'url':
+      return { role: 'url', path: 'generation.url_extractor', options: getOptions('generation.url_extractor'), label: 'Web page extraction' };
+    case 'pdf':
+      return { role: 'pdf', path: 'generation.pdf_extractor', options: getOptions('generation.pdf_extractor'), label: 'PDF extraction' };
+    case 'image_extract':
+      return { role: 'image_extract', path: 'generation.image_extractor', options: getOptions('generation.image_extractor'), label: 'Image story extraction' };
+    case 'voice':
+      return { role: 'voice', path: 'generation.voice_extractor', options: getOptions('generation.voice_extractor'), label: 'Voice/audio extraction' };
+    case 'enrich':
+      return { role: 'enrich', path: 'generation.enrichment_provider', options: getOptions('generation.enrichment_provider'), label: 'Short-prompt enrichment' };
+    case 'enrich_fallback':
+      return { role: 'enrich_fallback', path: 'generation.enrichment_fallback_provider', options: getOptions('generation.enrichment_fallback_provider'), label: 'Enrichment fallback' };
+    default:
+      return null;
+  }
+}
+
+function normalizeVendorValueForRole(role, rawVendor) {
+  const raw = String(rawVendor || '').trim().toLowerCase();
+  if (!raw) return raw;
+  switch (role) {
+    case 'url':
+      return normalizeUrlExtractor(raw);
+    case 'pdf':
+      return normalizePdfExtractor(raw);
+    case 'image_extract':
+      return normalizeImageExtractor(raw);
+    case 'voice':
+      return normalizeVoiceExtractor(raw);
+    default:
+      return raw;
+  }
+}
+
+function getMissingSecretsFromList(chatId, requiredKeys) {
+  const keys = Array.isArray(requiredKeys) ? requiredKeys : [];
+  if (!keys.length) return [];
+  const status = configStore.getSecretsStatus(chatId);
+  return keys.filter((key) => {
+    const statusEntry = status[key];
+    if (statusEntry && statusEntry.hasValue) return false;
+    if (String(process.env[key] || '').trim()) return false;
+    if (key === 'LLAMA_CLOUD_API_KEY' && String(process.env.LLAMAPARSE_API_KEY || '').trim()) return false;
+    return true;
+  });
+}
+
+function getMissingRoleVendorKeys(chatId, role, vendor) {
+  const r = String(role || '').trim().toLowerCase();
+  const v = String(vendor || '').trim().toLowerCase();
+  if (!r || !v) return [];
+  if (r === 'text' || r === 'image') return getMissingProviderKeys(chatId, v);
+  const required = ((VENDOR_ROLE_REQUIRED_KEYS[r] || {})[v]) || [];
+  return getMissingSecretsFromList(chatId, required);
+}
+
+function roleVendorProvisioningMessage(role, vendor, missingKeys) {
+  const roleName = String(role || '').trim();
+  const provider = String(vendor || '').trim().toLowerCase();
+  const missing = (Array.isArray(missingKeys) ? missingKeys : []).filter(Boolean);
+  const keyLabel = missing.join(', ') || 'provider key';
+  return [
+    `Vendor switch blocked for ${roleName}: missing ${keyLabel}.`,
+    `Provision key(s) first, then retry /vendor ${roleName} ${provider}.`,
+    `Manual: ${PROMPT_MANUAL_URL}`
+  ].join('\n');
+}
+
+function getCurrentVendorForRole(chatId, role) {
+  const spec = getVendorRoleSpec(role);
+  if (!spec) return '';
+  return String(configStore.getCurrent(chatId, spec.path) || '').trim().toLowerCase();
+}
+
+function buildVendorOverviewMessage(chatId) {
+  const roles = ['text', 'image', 'url', 'pdf', 'image_extract', 'voice', 'enrich', 'enrich_fallback'];
+  const lines = [
+    'Vendor roles (current):',
+    ...roles.map((role) => {
+      const spec = getVendorRoleSpec(role);
+      const current = getCurrentVendorForRole(chatId, role) || '-';
+      return `- ${role}: ${current}${spec ? ` (${spec.label})` : ''}`;
+    }),
+    '',
+    'Usage:',
+    '- /vendors',
+    '- /vendors <role>',
+    '- /vendor <role> <vendor>',
+    '- /vendor <vendor>  (quick sets text+image)'
+  ];
+  return lines.join('\n');
+}
+
+function buildVendorRoleDetailsMessage(chatId, role) {
+  const spec = getVendorRoleSpec(role);
+  if (!spec) {
+    return [
+      'Usage: /vendors <role>',
+      'Allowed roles: text, image, url, pdf, image_extract, voice, enrich, enrich_fallback'
+    ].join('\n');
+  }
+  const current = getCurrentVendorForRole(chatId, role) || '-';
+  return [
+    `${spec.label} (${role})`,
+    `Current: ${current}`,
+    `Allowed vendors: ${spec.options.join(', ')}`,
+    `Set with: /vendor ${role} <vendor>`
   ].join('\n');
 }
 
@@ -1413,8 +2193,10 @@ async function handleCommand(chatId, text) {
 
   if (command === '/version') {
     const createdAt = configStore.getMeta('bot_created_at');
+    const bumpedAt = String(process.env.RENDER_BOT_VERSION_BUMPED_AT || '').trim();
     await api.sendMessage(chatId, [
       `version: ${BOT_VERSION}`,
+      `bumped: ${bumpedAt || '-'}`,
       `created: ${createdAt || '-'}`,
       `start: ${BOT_PROCESS_START_TIME}`
     ].join('\n'));
@@ -1532,35 +2314,176 @@ async function handleCommand(chatId, text) {
     return true;
   }
 
-  if (command === '/vendor' || command === '/text_vendor' || command === '/image_vendor') {
-    const vendor = String(parts[1] || '').trim().toLowerCase();
-    if (!vendor) {
-      const currentText = String(configStore.getCurrent(chatId, 'providers.text.provider') || '-');
-      const currentImage = String(configStore.getCurrent(chatId, 'providers.image.provider') || '-');
+  if (command === '/vendors') {
+    const role = normalizeVendorRole(parts[1]);
+    if (!parts[1]) {
+      await api.sendMessage(chatId, buildVendorOverviewMessage(chatId));
+      return true;
+    }
+    if (!role) {
       await api.sendMessage(chatId, [
-        `Usage: ${command} <${PROVIDER_NAMES.join('|')}>`,
-        'Explanation: switch provider defaults for text/image generation.',
-        `Allowed: ${PROVIDER_NAMES.join(', ')}`,
-        `Current: text=${currentText}, image=${currentImage}`
+        'Usage: /vendors <role>',
+        'Allowed roles: text, image, url, pdf, image_extract, voice, enrich, enrich_fallback',
+        '',
+        buildVendorOverviewMessage(chatId)
       ].join('\n'));
       return true;
     }
-    const missingKeys = getMissingProviderKeys(chatId, vendor);
-    if (missingKeys.length) {
-      await api.sendMessage(chatId, providerProvisioningMessage(vendor, missingKeys));
+    await api.sendMessage(chatId, buildVendorRoleDetailsMessage(chatId, role));
+    return true;
+  }
+
+  if (
+    command === '/vendor'
+    || command === '/text_vendor'
+    || command === '/image_vendor'
+    || command === '/extractor'
+    || command === '/exractor'
+    || command === '/pdf_extractor'
+    || command === '/pdfextractor'
+    || command === '/image_extractor'
+    || command === '/imageextractor'
+    || command === '/voice_extractor'
+    || command === '/voiceextractor'
+  ) {
+    const aliasInfo = getLegacyVendorAliasInfo(command);
+    const aliasRole = aliasInfo ? aliasInfo.role : '';
+
+    if (command === '/vendor' && !parts[1]) {
+      await api.sendMessage(chatId, buildVendorOverviewMessage(chatId));
       return true;
     }
+
+    let role = aliasRole;
+    let vendorRaw = '';
+
+    if (command === '/vendor') {
+      const firstArg = String(parts[1] || '').trim().toLowerCase();
+      const maybeRole = normalizeVendorRole(firstArg);
+      if (maybeRole) {
+        role = maybeRole;
+        vendorRaw = String(parts[2] || '').trim().toLowerCase();
+        if (!vendorRaw) {
+          await api.sendMessage(chatId, buildVendorRoleDetailsMessage(chatId, role));
+          return true;
+        }
+      } else {
+        // Backward-compatible quick mode: /vendor <provider> sets both text+image providers.
+        role = 'all_gen';
+        vendorRaw = firstArg;
+      }
+    } else {
+      vendorRaw = String(parts[1] || '').trim().toLowerCase();
+      if (!vendorRaw) {
+        if (role) {
+          await api.sendMessage(chatId, buildVendorRoleDetailsMessage(chatId, role));
+          if (aliasInfo && aliasInfo.hint) await api.sendMessage(chatId, aliasInfo.hint);
+        } else {
+          await api.sendMessage(chatId, buildVendorOverviewMessage(chatId));
+        }
+        return true;
+      }
+    }
+
+    if (!role) {
+      await api.sendMessage(chatId, buildVendorOverviewMessage(chatId));
+      return true;
+    }
+
     try {
-      const isTextOnly = command === '/text_vendor';
-      const isImageOnly = command === '/image_vendor';
-      const defaults = await applyProvider(chatId, vendor, !isImageOnly, !isTextOnly);
-      const msg = [];
-      msg.push(`Provider updated: ${vendor}`);
-      if (!isImageOnly) msg.push(`- text model: ${defaults.text}`);
-      if (!isTextOnly) msg.push(`- image model: ${defaults.image}`);
-      await api.sendMessage(chatId, msg.join('\n'));
+      if (role === 'all_gen') {
+        const vendor = String(vendorRaw || '').trim().toLowerCase();
+        const roleLike = normalizeVendorRole(vendor);
+        if (roleLike) {
+          await api.sendMessage(chatId, buildVendorRoleDetailsMessage(chatId, roleLike));
+          return true;
+        }
+        if (!valueExists(PROVIDER_NAMES, vendor)) {
+          const lines = [
+            `Usage: /vendor <${PROVIDER_NAMES.join('|')}>`,
+            'Or use role-based mode: /vendor <role> <vendor>',
+            `Allowed generation providers: ${PROVIDER_NAMES.join(', ')}`
+          ];
+          if (aliasInfo && aliasInfo.hint) lines.push(aliasInfo.hint);
+          await api.sendMessage(chatId, lines.join('\n'));
+          return true;
+        }
+        const missingKeys = getMissingProviderKeys(chatId, vendor);
+        if (missingKeys.length) {
+          await api.sendMessage(chatId, providerProvisioningMessage(vendor, missingKeys));
+          return true;
+        }
+        const defaults = await applyProvider(chatId, vendor, true, true);
+        await api.sendMessage(chatId, [
+          `Provider updated: ${vendor}`,
+          `- text model: ${defaults.text}`,
+          `- image model: ${defaults.image}`
+        ].join('\n'));
+        return true;
+      }
+
+      const spec = getVendorRoleSpec(role);
+      if (!spec) {
+        await api.sendMessage(chatId, buildVendorOverviewMessage(chatId));
+        return true;
+      }
+      const vendor = normalizeVendorValueForRole(role, vendorRaw);
+      if (!valueExists(spec.options, vendor)) {
+        await api.sendMessage(chatId, [
+          `Usage: /vendor ${role} <vendor>`,
+          `Allowed vendors: ${spec.options.join(', ')}`,
+          `Current: ${getCurrentVendorForRole(chatId, role) || '-'}`
+        ].join('\n'));
+        if (aliasInfo && aliasInfo.hint) await api.sendMessage(chatId, aliasInfo.hint);
+        return true;
+      }
+
+      if (role === 'text' || role === 'image') {
+        const missingKeys = getMissingRoleVendorKeys(chatId, role, vendor);
+        if (missingKeys.length) {
+          await api.sendMessage(chatId, providerProvisioningMessage(vendor, missingKeys));
+          return true;
+        }
+      }
+
+      if (role === 'text') {
+        const defaults = await applyProvider(chatId, vendor, true, false);
+        if (command === '/text_vendor') {
+          await api.sendMessage(chatId, [
+            `Provider updated: ${vendor}`,
+            `- text model: ${defaults.text}`
+          ].join('\n'));
+          if (aliasInfo && aliasInfo.hint) await api.sendMessage(chatId, aliasInfo.hint);
+        } else {
+          await api.sendMessage(chatId, [
+            `Updated ${spec.path} = ${vendor}`,
+            `- text model: ${defaults.text}`
+          ].join('\n'));
+        }
+        return true;
+      }
+      if (role === 'image') {
+        const defaults = await applyProvider(chatId, vendor, false, true);
+        if (command === '/image_vendor') {
+          await api.sendMessage(chatId, [
+            `Provider updated: ${vendor}`,
+            `- image model: ${defaults.image}`
+          ].join('\n'));
+          if (aliasInfo && aliasInfo.hint) await api.sendMessage(chatId, aliasInfo.hint);
+        } else {
+          await api.sendMessage(chatId, [
+            `Updated ${spec.path} = ${vendor}`,
+            `- image model: ${defaults.image}`
+          ].join('\n'));
+        }
+        return true;
+      }
+
+      const updated = await setConfigPathValue(chatId, spec.path, vendor);
+      await api.sendMessage(chatId, `Updated ${spec.path} = ${updated}`);
+      if (aliasInfo && aliasInfo.hint) await api.sendMessage(chatId, aliasInfo.hint);
     } catch (error) {
-      await api.sendMessage(chatId, `Provider update failed: ${error.message}`);
+      await api.sendMessage(chatId, `Vendor update failed: ${error.message}`);
     }
     return true;
   }
@@ -1571,9 +2494,9 @@ async function handleCommand(chatId, text) {
       await api.sendMessage(chatId, buildModelsStatusMessage(chatId));
       return true;
     }
-    if (target !== 'text' && target !== 'image') {
+    if (!['text', 'image', 'url', 'image_extract', 'pdf', 'voice'].includes(target)) {
       await api.sendMessage(chatId, [
-        'Usage: /models [text|image] [model]',
+        'Usage: /models [text|image|url|image_extract|pdf|voice] [model]',
         'Explanation: list or set model for current vendor only.',
         buildModelsStatusMessage(chatId)
       ].join('\n\n'));
@@ -1585,11 +2508,30 @@ async function handleCommand(chatId, text) {
       return true;
     }
 
-    const providerPath = target === 'text' ? 'providers.text.provider' : 'providers.image.provider';
-    const modelPath = target === 'text' ? 'providers.text.model' : 'providers.image.model';
-    const provider = String(configStore.getCurrent(chatId, providerPath) || '').trim().toLowerCase();
-    const currentModel = String(configStore.getCurrent(chatId, modelPath) || '').trim();
-    const allowed = listModelsForProvider(provider, target, currentModel);
+    let provider = '';
+    let modelPath = '';
+    let currentModel = '';
+    let allowed = [];
+    if (target === 'text' || target === 'image') {
+      const providerPath = target === 'text' ? 'providers.text.provider' : 'providers.image.provider';
+      modelPath = target === 'text' ? 'providers.text.model' : 'providers.image.model';
+      provider = String(configStore.getCurrent(chatId, providerPath) || '').trim().toLowerCase();
+      currentModel = String(configStore.getCurrent(chatId, modelPath) || '').trim();
+      allowed = listModelsForProvider(provider, target, currentModel);
+    } else {
+      const spec = resolveExtractorModelSpec(chatId, target);
+      if (!spec) {
+        await api.sendMessage(chatId, `No model selector for ${target} with current vendor. Check /vendors ${target} and /models ${target}.`);
+        return true;
+      }
+      provider = spec.vendor;
+      modelPath = spec.path;
+      currentModel = String(configStore.getCurrent(chatId, modelPath) || '').trim();
+      allowed = getOptions(spec.optionsPath);
+      if (currentModel && !allowed.includes(currentModel)) {
+        allowed = [currentModel, ...allowed];
+      }
+    }
     if (!valueExists(allowed, value)) {
       await api.sendMessage(chatId, [
         `Model not allowed for current ${target} vendor '${provider || '-'}'.`,
@@ -1626,25 +2568,6 @@ async function handleCommand(chatId, text) {
     }
     const current = await setConfigPathValue(chatId, 'generation.output_language', value);
     await api.sendMessage(chatId, `Updated generation.output_language = ${current}`);
-    return true;
-  }
-
-  if (command === '/extractor' || command === '/exractor') {
-    const raw = String(parts[1] || '').trim().toLowerCase();
-    const options = getOptions('generation.url_extractor');
-    const current = normalizeUrlExtractor(configStore.getCurrent(chatId, 'generation.url_extractor'));
-    if (!raw || !valueExists(options, raw)) {
-      await api.sendMessage(chatId, [
-        'Usage: /extractor <gemini|firecrawl|jina|chromium>',
-        'Explanation: choose URL story extraction vendor.',
-        `Allowed: ${options.join(', ')}`,
-        `Current: ${current}`
-      ].join('\n'));
-      return true;
-    }
-    const next = normalizeUrlExtractor(raw);
-    const updated = await setConfigPathValue(chatId, 'generation.url_extractor', next);
-    await api.sendMessage(chatId, `Updated generation.url_extractor = ${updated}`);
     return true;
   }
 
@@ -1826,6 +2749,11 @@ async function handleCommand(chatId, text) {
     await configStore.setConfigValue(chatId, 'generation.style_description', isBuiltin ? presetMeta.description : prompt);
     await api.sendMessage(chatId, `Updated style preset = ${preset}`);
     return true;
+  }
+
+  if (command === '/styles') {
+    await api.sendMessage(chatId, 'Tip: /styles is an alias. Use /style for list/set.');
+    return handleCommand(chatId, '/style');
   }
 
   if (STYLE_SHORTCUTS[command]) {
@@ -2030,15 +2958,16 @@ async function handleCommand(chatId, text) {
       await api.sendMessage(chatId, [
         'Usage: /setkey <KEY> <VALUE>',
         'Explanation: store provider credentials for your user.',
-        `Allowed: ${SECRET_KEYS.join(', ')}`,
+        `Allowed: ${SUPPORTED_SECRET_KEYS_FOR_COMMANDS.join(', ')}`,
         keysStatusMessage(chatId)
       ].join('\n'));
       return true;
     }
     try {
+      const normalizedKey = normalizeSecretKey(key) || key;
       await configStore.setSecret(chatId, key, value);
       configStore.applySecretsToEnv(chatId);
-      await api.sendMessage(chatId, `Stored key ${key} in runtime state.`);
+      await api.sendMessage(chatId, `Stored key ${normalizedKey} in runtime state.`);
     } catch (error) {
       await api.sendMessage(chatId, `setkey failed: ${error.message}`);
     }
@@ -2051,13 +2980,14 @@ async function handleCommand(chatId, text) {
       await api.sendMessage(chatId, [
         'Usage: /unsetkey <KEY>',
         'Explanation: remove one runtime credential.',
-        `Allowed: ${SECRET_KEYS.join(', ')}`,
+        `Allowed: ${SUPPORTED_SECRET_KEYS_FOR_COMMANDS.join(', ')}`,
         keysStatusMessage(chatId)
       ].join('\n'));
       return true;
     }
+    const normalizedKey = normalizeSecretKey(key) || key;
     await configStore.unsetSecret(chatId, key);
-    await api.sendMessage(chatId, `Removed runtime override for ${key}.`);
+    await api.sendMessage(chatId, `Removed runtime override for ${normalizedKey}.`);
     return true;
   }
 
@@ -2180,9 +3110,21 @@ async function processMessage(message, context = {}) {
     id: Number(message?.from?.id || chatId || 0),
     username: incomingUsername
   };
+  logRuntimeEvent('info', 'input_received', {
+    chatId,
+    userId: Number(userMeta.id || 0),
+    username: String(incomingUsername || ''),
+    kind: String(incoming.kind || ''),
+    command: String(incoming.command || ''),
+    source: String(context?.source || ''),
+    hasDocument: Boolean(message?.document),
+    hasPhoto: Boolean(Array.isArray(message?.photo) && message.photo.length),
+    hasVoice: Boolean(message?.voice),
+    inputPreview: previewForLog(text, 500)
+  });
   try {
-    if (!text) {
-      await api.sendMessage(chatId, 'Unsupported message format. Send plain text or URL.');
+    if (!text && !message?.document && !(Array.isArray(message?.photo) && message.photo.length) && !message?.voice) {
+      await api.sendMessage(chatId, 'Unsupported message format. Send plain text, URL, PDF, image, or voice.');
       runBackgroundTask('record empty interaction', () => safeRecordInteraction(chatId, {
         kind: 'empty',
         command: '',
@@ -2290,14 +3232,35 @@ async function processMessage(message, context = {}) {
       await api.sendChatAction(chatId, 'upload_photo');
       await api.sendMessage(chatId, incoming.command === '/random' ? 'Generating a random story...' : 'Inventing an expanded story...');
 
-      const effectiveConfigPath = configStore.writeEffectiveConfigFile(chatId, path.join(runtime.outDir, 'effective-config.yml'));
-      const effectiveConfig = configStore.getEffectiveConfig(chatId);
+      let runCfg = await writeRotatedEffectiveConfigFile(chatId, path.join(runtime.outDir, 'effective-config.yml'));
+      let effectiveConfigPath = runCfg.configPath;
+      let effectiveConfig = runCfg.config;
       configStore.applySecretsToEnv(chatId);
-      const inventedStory = await inventStoryText(seed, effectiveConfigPath, {
-        onFallback: async (info) => {
-          await safeNotifyUser(chatId, formatProviderFallbackMessage(info));
+      let inventedStory = '';
+      for (let attempt = 0; attempt < 6; attempt += 1) {
+        try {
+          inventedStory = await inventStoryText(seed, effectiveConfigPath, {
+            onFallback: async (info) => {
+              await safeNotifyUser(chatId, formatProviderFallbackMessage(info));
+            },
+            onEnrichment: async (info) => {
+              const msg = formatEnrichmentMessage(info);
+              if (msg) await safeNotifyUser(chatId, msg);
+            }
+          });
+          await persistRotationSuccess(runCfg.selected);
+          break;
+        } catch (error) {
+          const failedRole = inferFailedProviderRole(error) || 'text';
+          if (!isProviderOrModelFailure(error)) throw error;
+          const rotated = await advanceProviderRotation(chatId, failedRole, runCfg.selected[failedRole] || {});
+          if (!rotated) throw error;
+          await safeNotifyUser(chatId, formatProviderRotationRetryMessage(failedRole, rotated.from, rotated.to, error));
+          runCfg = await writeRotatedEffectiveConfigFile(chatId, path.join(runtime.outDir, 'effective-config.yml'));
+          effectiveConfigPath = runCfg.configPath;
+          effectiveConfig = runCfg.config;
         }
-      });
+      }
       await sendLongMessage(chatId, formatInventedStoryMessage(inventedStory));
       await api.sendMessage(chatId, incoming.command === '/random' ? 'Random story ready. Generating your comic...' : 'Invented story ready. Generating your comic...');
       const configLine = compactConfigString(effectiveConfig);
@@ -2307,21 +3270,38 @@ async function processMessage(message, context = {}) {
       const alreadySent = new Set();
       const orderedSender = createOrderedPanelSender(chatId, alreadySent, debugPromptsEnabled);
       const generationId = createGenerationId(chatId);
-      const result = await generatePanelsWithRuntimeConfig(inventedStory, runtime, effectiveConfigPath, {
-        userId: chatId,
-        generationId,
-        onFallback: async (info) => {
-          await safeNotifyUser(chatId, formatProviderFallbackMessage(info));
-        },
-        onExtractorFallback: async (info) => {
-          await safeNotifyUser(chatId, formatExtractorFallbackMessage(info));
-        },
-        onPanelReady: (deliveryMode === 'default')
-          ? async (panelMessage) => {
-              await orderedSender(panelMessage);
-            }
-          : undefined
-      });
+      let result = null;
+      for (let attempt = 0; attempt < 6; attempt += 1) {
+        try {
+          result = await generatePanelsWithRuntimeConfig(inventedStory, runtime, effectiveConfigPath, {
+            userId: chatId,
+            generationId,
+            onFallback: async (info) => {
+              await safeNotifyUser(chatId, formatProviderFallbackMessage(info));
+            },
+            onExtractorFallback: async (info) => {
+              await safeNotifyUser(chatId, formatExtractorFallbackMessage(info));
+            },
+            onPanelReady: (deliveryMode === 'default')
+              ? async (panelMessage) => {
+                  await orderedSender(panelMessage);
+                }
+              : undefined
+          });
+          await persistRotationSuccess(runCfg.selected);
+          break;
+        } catch (error) {
+          const failedRole = inferFailedProviderRole(error);
+          if (!failedRole || !isProviderOrModelFailure(error) || alreadySent.size > 0) throw error;
+          const rotated = await advanceProviderRotation(chatId, failedRole, runCfg.selected[failedRole] || {});
+          if (!rotated) throw error;
+          await safeNotifyUser(chatId, formatProviderRotationRetryMessage(failedRole, rotated.from, rotated.to, error));
+          runCfg = await writeRotatedEffectiveConfigFile(chatId, path.join(runtime.outDir, 'effective-config.yml'));
+          effectiveConfigPath = runCfg.configPath;
+          effectiveConfig = runCfg.config;
+        }
+      }
+      if (!result) throw new Error('Generation failed: no provider produced output');
       await sendPanelSequence(chatId, result, 'invent', '', alreadySent, deliveryMode, effectiveConfig, debugPromptsEnabled);
       await sendCommandChangeConfirmation(chatId, commandStateBefore);
       runBackgroundTask('record invent success', () => safeRecordInteraction(chatId, {
@@ -2349,6 +3329,11 @@ async function processMessage(message, context = {}) {
 
     const handled = await handleCommand(chatId, text);
     if (handled) {
+      logRuntimeEvent('info', 'decision_command_handled', {
+        chatId,
+        command: String(incoming.command || ''),
+        handled: true
+      });
       await sendCommandChangeConfirmation(chatId, commandStateBefore);
       runBackgroundTask('record command success', () => safeRecordInteraction(chatId, {
         kind: incoming.kind,
@@ -2361,6 +3346,10 @@ async function processMessage(message, context = {}) {
     }
 
     if (incoming.kind === 'command') {
+      logRuntimeEvent('warn', 'decision_unrecognized_command', {
+        chatId,
+        command: String(incoming.command || '')
+      });
       await api.sendMessage(chatId, 'Unrecognized command.');
       await sendCommandChangeConfirmation(chatId, commandStateBefore);
       runBackgroundTask('record unknown command', () => safeRecordInteraction(chatId, {
@@ -2373,45 +3362,248 @@ async function processMessage(message, context = {}) {
       return;
     }
 
-    const effectiveConfigPath = configStore.writeEffectiveConfigFile(chatId, path.join(runtime.outDir, 'effective-config.yml'));
-    const effectiveConfig = configStore.getEffectiveConfig(chatId);
+    let runCfg = await writeRotatedEffectiveConfigFile(chatId, path.join(runtime.outDir, 'effective-config.yml'));
+    let effectiveConfigPath = runCfg.configPath;
+    let effectiveConfig = runCfg.config;
     configStore.applySecretsToEnv(chatId);
     let generationInput = text;
     let parsedInput = classifyMessageInput(generationInput);
+    let generationMode = 'text';
+    let extractionInfo = null;
     let shortPromptExpanded = false;
     let inventedStoryPreview = '';
-    const shortTextInput = incoming.kind === 'text' && isShortTextPrompt(text);
-    if (shortTextInput && parsedInput.kind !== 'url') {
-      const inferredUrl = inferLikelyWebUrlFromText(text);
-      if (inferredUrl) {
-        generationInput = inferredUrl;
+    const source = detectStoryExtractionSource(message, text);
+    const intent = decideInputIntent({
+      incomingKind: incoming.kind,
+      text,
+      sourceType: source?.type || '',
+      shortPromptMaxChars: SHORT_STORY_PROMPT_MAX_CHARS
+    });
+    const isNonTextSource = intent.isNonTextSource || NON_TEXT_SOURCE_TYPES.has(String(source?.type || '').toLowerCase());
+    const shortTextInput = Boolean(intent.isShortText);
+    if (intent.route === 'url') {
+      if (parsedInput.kind !== 'url' && intent.inferredUrl) {
+        generationInput = intent.inferredUrl;
         parsedInput = classifyMessageInput(generationInput);
       }
     }
-    const hasWebPageUrl = parsedInput.kind === 'url' && isLikelyWebPageUrl(parsedInput.value);
+    logRuntimeEvent('info', 'decision_route_selected', {
+      chatId,
+      route: String(intent.route || ''),
+      sourceType: String(source?.type || ''),
+      shortTextInput: Boolean(shortTextInput)
+    });
+    logRuntimeEvent('info', 'input_intent', {
+      chatId,
+      incomingKind: incoming.kind,
+      sourceType: String(source?.type || ''),
+      route: intent.route,
+      reason: intent.reason,
+      parsedKind: intent.parsedKind,
+      shortTextInput,
+      inferredUrl: intent.inferredUrl ? '[present]' : ''
+    });
+    if (isNonTextSource) {
+      if (source.type === 'html_url') await api.sendMessage(chatId, `Detected link, parsing page: ${source.url}`);
+      else if (source.type === 'pdf_url') await api.sendMessage(chatId, `Detected PDF link, extracting story: ${source.url}`);
+      else if (source.type === 'pdf_file') await api.sendMessage(chatId, 'Detected PDF file, extracting story...');
+      else if (source.type === 'image_url') await api.sendMessage(chatId, `Detected image link, extracting story: ${source.url}`);
+      else if (source.type === 'image_file') await api.sendMessage(chatId, 'Detected image file, extracting story...');
+      else if (source.type === 'audio_url') await api.sendMessage(chatId, `Detected audio link, transcribing: ${source.url}`);
+      else if (source.type === 'audio_file') await api.sendMessage(chatId, 'Detected voice/audio file, transcribing...');
+
+      let extractionSource = source;
+      if (source.type === 'pdf_file') {
+        const pdf = await extractPdfFromTelegramDocument(api, source.document);
+        extractionSource = { ...source, ...pdf };
+      } else if (source.type === 'image_file') {
+        const img = await extractImageFromTelegramMessage(api, source.document);
+        extractionSource = { ...source, ...img };
+      } else if (source.type === 'audio_file') {
+        const audio = await extractAudioFromTelegramMessage(api, source.document);
+        extractionSource = { ...source, ...audio };
+      }
+
+      try {
+        extractionInfo = await extractStoryFromSource(extractionSource, {
+          runtime,
+          config: effectiveConfig,
+          onExtractorFallback: async (info) => {
+            await safeNotifyUser(chatId, formatExtractorFallbackMessage(info));
+          },
+          onPdfFallback: async (info) => {
+            await safeNotifyUser(chatId, formatPdfExtractorFallbackMessage(info));
+          },
+          onImageFallback: async (info) => {
+            await safeNotifyUser(chatId, formatImageExtractorFallbackMessage(info));
+          }
+        });
+        generationInput = String(extractionInfo?.text || '').trim();
+        if (!generationInput) throw new Error('Story extraction returned empty text');
+        await api.sendMessage(chatId, 'Preparing extracted story text for storyboard generation...');
+        let summaryInfo = null;
+        for (let attempt = 0; attempt < 6; attempt += 1) {
+          try {
+            summaryInfo = await summarizeExtractedForStoryboard(generationInput, effectiveConfig, effectiveConfigPath, {
+              onFallback: async (info) => {
+                await safeNotifyUser(chatId, formatProviderFallbackMessage(info));
+              },
+              onEnrichment: async (info) => {
+                const msg = formatEnrichmentMessage(info);
+                if (msg) await safeNotifyUser(chatId, msg);
+              }
+            });
+            await persistRotationSuccess(runCfg.selected);
+            break;
+          } catch (error) {
+            const failedRole = inferFailedProviderRole(error) || 'text';
+            if (!isProviderOrModelFailure(error)) throw error;
+            const rotated = await advanceProviderRotation(chatId, failedRole, runCfg.selected[failedRole] || {});
+            if (!rotated) throw error;
+            await safeNotifyUser(chatId, formatProviderRotationRetryMessage(failedRole, rotated.from, rotated.to, error));
+            runCfg = await writeRotatedEffectiveConfigFile(chatId, path.join(runtime.outDir, 'effective-config.yml'));
+            effectiveConfigPath = runCfg.configPath;
+            effectiveConfig = runCfg.config;
+          }
+        }
+        if (!summaryInfo) throw new Error('Summary generation failed: no provider produced output');
+        generationInput = String(summaryInfo.text || generationInput).trim();
+        await api.sendMessage(chatId, 'Story input ready. Building storyboard...');
+        if (summaryInfo.method === 'invent_fallback') {
+          await safeNotifyUser(chatId, 'Summary was too short, so I expanded it with AI before storyboard generation.');
+        } else if (summaryInfo.method === 'source_fallback') {
+          await safeNotifyUser(chatId, 'Summary stayed too short, so I used extracted text directly for storyboard generation.');
+        }
+        logRuntimeEvent('info', 'source_summary_ready', {
+          chatId,
+          method: summaryInfo.method,
+          sourceChars: Number(summaryInfo.sourceChars || 0),
+          summaryChars: Number(summaryInfo.summaryChars || 0),
+          reason: String(summaryInfo.reason || '')
+        });
+        parsedInput = classifyMessageInput(generationInput);
+        if (source.type === 'html_url' && parsedInput.kind === 'url') {
+          throw new Error('URL extraction failed: extractor returned URL-like text only');
+        }
+        generationMode = String(extractionInfo?.sourceType || source.type || 'text').includes('pdf')
+          ? 'pdf'
+          : (String(extractionInfo?.sourceType || source.type || 'text').includes('image')
+            ? 'image'
+            : (String(extractionInfo?.sourceType || source.type || 'text').includes('audio') ? 'voice' : 'url'));
+        const providerUsed = String(extractionInfo?.providerUsed || '').trim();
+        if (providerUsed) {
+          const label = generationMode === 'pdf' ? 'PDF' : (generationMode === 'image' ? 'Image' : (generationMode === 'voice' ? 'Voice' : 'Link'));
+          await api.sendMessage(chatId, `${label} parsed via ${providerUsed}. Generating your comic...`);
+        }
+        logRuntimeEvent('info', 'source_extraction_success', {
+          chatId,
+          sourceType: String(source.type || ''),
+          providerUsed,
+          extractedChars: generationInput.length
+        });
+      } catch (firstExtractionError) {
+        logRuntimeEvent('warn', 'source_extraction_failed', {
+          chatId,
+          sourceType: String(source.type || ''),
+          error: String(firstExtractionError?.message || firstExtractionError).slice(0, 220)
+        });
+        if (source.type === 'html_url') {
+          const originalInputText = String(text || '').trim();
+          const fallbackText = extractTextFallbackFromUrlMessage(originalInputText);
+          const fallbackParsed = classifyMessageInput(fallbackText);
+          if (fallbackText && fallbackParsed.kind !== 'url') {
+            await api.sendMessage(chatId, "Can't extract from HTML, trying text.");
+            generationInput = fallbackText;
+            parsedInput = classifyMessageInput(generationInput);
+            generationMode = 'text';
+            logRuntimeEvent('info', 'source_extraction_html_fallback_to_text', {
+              chatId,
+              fallbackChars: generationInput.length
+            });
+          } else {
+            const rawReason = String(firstExtractionError?.message || '').trim();
+            const shortReason = rawReason
+              .replace(/^URL extraction failed:\s*/i, '')
+              .replace(/^Error:\s*/i, '')
+              .slice(0, 180);
+            const reasonLine = shortReason ? ` Reason: ${shortReason}.` : '';
+            await api.sendMessage(chatId, `Can't extract story from this link.${reasonLine} Please send another URL or paste the story text.`);
+            logRuntimeEvent('warn', 'source_extraction_html_no_fallback', {
+              chatId,
+              reason: shortReason || 'no_fallback_text'
+            });
+            runBackgroundTask('record generation failure', () => safeRecordInteraction(chatId, {
+              kind: incoming.kind,
+              command: incoming.command,
+              requestText: text,
+              result: { ok: false, type: 'generation', error: 'url_extraction_failed_no_text_fallback' },
+              config: configStore.getEffectiveConfig(chatId)
+            }, userMeta));
+            return;
+          }
+        } else {
+          throw firstExtractionError;
+        }
+      }
+    }
+
     if (shortTextInput && parsedInput.kind !== 'url') {
       shortPromptExpanded = true;
+      logRuntimeEvent('info', 'short_prompt_story_expansion', {
+        chatId,
+        promptChars: String(text || '').trim().length
+      });
+      const enrichSelected = normalizeEnrichmentProvider(effectiveConfig?.generation?.enrichment_provider || 'wikipedia');
+      const enrichFallback = normalizeEnrichmentProvider(effectiveConfig?.generation?.enrichment_fallback_provider || 'gemini');
+      const enrichPath = enrichSelected === enrichFallback
+        ? enrichSelected
+        : `${enrichSelected} -> ${enrichFallback}`;
+      const textProvider = String(effectiveConfig?.providers?.text?.provider || '-').trim();
+      const textModel = String(effectiveConfig?.providers?.text?.model || '-').trim();
       await api.sendMessage(
         chatId,
-        'Your prompt is too short, so we need to invent a longer story first. I am using AI to expand it.'
+        `Your prompt is too short, so I will invent a longer story first. Enrichment: ${enrichPath}. AI: ${textProvider}/${textModel}.`
       );
-      const inventedStory = await inventStoryText(text, effectiveConfigPath, {
-        onFallback: async (info) => {
-          await safeNotifyUser(chatId, formatProviderFallbackMessage(info));
+      let inventedStory = '';
+      for (let attempt = 0; attempt < 6; attempt += 1) {
+        try {
+          inventedStory = await inventStoryText(text, effectiveConfigPath, {
+            onFallback: async (info) => {
+              await safeNotifyUser(chatId, formatProviderFallbackMessage(info));
+            },
+            onEnrichment: async (info) => {
+              const msg = formatEnrichmentMessage(info);
+              if (msg) await safeNotifyUser(chatId, msg);
+            }
+          });
+          await persistRotationSuccess(runCfg.selected);
+          break;
+        } catch (error) {
+          const failedRole = inferFailedProviderRole(error) || 'text';
+          if (!isProviderOrModelFailure(error)) throw error;
+          const rotated = await advanceProviderRotation(chatId, failedRole, runCfg.selected[failedRole] || {});
+          if (!rotated) throw error;
+          await safeNotifyUser(chatId, formatProviderRotationRetryMessage(failedRole, rotated.from, rotated.to, error));
+          runCfg = await writeRotatedEffectiveConfigFile(chatId, path.join(runtime.outDir, 'effective-config.yml'));
+          effectiveConfigPath = runCfg.configPath;
+          effectiveConfig = runCfg.config;
         }
-      });
+      }
       inventedStoryPreview = String(inventedStory || '').slice(0, 1000);
       await api.sendMessage(chatId, formatInventedStoryMessage(inventedStory));
       generationInput = inventedStory;
     }
 
     await api.sendChatAction(chatId, 'upload_photo');
-    if (hasWebPageUrl) {
-      await api.sendMessage(chatId, `Detected link, parsing page: ${parsedInput.value}`);
-    }
     if (shortPromptExpanded) {
       await api.sendMessage(chatId, 'Generating your comic from the expanded story...');
+    } else if (isNonTextSource) {
+      // Already informed user about extraction/generation start.
     } else {
+      logRuntimeEvent('info', 'text_generation_direct', {
+        chatId,
+        promptChars: String(generationInput || '').trim().length
+      });
       await api.sendMessage(chatId, 'Generating your comic...');
     }
 
@@ -2422,43 +3614,12 @@ async function processMessage(message, context = {}) {
     const alreadySent = new Set();
     const orderedSender = createOrderedPanelSender(chatId, alreadySent, debugPromptsEnabled);
     const generationId = createGenerationId(chatId);
-    let result;
-    try {
-      result = await generatePanelsWithRuntimeConfig(generationInput, runtime, effectiveConfigPath, {
-        userId: chatId,
-        generationId,
-        onFallback: async (info) => {
-          await safeNotifyUser(chatId, formatProviderFallbackMessage(info));
-        },
-        onExtractorFallback: async (info) => {
-          await safeNotifyUser(chatId, formatExtractorFallbackMessage(info));
-        },
-        onPanelReady: (deliveryMode === 'default')
-          ? async (panelMessage) => {
-              await orderedSender(panelMessage);
-            }
-          : undefined
-      });
-    } catch (firstError) {
-      console.warn('[render-bot] html_extraction_or_url_generation_failed', JSON.stringify({
-        chatId,
-        sourceUrl: hasWebPageUrl ? String(parsedInput.value || '') : '',
-        message: String(firstError?.message || firstError || '')
-      }));
-      if (!hasWebPageUrl) throw firstError;
-      const originalInputText = String(text || '').trim();
-      const fallbackText = extractTextFallbackFromUrlMessage(originalInputText);
-      const fallbackParsed = classifyMessageInput(fallbackText);
-      if (fallbackText && fallbackParsed.kind !== 'url') {
-        console.log('[render-bot] html_fallback_to_text', JSON.stringify({
-          chatId,
-          sourceUrl: String(parsedInput.value || ''),
-          fallbackTextLength: Number(String(fallbackText || '').length || 0)
-        }));
-        await api.sendMessage(chatId, "Can't extract from HTML, trying text.");
-        result = await generatePanelsWithRuntimeConfig(fallbackText, runtime, effectiveConfigPath, {
+    let result = null;
+    for (let attempt = 0; attempt < 6; attempt += 1) {
+      try {
+        result = await generatePanelsWithRuntimeConfig(generationInput, runtime, effectiveConfigPath, {
           userId: chatId,
-          generationId: createGenerationId(chatId),
+          generationId,
           onFallback: async (info) => {
             await safeNotifyUser(chatId, formatProviderFallbackMessage(info));
           },
@@ -2471,65 +3632,41 @@ async function processMessage(message, context = {}) {
               }
             : undefined
         });
-      } else {
-        if (!fallbackText) {
-          const rawReason = String(firstError?.message || '').trim();
-          const shortReason = rawReason
-            .replace(/^URL extraction failed:\s*/i, '')
-            .replace(/^Error:\s*/i, '')
-            .slice(0, 180);
-          const reasonLine = shortReason ? ` Reason: ${shortReason}.` : '';
-          await api.sendMessage(chatId, `Can't extract story from this link.${reasonLine} Please send another URL or paste the story text.`);
-          runBackgroundTask('record generation failure', () => safeRecordInteraction(chatId, {
-            kind: incoming.kind,
-            command: incoming.command,
-            requestText: text,
-            result: { ok: false, type: 'generation', error: 'url_extraction_failed_no_text_fallback' },
-            config: configStore.getEffectiveConfig(chatId)
-          }, userMeta));
-          return;
-        }
-        console.log('[render-bot] html_fallback_to_invent_story', JSON.stringify({
-          chatId,
-          sourceUrl: String(parsedInput.value || ''),
-          seedLength: Number(String(text || generationInput || '').trim().length || 0)
-        }));
-        await api.sendMessage(chatId, "Can't extract from HTML, inventing a story from your input.");
-        const seed = String(text || generationInput || '').trim() || String(parsedInput.value || '').trim();
-        const inventedStory = await inventStoryText(seed, effectiveConfigPath, {
-          onFallback: async (info) => {
-            await safeNotifyUser(chatId, formatProviderFallbackMessage(info));
-          }
-        });
-        shortPromptExpanded = true;
-        inventedStoryPreview = String(inventedStory || '').slice(0, 1000);
-        await sendLongMessage(chatId, formatInventedStoryMessage(inventedStory));
-        await api.sendMessage(chatId, 'Invented story ready. Generating your comic...');
-        result = await generatePanelsWithRuntimeConfig(inventedStory, runtime, effectiveConfigPath, {
-          userId: chatId,
-          generationId: createGenerationId(chatId),
-          onFallback: async (info) => {
-            await safeNotifyUser(chatId, formatProviderFallbackMessage(info));
-          },
-          onExtractorFallback: async (info) => {
-            await safeNotifyUser(chatId, formatExtractorFallbackMessage(info));
-          },
-          onPanelReady: (deliveryMode === 'default')
-            ? async (panelMessage) => {
-                await orderedSender(panelMessage);
-              }
-            : undefined
-        });
+        await persistRotationSuccess(runCfg.selected);
+        break;
+      } catch (error) {
+        const failedRole = inferFailedProviderRole(error);
+        if (!failedRole || !isProviderOrModelFailure(error) || alreadySent.size > 0) throw error;
+        const rotated = await advanceProviderRotation(chatId, failedRole, runCfg.selected[failedRole] || {});
+        if (!rotated) throw error;
+        await safeNotifyUser(chatId, formatProviderRotationRetryMessage(failedRole, rotated.from, rotated.to, error));
+        runCfg = await writeRotatedEffectiveConfigFile(chatId, path.join(runtime.outDir, 'effective-config.yml'));
+        effectiveConfigPath = runCfg.configPath;
+        effectiveConfig = runCfg.config;
       }
     }
-    await sendPanelSequence(chatId, result, result.kind === 'url' ? 'url' : 'text', '', alreadySent, deliveryMode, effectiveConfig, debugPromptsEnabled);
+    if (!result) throw new Error('Generation failed: no provider produced output');
+    let finalSourceMode = 'text';
+    if (generationMode === 'url' || generationMode === 'pdf' || generationMode === 'image' || generationMode === 'voice') {
+      finalSourceMode = generationMode;
+    } else if (result.kind === 'url' || result.kind === 'pdf' || result.kind === 'image' || result.kind === 'voice') {
+      finalSourceMode = result.kind;
+    }
+    await sendPanelSequence(chatId, result, finalSourceMode, '', alreadySent, deliveryMode, effectiveConfig, debugPromptsEnabled);
     console.log('[render-bot] generation completed', JSON.stringify({
       chatId,
-      mode: result.kind === 'url' ? 'url' : 'text',
+      mode: finalSourceMode,
       panelCount: Number(result && result.panelCount ? result.panelCount : 0),
       elapsedMs: Number(result && result.elapsedMs ? result.elapsedMs : 0),
       deliveryMode
     }));
+    logRuntimeEvent('info', 'generation_success', {
+      chatId,
+      sourceMode: finalSourceMode,
+      panelCount: Number(result?.panelCount || 0),
+      elapsedMs: Number(result?.elapsedMs || 0),
+      deliveryMode: String(deliveryMode || '')
+    });
     runBackgroundTask('record generation success', () => safeRecordInteraction(chatId, {
       kind: incoming.kind,
       command: incoming.command,
@@ -2547,12 +3684,22 @@ async function processMessage(message, context = {}) {
           caption: String(p?.caption || ''),
           imagePath: String(p?.imagePath || '')
         })),
+        sourceMode: finalSourceMode,
+        extractorSelected: String(extractionInfo?.providerSelected || ''),
+        extractorUsed: String(extractionInfo?.providerUsed || ''),
         shortPromptExpanded,
         inventedStoryPreview
       },
       config: configStore.getEffectiveConfig(chatId)
     }, userMeta));
   } catch (error) {
+    logRuntimeEvent('error', 'generation_error', {
+      chatId,
+      kind: String(incoming?.kind || ''),
+      command: String(incoming?.command || ''),
+      message: String(error?.message || error),
+      inputPreview: previewForLog(text, 500)
+    });
     console.error('[render-bot] generation failed', JSON.stringify({
       chatId,
       kind: String(incoming && incoming.kind || ''),
@@ -2591,6 +3738,11 @@ async function processMessage(message, context = {}) {
 function enqueueUpdate(update) {
   const chatId = Number(update?.message?.chat?.id || 0);
   const updateSource = normalizeUpdateSource(update, update?.message);
+  logRuntimeEvent('info', 'queue_enqueued', {
+    chatId,
+    updateId: Number(update?.update_id || 0),
+    source: String(updateSource || '')
+  });
   const key = chatId > 0 ? String(chatId) : 'global';
   const current = chatQueues.get(key) || Promise.resolve();
   const next = current
@@ -2600,6 +3752,10 @@ function enqueueUpdate(update) {
         processMessage(update.message, { source: updateSource }),
         new Promise((_, reject) => setTimeout(() => reject(new Error(`Request timed out after ${jobTimeoutMs}ms`)), jobTimeoutMs))
       ]);
+      logRuntimeEvent('info', 'queue_job_completed', {
+        chatId,
+        updateId: Number(update?.update_id || 0)
+      });
     })
     .catch(async (error) => {
       const targetChatId = Number(update?.message?.chat?.id || 0);
@@ -2704,7 +3860,7 @@ async function startServer() {
     r2Bucket: process.env.R2_BUCKET || '',
     r2AccessKeyId: process.env.R2_ACCESS_KEY_ID || '',
     r2SecretAccessKey: process.env.R2_SECRET_ACCESS_KEY || '',
-    r2StateKey: process.env.R2_STATE_KEY || 'state/runtime-config.json',
+    r2StateKey: process.env.R2_STATE_KEY || storageDefaults.stateKey,
     filePath: path.resolve(process.env.RENDER_BOT_STATE_FILE || path.join(repoRoot, 'telegram/data/runtime-state.json'))
   });
   const blacklistStore = createBlacklistStoreFromEnv();
@@ -2850,13 +4006,14 @@ async function startServer() {
   const port = Number(process.env.PORT || 10000);
   server.listen(port, () => {
     console.log(`[render-bot] listening on port ${port}`);
+    console.log(`[render-bot] version: ${BOT_VERSION}`);
     console.log(`[render-bot] webhook path: ${webhookPath}`);
     console.log(`[render-bot] persistence: ${persistenceMode.mode}`);
     console.log(`[render-bot] crash logs: ${crashStoreMode}`);
     console.log(`[render-bot] local crash diagnostics: ${localCrashLogDir}`);
     console.log(`[render-bot] request logs: ${requestLogStoreMode}`);
     console.log(`[render-bot] runtime logs: ${runtimeLogStoreMode}`);
-    console.log(`[render-bot] request logs config: prefix=${String(process.env.R2_REQUEST_LOG_PREFIX || 'logs/requests').trim() || '-'} statusKey=${String(process.env.R2_REQUEST_LOG_STATUS_KEY || 'logs/requests/status.json').trim() || '-'} bucket=${String(process.env.R2_BUCKET || '').trim() || '-'}`);
+    console.log(`[render-bot] request logs config: prefix=${String(process.env.R2_REQUEST_LOG_PREFIX || storageDefaults.requestLogPrefix).trim() || '-'} statusKey=${String(process.env.R2_REQUEST_LOG_STATUS_KEY || storageDefaults.requestLogStatusKey).trim() || '-'} bucket=${String(process.env.R2_BUCKET || '').trim() || '-'}`);
     console.log(`[render-bot] blacklist store: ${blacklistStoreMode}`);
     console.log(`[render-bot] known users store: ${knownUsersStoreMode}`);
     console.log(`[render-bot] image storage: ${runtime.r2Endpoint && runtime.r2Bucket ? 'r2' : 'file'}`);

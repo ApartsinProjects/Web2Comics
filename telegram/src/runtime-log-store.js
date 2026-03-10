@@ -2,6 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const { S3Adapter } = require('./crash-log-store');
 const { normalizeCloudflareR2Endpoint } = require('./r2-endpoint');
+const { storageDefaultsFromEnv } = require('./env-storage-defaults');
 
 function nowIso() {
   return new Date().toISOString();
@@ -139,8 +140,9 @@ class FileBufferedRuntimeLogStore {
 class R2BufferedRuntimeLogStore extends FileBufferedRuntimeLogStore {
   constructor(options = {}) {
     super(options);
+    const storageDefaults = storageDefaultsFromEnv(process.env);
     this.bucket = String(options.bucket || '').trim();
-    this.prefix = String(options.prefix || 'logs/runtime').trim().replace(/\/+$/, '');
+    this.prefix = String(options.prefix || storageDefaults.runtimeLogPrefix).trim().replace(/\/+$/, '');
     this.adapter = options.adapter || new S3Adapter({
       endpoint: options.endpoint,
       accessKeyId: options.accessKeyId,
@@ -178,13 +180,14 @@ class R2BufferedRuntimeLogStore extends FileBufferedRuntimeLogStore {
 }
 
 function createRuntimeLogStoreFromEnv() {
+  const storageDefaults = storageDefaultsFromEnv(process.env);
   const accountId = String(process.env.CLOUDFLARE_ACCOUNT_ID || '').trim();
   const endpoint = normalizeCloudflareR2Endpoint(String(process.env.R2_S3_ENDPOINT || '').trim(), accountId);
   if (endpoint) process.env.R2_S3_ENDPOINT = endpoint;
   const bucket = String(process.env.R2_BUCKET || '').trim();
   const accessKeyId = String(process.env.R2_ACCESS_KEY_ID || '').trim();
   const secretAccessKey = String(process.env.R2_SECRET_ACCESS_KEY || '').trim();
-  const prefix = String(process.env.R2_RUNTIME_LOG_PREFIX || 'logs/runtime').trim();
+  const prefix = String(process.env.R2_RUNTIME_LOG_PREFIX || storageDefaults.runtimeLogPrefix).trim();
   const flushIntervalMs = clamp(process.env.R2_RUNTIME_LOG_FLUSH_INTERVAL_MS, 250, 60000, 4000);
   const maxBatchEntries = clamp(process.env.R2_RUNTIME_LOG_MAX_BATCH_ENTRIES, 1, 5000, 100);
   const maxBatchBytes = clamp(process.env.R2_RUNTIME_LOG_MAX_BATCH_BYTES, 512, 2 * 1024 * 1024, 128 * 1024);

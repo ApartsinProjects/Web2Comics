@@ -14,6 +14,24 @@ if ([string]::IsNullOrWhiteSpace($version)) {
     throw "Could not resolve version from package.json"
 }
 
+$releaseNotesPath = "telegram/docs/release-notes.md"
+if (-not (Test-Path $releaseNotesPath)) {
+    throw "Missing $releaseNotesPath"
+}
+$releaseNotes = Get-Content -Raw $releaseNotesPath
+if ($releaseNotes -notmatch [regex]::Escape("## v$version")) {
+    throw "telegram/docs/release-notes.md must include a section header for v$version."
+}
+
+$botReadmePath = "telegram/README.md"
+if (-not (Test-Path $botReadmePath)) {
+    throw "Missing $botReadmePath"
+}
+$botReadme = Get-Content -Raw $botReadmePath
+if ($botReadme -notmatch [regex]::Escape("Web2Comics-TelegramBot-v$version-deploy.zip")) {
+    throw "telegram/README.md must reference Web2Comics-TelegramBot-v$version-deploy.zip."
+}
+
 $packageName = "Web2Comics-TelegramBot-v$version"
 $stagingRoot = Join-Path $OutputDir $packageName
 $zipPath = Join-Path $OutputDir "$packageName-deploy.zip"

@@ -5,9 +5,12 @@ Project documentation and user-facing reference pages for Web2Comics.
 ## Start Here
 - `index.html` : GitHub Pages landing page for docs, policy, and support links.
 - `ROOT_README.md` : release-oriented README snapshot used by packaging checks.
+- [`extension.md`](./extension.md) : extension-only product overview and navigation page.
+- [`engine.md`](./engine.md) : shared engine overview used by both products.
 - `INSTALL.md` : installation + first-run guide.
 - [`user-manual.html`](./user-manual.html) : end-user manual (popup, side panel, options, workflows).
 - [`telegram-bot.md`](./telegram-bot.md) : Telegram bot overview, deployment, and testing links.
+- [`../telegram/docs/release-notes.md`](../telegram/docs/release-notes.md) : Telegram bot release history and deploy package notes.
 - Telegram bot docs pages (GitHub Pages):
   - [`../telegram/README.md`](../telegram/README.md)
   - [`../telegram/docs/deployment-runbook.md`](../telegram/docs/deployment-runbook.md)
@@ -18,6 +21,11 @@ Project documentation and user-facing reference pages for Web2Comics.
 - Extension root README (GitHub): <https://github.com/ApartsinProjects/Web2Comics/blob/main/README.md>
 - Telegram bot README (GitHub): <https://github.com/ApartsinProjects/Web2Comics/blob/main/telegram/README.md>
 - Telegram bot docs page (GitHub Pages): <https://apartsinprojects.github.io/Web2Comics/HTML/telegram-bot.html>
+
+## Documentation Separation
+- Extension documentation should stay in extension-focused pages and should not use Telegram bot commands or deploy steps as primary content.
+- Telegram bot documentation should stay in bot-focused pages and should not use popup, options-page, or sidepanel UX as primary content.
+- Both product docs should reference the shared engine when discussing common generation behavior.
 
 ## Product and Strategy Docs
 - `Product_Backlog.md` : categorized backlog.

@@ -5,20 +5,20 @@ const STORYBOARD_PROMPT_PREFIX_LINES = [
 
 const STORYBOARD_RULE_LINES = [
   '- Keep captions concise, factual, and sequential.',
+  '- Build a clear narrative arc across panels: setup -> escalation -> turn -> resolution.',
+  '- Keep character identity and setting continuity stable across panels.',
   '- Keep each image_prompt visual and concrete for a single panel scene.',
-  '- Each image prompt should include a description of the scene, characters, and interactions for the panel.',
-  '- Image prompt should not include requirements for in-image text or panel number.',
-  '- Each image_prompt must avoid panel numbering.',
-  '- Each image_prompt must not ask for any text elements in the image.'
+  '- For each image_prompt include: subject/action, environment, framing angle, lighting mood, and emotional tone.',
+  '- Image prompt must avoid panel numbering and must never ask for any text elements inside the image.'
 ];
 
 const STYLE_REFERENCE_PROMPT_LINES = {
-  intro: 'Create one reference image that defines a consistent visual style for the full comic.',
-  sceneRule: 'Show key characters and setting mood in one scene.'
+  intro: 'Create one reference image that defines a consistent visual style bible for the full comic.',
+  sceneRule: 'Show key characters and setting mood in one scene with strong silhouette readability and cohesive palette.'
 };
 
 const PANEL_IMAGE_PROMPT_LINES = {
-  sceneRule: 'Create one clear scene, no collage.',
+  sceneRule: 'Create one clear scene (no collage), with strong focal point and readable composition.',
   styleLock1: 'STYLE LOCK: a summary reference image is provided as image input.',
   styleLock2: 'Treat that summary reference image as the authoritative style guide.',
   styleLock3: 'Match its linework, color palette, shading, lighting mood, character rendering, and texture treatment.',

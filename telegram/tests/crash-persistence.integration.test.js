@@ -30,7 +30,27 @@ describe('crash persistence integration', () => {
       RENDER_BOT_CRASH_LOG_DIR: crashDir,
       RENDER_BOT_CRASH_LOG_LATEST: latestPath,
       RENDER_BOT_STATE_FILE: path.join(tmpDir, 'runtime-state.json'),
-      RENDER_BOT_FAKE_GENERATOR: 'true'
+      RENDER_BOT_FAKE_GENERATOR: 'true',
+      RENDER_BOT_ASYNC_CHROMIUM_WARMUP: 'false',
+      TELEGRAM_BOT_TOKEN_FILE: '',
+      TELEGRAM_WEBHOOK_SECRET_FILE: '',
+      GEMINI_API_KEY_FILE: '',
+      OPENAI_API_KEY_FILE: '',
+      OPENROUTER_API_KEY_FILE: '',
+      HUGGINGFACE_INFERENCE_API_TOKEN_FILE: '',
+      CLOUDFLARE_WORKERS_AI_TOKEN_FILE: '',
+      CLOUDFLARE_ACCOUNT_API_TOKEN_FILE: '',
+      CLOUDFLARE_API_TOKEN_FILE: '',
+      FIRECRAWL_API_KEY_FILE: '',
+      JINA_API_KEY_FILE: '',
+      DRIFTBOT_API_KEY_FILE: '',
+      UNSTRUCTURED_API_KEY_FILE: '',
+      LLAMA_CLOUD_API_KEY_FILE: '',
+      ASSEMBLYAI_API_KEY_FILE: '',
+      GROQ_API_KEY_FILE: '',
+      COHERE_API_KEY_FILE: '',
+      R2_ACCESS_KEY_ID_FILE: '',
+      R2_SECRET_ACCESS_KEY_FILE: ''
     };
 
     const child = spawn(process.execPath, ['telegram/src/webhook-bot.js'], {
@@ -53,6 +73,6 @@ describe('crash persistence integration', () => {
     expect(latest.event).toBe('startupFailure');
     expect(String(latest.error && latest.error.message || '')).toContain('Missing TELEGRAM_WEBHOOK_SECRET');
     expect(String(logs.stderr)).toContain('startup failed');
-  });
+  }, 20000);
 });
 

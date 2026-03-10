@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>extension - Web2Comics Docs</title>
+  <style>
+    :root { --bg:#f7f4ed; --panel:#fff; --ink:#1d2a3f; --muted:#5c6b82; --line:#ddd6ca; --link:#155eef; }
+    * { box-sizing: border-box; }
+    body { margin:0; font-family:"Segoe UI",Tahoma,Arial,sans-serif; color:var(--ink); background:var(--bg); line-height:1.6; }
+    .wrap { max-width:980px; margin:0 auto; padding:18px; }
+    .topbar { display:flex; flex-wrap:wrap; gap:10px; align-items:center; margin-bottom:14px; padding:10px 12px; border:1px solid var(--line); background:#fff; border-radius:10px; }
+    .topbar a { color:var(--link); text-decoration:none; font-weight:600; }
+    article { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:20px; overflow-wrap:anywhere; }
+    h1,h2,h3 { line-height:1.25; }
+    pre { background:#0f172a; color:#e2e8f0; padding:12px; border-radius:8px; overflow:auto; }
+    code { font-family:Consolas,"Courier New",monospace; font-size:0.92em; }
+    a { color:var(--link); }
+    table { border-collapse:collapse; width:100%; display:block; overflow-x:auto; }
+    th,td { border:1px solid #cdd5e1; padding:6px 8px; text-align:left; vertical-align:top; }
+    .footer { margin-top:12px; color:var(--muted); font-size:0.92rem; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <nav class="topbar">
+      <a href="../index.html">Docs Home</a>
+      <a href="../user-manual.html">User Manual</a>
+      <a href="https://github.com/ApartsinProjects/Web2Comics" target="_blank" rel="noopener noreferrer">GitHub Repo</a>
+      <a href="https://github.com/ApartsinProjects/Web2Comics#readme" target="_blank" rel="noopener noreferrer">Project README</a>
+      <a href="https://www.apartsin.com" target="_blank" rel="noopener noreferrer">Creator Site</a>
+      <a href="../privacy.html">Privacy</a>
+      <a href="../support.html">Support</a>
+    </nav>
+    <article>
+<h1 id="web2comics-chrome-extension">Web2Comics Chrome Extension</h1>
+<p>The Chrome extension is the browser product in the Web2Comics project.</p>
+<h2 id="product-boundaries">Product Boundaries</h2>
+<ul>
+<li>This document covers the browser extension only.</li>
+<li>Telegram bot behavior, commands, deployment, and bot operations live in separate bot documents.</li>
+<li>Shared comic-generation logic lives in the engine and is referenced here as a common dependency.</li>
+</ul>
+<h2 id="cross-references">Cross References</h2>
+<ul>
+<li>Telegram bot overview: <a href="telegram-bot.html"><code>./telegram-bot.md</code></a></li>
+<li>Telegram bot README: <a href="telegram/README.html"><code>../telegram/README.md</code></a></li>
+<li>Shared engine overview: <a href="engine.html"><code>./engine.md</code></a></li>
+<li>Extension release notes: <a href="RELEASE_NOTES.html"><code>./RELEASE_NOTES.md</code></a></li>
+</ul>
+<h2 id="what-the-extension-does">What The Extension Does</h2>
+<ul>
+<li>Extracts content from the current browser tab</li>
+<li>Lets the user choose providers, models, styles, objectives, and panel count</li>
+<li>Generates a storyboard and panel images</li>
+<li>Shows progress in the popup and rendered output in the side panel</li>
+<li>Saves local history and exports a single composite PNG comic sheet</li>
+<li>Supports right-click selected-text flows for instant generation or prefilled composer flow</li>
+</ul>
+<h2 id="main-user-surfaces">Main User Surfaces</h2>
+<ul>
+<li>Popup: launcher, create flow, live progress, and popup history</li>
+<li>Side panel: comic viewer, history browser, export/share actions</li>
+<li>Options page: provider setup, prompt templates, storage tools, and diagnostics</li>
+<li>Context menu: selected-text generate and open-composer actions</li>
+</ul>
+<h2 id="provider-model">Provider Model</h2>
+<ul>
+<li>Text and image providers are configured separately</li>
+<li>Supported providers include OpenAI, Gemini, Cloudflare Workers AI, OpenRouter, and Hugging Face</li>
+<li>The extension can fall back to other configured providers when a selected provider fails for budget or quota reasons</li>
+</ul>
+<h2 id="data-handling">Data Handling</h2>
+<ul>
+<li>Runs locally in the browser extension runtime</li>
+<li>Stores settings, keys, current job state, and history in extension storage</li>
+<li>Sends extracted content and prompts only to the AI providers configured by the user</li>
+</ul>
+<h2 id="shared-engine-relationship">Shared Engine Relationship</h2>
+<ul>
+<li>The extension uses shared engine prompt-building and composition logic from <a href="../engine/"><code>../engine/</code></a></li>
+<li>Engine overview: <a href="engine.html"><code>./engine.md</code></a></li>
+<li>Shared engine code helps keep storyboard and panel-generation behavior aligned across extension and bot products</li>
+</ul>
+<h2 id="primary-extension-docs">Primary Extension Docs</h2>
+<ul>
+<li>Extension root README: <a href="README.html"><code>../README.md</code></a></li>
+<li>Docs index: <a href="README.html"><code>./README.md</code></a></li>
+<li>User manual: <a href="../user-manual.html"><code>./user-manual.html</code></a></li>
+<li>Install guide: <a href="INSTALL.html"><code>./INSTALL.md</code></a></li>
+<li>Gemini setup: <a href="Gemini_key.html"><code>./Gemini_key.md</code></a></li>
+<li>Release notes: <a href="RELEASE_NOTES.html"><code>./RELEASE_NOTES.md</code></a></li>
+</ul>
+<h2 id="current-release-package">Current Release Package</h2>
+<ul>
+<li>Current extension release: <code>v1.0.4</code></li>
+<li>Release asset: <code>Web2Comics-v1.0.4-extension.zip</code></li>
+<li>GitHub release page: <a href="README.html"><code>../README.md</code></a></li>
+<li>Companion bot deploy package: <a href="telegram-bot.html"><code>./telegram-bot.md</code></a></li>
+</ul>
+<h2 id="development-and-testing">Development And Testing</h2>
+<ul>
+<li>Local validation: <code>npm test</code></li>
+<li>Browser E2E: <code>npm run test:e2e</code></li>
+<li>Provider probing: <code>npm run probe:providers:extension</code></li>
+</ul>
+
+    </article>
+    <div class="footer">
+      Generated from <code>extension.md</code> •
+      <span>&copy; 2026 Alexander Apartsin</span> •
+      Creator: <a href="https://www.apartsin.com" target="_blank" rel="noopener noreferrer">www.apartsin.com</a>
+    </div>
+  </div>
+</body>
+</html>

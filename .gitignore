@@ -1,5 +1,7 @@
 .env.local
 .env.e2e.local
+.env.all
+.env.all.merge-report.json
 .env.local
 .secrets/
 .crawler
@@ -48,6 +50,7 @@ temp/
 
 # Local tool/session state
 .vscode/
+.claude/
 .autoclaude/
 .claude_agent_farm_backups/
 .release/

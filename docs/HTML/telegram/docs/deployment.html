@@ -48,8 +48,8 @@
 <h2 id="public-commands-covered-by-this-deployment">Public Commands Covered By This Deployment</h2>
 <ul>
 <li>Runtime and onboarding: <code>/start</code>, <code>/welcome</code>, <code>/help</code>, <code>/version</code>, <code>/about</code>, <code>/user</code>, <code>/config</code>, <code>/explain</code>, <code>/debug</code></li>
-<li>Generation entrypoints: text/URL messages, <code>/invent &lt;story&gt;</code>, <code>/random</code></li>
-<li>Provider/model controls: <code>/vendor</code>, <code>/text_vendor</code>, <code>/image_vendor</code>, <code>/models</code>, <code>/test</code></li>
+<li>Generation entrypoints: text, link, PDF, image, or voice/audio messages, <code>/invent &lt;story&gt;</code>, <code>/random</code></li>
+<li>Provider/model controls: <code>/vendors</code>, <code>/vendor</code>, <code>/text_vendor</code>, <code>/image_vendor</code>, <code>/models</code>, <code>/test</code></li>
 <li>Output controls: <code>/panels</code>, <code>/objective</code>, <code>/objectives</code>, objective shortcuts (<code>/summary</code>, <code>/fun</code>, <code>/learn</code>, <code>/news</code>, <code>/timeline</code>, <code>/facts</code>, <code>/compare</code>, <code>/5yold</code>, <code>/eli5</code>, <code>/study</code>, <code>/meeting</code>, <code>/howto</code>, <code>/debate</code>), <code>/style</code>, style shortcuts, <code>/new_style</code>, <code>/language</code>, <code>/mode</code>, <code>/consistency</code>, <code>/detail</code>, <code>/crazyness</code>, <code>/concurrency</code>, <code>/retries</code></li>
 <li>Prompt/options controls: <code>/prompts</code>, <code>/set_prompt</code>, <code>/list_options</code>, <code>/options</code></li>
 <li>Credentials/state: <code>/keys</code>, <code>/setkey</code>, <code>/unsetkey</code>, <code>/reset_config</code>, <code>/restart</code></li>
@@ -66,7 +66,7 @@
 <li><a href="data-reference.html">data-reference.md</a></li>
 </ul>
 <p>Quick deploy:</p>
-<pre><code class="language-bash">npm run bot:deploy:auto -- --target render --branch engine --env-only
+<pre><code class="language-bash">npm run bot:deploy:auto -- --target render --env staging --branch stage1 --env-only
 </code></pre>
 <p>Notes:</p>
 <ul>

@@ -4,6 +4,14 @@ const path = require('path');
 const { loadEnvFiles } = require('../telegram/src/env');
 const { RenderApiClient } = require('../telegram/scripts/render-api');
 
+function resolveBotEnvironment(raw) {
+  const value = String(raw || '').trim().toLowerCase();
+  if (!value) return 'staging';
+  if (value === 'staging' || value === 'stage' || value === 'test') return 'staging';
+  if (value === 'production' || value === 'prod' || value === 'live') return 'production';
+  throw new Error(`Invalid --env value '${raw}'. Use staging or production.`);
+}
+
 function parseArgs(argv) {
   const out = {};
   for (let i = 0; i < argv.length; i += 1) {
@@ -106,6 +114,7 @@ function formatLogLine(row) {
 
 async function main() {
   const args = parseArgs(process.argv.slice(2));
+  const botEnv = resolveBotEnvironment(args.env || process.env.BOT_ENV);
   const repoRoot = path.resolve(__dirname, '..');
   loadEnvFiles([
     path.join(repoRoot, '.env.e2e.local'),
@@ -113,8 +122,12 @@ async function main() {
     path.join(repoRoot, 'telegram/.env')
   ]);
 
-  const metadataPath = path.resolve(args['metadata-in'] || path.join(repoRoot, 'telegram/out/deploy-render-metadata.json'));
+  const metadataPath = path.resolve(args['metadata-in'] || path.join(repoRoot, `telegram/out/deploy-render-metadata.${botEnv}.json`));
   const metadata = readJsonSafe(metadataPath);
+  const metadataEnv = String(metadata.environment || '').trim().toLowerCase();
+  if (metadataEnv && metadataEnv !== botEnv) {
+    throw new Error(`Metadata environment mismatch: expected ${botEnv}, got ${metadataEnv}`);
+  }
 
   const renderApiKey = firstNonEmpty(args['render-api-key'], process.env.RENDER_API_KEY);
   const ownerId = firstNonEmpty(args['owner-id'], process.env.RENDER_OWNER_ID, metadata.ownerId);

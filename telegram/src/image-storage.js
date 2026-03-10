@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const { storageDefaultsFromEnv } = require('./env-storage-defaults');
 
 const HARD_MAX_CAPACITY_BYTES = 5 * 1024 * 1024 * 1024; // 5 GB hard cap
 const DEFAULT_CAPACITY_BYTES = 4 * 1024 * 1024 * 1024; // 4 GB default
@@ -11,7 +12,7 @@ function safeNumber(value, fallback) {
 }
 
 function safeDatePartFromValue(raw) {
-  const m = String(raw || '').match(/\b(\d{4}-\d{2}-\d{2})\b/);
+  const m = String(raw || '').match(/(\d{4}-\d{2}-\d{2})/);
   return m ? m[1] : '';
 }
 
@@ -267,10 +268,11 @@ class R2ImageStorageAdapter {
 
 class R2ImageStorageManager {
   constructor(options = {}) {
+    const storageDefaults = storageDefaultsFromEnv(process.env);
     this.bucket = String(options.bucket || '').trim();
     if (!this.bucket) throw new Error('Missing R2 bucket for image storage.');
-    this.prefix = String(options.prefix || 'images').trim().replace(/\/+$/, '');
-    this.statusKey = String(options.statusKey || 'status/image-storage-status.json').trim();
+    this.prefix = String(options.prefix || storageDefaults.imagePrefix).trim().replace(/\/+$/, '');
+    this.statusKey = String(options.statusKey || storageDefaults.imageStatusKey).trim();
     this.capacityBytes = Math.max(1, Math.min(HARD_MAX_CAPACITY_BYTES, safeNumber(options.capacityBytes, DEFAULT_CAPACITY_BYTES)));
     const ratio = safeNumber(options.cleanupThresholdRatio, DEFAULT_THRESHOLD_RATIO);
     this.cleanupThresholdRatio = Math.max(0.01, Math.min(1, ratio));
@@ -415,12 +417,13 @@ class R2ImageStorageManager {
 }
 
 function createImageStorageManagerFromEnv(options = {}) {
+  const storageDefaults = storageDefaultsFromEnv(process.env);
   const endpoint = String(options.r2Endpoint || process.env.R2_S3_ENDPOINT || '').trim();
   const bucket = String(options.r2Bucket || process.env.R2_BUCKET || '').trim();
   const accessKeyId = String(options.r2AccessKeyId || process.env.R2_ACCESS_KEY_ID || '').trim();
   const secretAccessKey = String(options.r2SecretAccessKey || process.env.R2_SECRET_ACCESS_KEY || '').trim();
-  const prefix = String(options.r2Prefix || process.env.R2_IMAGE_PREFIX || 'images').trim();
-  const statusKey = String(options.r2StatusKey || process.env.R2_IMAGE_STATUS_KEY || 'status/image-storage-status.json').trim();
+  const prefix = String(options.r2Prefix || process.env.R2_IMAGE_PREFIX || storageDefaults.imagePrefix).trim();
+  const statusKey = String(options.r2StatusKey || process.env.R2_IMAGE_STATUS_KEY || storageDefaults.imageStatusKey).trim();
 
   if (endpoint && bucket && accessKeyId && secretAccessKey) {
     return new R2ImageStorageManager({

@@ -11,8 +11,8 @@ Scope note:
 
 ## Public Commands To Cover In Tests
 - Onboarding/info: `/start`, `/welcome`, `/help`, `/about`, `/version`, `/user`, `/config`, `/explain`, `/debug`
-- Generation: text input, URL input, `/invent <story>`, `/random`, `/peek`, `/peek<n>`
-- Providers/models: `/vendor`, `/text_vendor`, `/image_vendor`, `/models`, `/test`
+- Generation: text, URL, PDF, image, and voice/audio input, `/invent <story>`, `/random`, `/peek`, `/peek<n>`
+- Providers/models: `/vendors`, `/vendor`, `/text_vendor`, `/image_vendor`, `/models`, `/test`
 - Controls: `/panels`, `/objective`, `/objectives`, objective shortcuts, `/style`, style shortcuts, `/new_style`, `/language`, `/mode`, `/consistency`, `/detail`, `/crazyness`, `/concurrency`, `/retries`
 - Prompt/options: `/prompts`, `/set_prompt`, `/list_options`, `/options`
 - Credentials/state: `/keys`, `/setkey`, `/unsetkey`, `/reset_config`, `/restart`
@@ -108,7 +108,7 @@ Validated interfaces include:
 
 ## 6) Required Behavior to Verify
 - Per-user queueing and no dropped updates
-- Text input and URL input flows
+- Text, URL, PDF, image, and voice/audio flows
 - Streaming panel delivery (panels sent as ready)
 - Caption prefix format `X(Y)` on each panel
 - Story-summary context present in image prompts (engine prompt builder test)

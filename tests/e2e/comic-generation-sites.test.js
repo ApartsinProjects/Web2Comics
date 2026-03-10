@@ -854,7 +854,7 @@ async function validateHistoryAfterGeneration(context, extensionId, expectedSour
     expect(typeof latest.thumbnail).toBe('string');
     expect(latest.thumbnail.startsWith('data:image/')).toBe(true);
 
-    await popupPage.locator('#view-history-btn').click();
+    await popupPage.locator('#history-btn').click();
     await expect(popupPage.locator('#history-modal')).toBeVisible();
     await expect(popupPage.locator('#history-list .history-item')).toHaveCount(1);
     await expect(popupPage.locator('#history-list .history-title').first()).not.toHaveText('');
@@ -881,7 +881,7 @@ async function validatePopupHistoryModalVisuals(context, extensionId) {
     await popupPage.goto(`chrome-extension://${extensionId}/popup/popup.html`, {
       waitUntil: 'domcontentloaded'
     });
-    await popupPage.locator('#view-history-btn').click();
+    await popupPage.locator('#history-btn').click();
     await expect(popupPage.locator('#history-modal')).toBeVisible();
     await expect(popupPage.locator('#history-list .history-item')).toHaveCount(1);
     await expect(popupPage.locator('#history-list .history-title').first()).not.toHaveText('');
@@ -898,8 +898,18 @@ async function validateSidePanelHistoryOpenAndImages(context, extensionId, expec
       waitUntil: 'domcontentloaded'
     });
 
-    await expect(sidePanelPage.locator('#history-list .history-item')).toHaveCount(1);
-    await sidePanelPage.locator('#history-list .history-item').first().click();
+    await sidePanelPage.click('#mode-history-btn');
+    await sidePanelPage.waitForFunction(() => {
+      const historyView = document.getElementById('history-browser-view');
+      return historyView && !historyView.classList.contains('hidden');
+    }, null, { timeout: 10000 });
+
+    await expect(sidePanelPage.locator('#history-browser-grid .history-item')).toHaveCount(1);
+    await sidePanelPage.evaluate(() => {
+      const item = document.querySelector('#history-browser-grid .history-item');
+      if (!item) throw new Error('No history browser item to open');
+      item.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    });
     await expect(sidePanelPage.locator('#comic-display')).toBeVisible({ timeout: 10000 });
     await expect(sidePanelPage.locator('#comic-strip img')).toHaveCount(expectedPanelCount);
 

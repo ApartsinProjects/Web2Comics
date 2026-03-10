@@ -54,7 +54,7 @@
 </li>
 <li>Story generation:
 <ul>
-<li>Send text or URL</li>
+<li>Send text, web link, PDF, image, or voice/audio</li>
 <li><code>/invent &lt;story&gt;</code></li>
 <li><code>/random</code></li>
 </ul>
@@ -66,8 +66,8 @@
 </li>
 <li>Providers/models:
 <ul>
-<li><code>/vendor &lt;name&gt;</code>, <code>/text_vendor &lt;name&gt;</code>, <code>/image_vendor &lt;name&gt;</code></li>
-<li><code>/models [text|image] [model]</code></li>
+<li><code>/vendors [role]</code>, <code>/vendor &lt;role&gt; &lt;name&gt;</code>, <code>/vendor &lt;name&gt;</code></li>
+<li><code>/models [text|image|url|image_extract|pdf|voice] [model]</code></li>
 <li><code>/test</code></li>
 </ul>
 </li>
@@ -112,7 +112,7 @@
 </li>
 </ul>
 <h2 id="what-the-bot-does">What The Bot Does</h2>
-<p>Send plain text or a URL, and the bot generates comic panels and sends them back as ordered Telegram images.</p>
+<p>Send plain text, a web link, a PDF link/file, an image link/file, or a voice/audio message, and the bot generates comic panels and sends them back as ordered Telegram images.</p>
 <p>Panel captions are prefixed as <code>X(Y)</code>:</p>
 <ul>
 <li><code>X</code> = current panel number</li>
@@ -124,7 +124,7 @@
 <li>Send <code>/help</code></li>
 <li>Run <code>/user</code> to get your Telegram id</li>
 <li>Add provider key with <code>/setkey GEMINI_API_KEY &lt;YOUR_KEY&gt;</code></li>
-<li>Send a story or URL</li>
+<li>Send a story, link, PDF, image, or voice note</li>
 </ol>
 <h2 id="core-commands">Core Commands</h2>
 <ul>
@@ -136,9 +136,10 @@
 </ul>
 <h2 id="generation-controls">Generation Controls</h2>
 <ul>
+<li><code>/vendors [role]</code></li>
+<li><code>/vendor &lt;role&gt; &lt;name&gt;</code></li>
 <li><code>/vendor &lt;name&gt;</code></li>
-<li><code>/text_vendor &lt;name&gt;</code></li>
-<li><code>/image_vendor &lt;name&gt;</code></li>
+<li>Legacy aliases: <code>/text_vendor &lt;name&gt;</code>, <code>/image_vendor &lt;name&gt;</code></li>
 <li><code>/language &lt;code&gt;</code></li>
 <li><code>/consistency &lt;on|off&gt;</code> enable style-consistency flow (supported image models only)</li>
 <li><code>/crazyness &lt;0..2&gt;</code> control story-invention temperature (higher = wilder twists)</li>
@@ -170,6 +171,9 @@
 <li>Normal text: generate directly</li>
 <li>Very short prompt: bot first expands story with AI, shows invented story, then generates comic</li>
 <li>URL input: bot prints the exact parsed URL, renders page content, then uses it as source</li>
+<li>PDF input: bot extracts document text from a PDF link or uploaded PDF file, then uses it as source</li>
+<li>Image input: bot extracts scene/story context from an image link or uploaded image file, then uses it as source</li>
+<li>Voice/audio input: bot transcribes the clip, then uses the transcript as source</li>
 </ul>
 <h2 id="image-prompt-context">Image Prompt Context</h2>
 <p>For each panel image, the bot sends context that includes:</p>

@@ -11,8 +11,8 @@ Scope note:
 
 ## Public Commands Relevant To Operations
 - Health and onboarding: `/start`, `/welcome`, `/help`, `/version`, `/about`, `/user`, `/config`, `/explain`, `/debug`
-- Live generation: text/URL message, `/invent`, `/random`, `/peek`
-- Runtime controls: `/vendor`, `/text_vendor`, `/image_vendor`, `/models`, `/test`, `/panels`, `/objective`, objective shortcuts, `/style`, style shortcuts, `/new_style`, `/language`, `/mode`, `/consistency`, `/detail`, `/crazyness`, `/concurrency`, `/retries`
+- Live generation: text, link, PDF, image, or voice/audio input, `/invent`, `/random`, `/peek`
+- Runtime controls: `/vendors`, `/vendor`, `/text_vendor`, `/image_vendor`, `/models`, `/test`, `/panels`, `/objective`, objective shortcuts, `/style`, style shortcuts, `/new_style`, `/language`, `/mode`, `/consistency`, `/detail`, `/crazyness`, `/concurrency`, `/retries`
 - Prompt/options: `/prompts`, `/set_prompt`, `/list_options`, `/options`
 - Credentials/reset: `/keys`, `/setkey`, `/unsetkey`, `/reset_config`, `/restart`
 

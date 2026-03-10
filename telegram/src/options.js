@@ -12,7 +12,7 @@ function parseUserValue(pathKey, raw) {
   const key = String(pathKey || '');
   const v = String(raw || '').trim();
   if (!v) return '';
-  if (/panel_count|_concurrency|retries|output\.width|panel_height|caption_height|timeout_ms|padding|gap|header_height|footer_height/.test(key)) {
+  if (/panel_count|_concurrency|retries|output\.width|panel_height|caption_height|timeout_ms|padding|gap|header_height|footer_height|short_prompt_word_threshold|max_context_items|max_enrichment_chars/.test(key)) {
     const n = Number.parseInt(v, 10);
     if (!Number.isFinite(n)) throw new Error(`Expected integer for ${key}`);
     return n;
@@ -22,7 +22,7 @@ function parseUserValue(pathKey, raw) {
     if (!Number.isFinite(n)) throw new Error(`Expected number for ${key}`);
     return n;
   }
-  if (/generation\.consistency|generation\.panel_watermark/.test(key)) {
+  if (/generation\.consistency|generation\.panel_watermark|generation\.auto_enrich_short_story_prompts|generation\.include_sources/.test(key)) {
     const low = v.toLowerCase();
     if (['1', 'true', 'yes', 'on'].includes(low)) return true;
     if (['0', 'false', 'no', 'off'].includes(low)) return false;

@@ -48,8 +48,8 @@
 <h2 id="public-commands-to-cover-in-tests">Public Commands To Cover In Tests</h2>
 <ul>
 <li>Onboarding/info: <code>/start</code>, <code>/welcome</code>, <code>/help</code>, <code>/about</code>, <code>/version</code>, <code>/user</code>, <code>/config</code>, <code>/explain</code>, <code>/debug</code></li>
-<li>Generation: text input, URL input, <code>/invent &lt;story&gt;</code>, <code>/random</code>, <code>/peek</code>, <code>/peek&lt;n&gt;</code></li>
-<li>Providers/models: <code>/vendor</code>, <code>/text_vendor</code>, <code>/image_vendor</code>, <code>/models</code>, <code>/test</code></li>
+<li>Generation: text, URL, PDF, image, and voice/audio input, <code>/invent &lt;story&gt;</code>, <code>/random</code>, <code>/peek</code>, <code>/peek&lt;n&gt;</code></li>
+<li>Providers/models: <code>/vendors</code>, <code>/vendor</code>, <code>/text_vendor</code>, <code>/image_vendor</code>, <code>/models</code>, <code>/test</code></li>
 <li>Controls: <code>/panels</code>, <code>/objective</code>, <code>/objectives</code>, objective shortcuts, <code>/style</code>, style shortcuts, <code>/new_style</code>, <code>/language</code>, <code>/mode</code>, <code>/consistency</code>, <code>/detail</code>, <code>/crazyness</code>, <code>/concurrency</code>, <code>/retries</code></li>
 <li>Prompt/options: <code>/prompts</code>, <code>/set_prompt</code>, <code>/list_options</code>, <code>/options</code></li>
 <li>Credentials/state: <code>/keys</code>, <code>/setkey</code>, <code>/unsetkey</code>, <code>/reset_config</code>, <code>/restart</code></li>
@@ -120,7 +120,7 @@ npm run test:telegram:full-stack
 <h2 id="required-behavior-to-verify">6) Required Behavior to Verify</h2>
 <ul>
 <li>Per-user queueing and no dropped updates</li>
-<li>Text input and URL input flows</li>
+<li>Text, URL, PDF, image, and voice/audio flows</li>
 <li>Streaming panel delivery (panels sent as ready)</li>
 <li>Caption prefix format <code>X(Y)</code> on each panel</li>
 <li>Story-summary context present in image prompts (engine prompt builder test)</li>

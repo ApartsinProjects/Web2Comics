@@ -34,15 +34,20 @@
     </nav>
     <article>
 <h1 id="web2comic-telegram-bot">Web2Comic Telegram Bot</h1>
-<p>Telegram bot backend for Web2Comics.<br />
-The bot accepts text or URL messages, generates comic panels, and sends ordered panel images back to chat.</p>
-<p>Extension README (Markdown): <a href="../README.html">../README.md</a><br />
-GitHub Pages bot docs: <a href="https://apartsinprojects.github.io/Web2Comics/HTML/telegram-bot.html">https://apartsinprojects.github.io/Web2Comics/HTML/telegram-bot.html</a>
-Bot docs bridge page (Markdown): <a href="../telegram-bot.html">../docs/telegram-bot.md</a></p>
+<p>Telegram bot backend for Web2Comics.
+The bot accepts text, web links, PDF links/files, image links/files, and voice/audio, then generates comic panels and sends ordered panel images back to chat.</p>
+<p>Bot overview doc: <a href="../telegram-bot.html">../docs/telegram-bot.md</a>
+Extension overview doc: <a href="../extension.html">../docs/extension.md</a>
+Extension README: <a href="../README.html">../README.md</a>
+Shared engine overview: <a href="../engine.html">../docs/engine.md</a>
+Engine manual source: <a href="../engine/manual.md">../engine/manual.md</a>
+Bot release notes: <a href="docs/release-notes.html">docs/release-notes.md</a>
+GitHub Pages bot docs: <a href="https://apartsinprojects.github.io/Web2Comics/HTML/telegram-bot.html">https://apartsinprojects.github.io/Web2Comics/HTML/telegram-bot.html</a></p>
 <h2 id="documentation-scope">Documentation Scope</h2>
 <ul>
 <li>Bot documentation lists public user-facing commands and flows only.</li>
 <li>Internal/admin-only commands are intentionally excluded from published docs.</li>
+<li>Extension popup, sidepanel, options-page, and browser workflows are documented separately.</li>
 </ul>
 <h2 id="public-command-catalog-no-admin-commands">Public Command Catalog (No Admin Commands)</h2>
 <ul>
@@ -53,7 +58,7 @@ Bot docs bridge page (Markdown): <a href="../telegram-bot.html">../docs/telegram
 </li>
 <li>Story generation:
 <ul>
-<li>Send plain text or URL message</li>
+<li>Send plain text, web link, PDF, image, or voice/audio message</li>
 <li><code>/invent &lt;story&gt;</code></li>
 <li><code>/random</code></li>
 </ul>
@@ -65,8 +70,8 @@ Bot docs bridge page (Markdown): <a href="../telegram-bot.html">../docs/telegram
 </li>
 <li>Providers and models:
 <ul>
-<li><code>/vendor &lt;name&gt;</code>, <code>/text_vendor &lt;name&gt;</code>, <code>/image_vendor &lt;name&gt;</code></li>
-<li><code>/models [text|image] [model]</code></li>
+<li><code>/vendors [role]</code>, <code>/vendor &lt;role&gt; &lt;name&gt;</code>, <code>/vendor &lt;name&gt;</code></li>
+<li><code>/models [text|image|url|image_extract|pdf|voice] [model]</code></li>
 <li><code>/test</code></li>
 </ul>
 </li>
@@ -113,12 +118,18 @@ Bot docs bridge page (Markdown): <a href="../telegram-bot.html">../docs/telegram
 <h2 id="what-it-does">What It Does</h2>
 <ul>
 <li>Receives Telegram webhook updates</li>
-<li>Detects text vs URL inputs</li>
+<li>Detects text, web link, PDF, image, and voice/audio inputs</li>
 <li>Builds storyboard and panel images with configured providers</li>
 <li>Streams panels to users as they are generated</li>
 <li>Uses per-user runtime settings and credentials</li>
 <li>Persists runtime state in Cloudflare R2</li>
 <li>Persists artifacts/logs/images in Cloudflare R2</li>
+</ul>
+<h2 id="shared-engine-relationship">Shared Engine Relationship</h2>
+<ul>
+<li>The bot reuses shared prompt-building and composition logic from <a href="../engine/"><code>../engine/</code></a></li>
+<li>Engine overview: <a href="../engine.html"><code>../docs/engine.md</code></a></li>
+<li>This keeps storyboard behavior closer to the extension while allowing the bot to keep its own transport, storage, and deployment model</li>
 </ul>
 <h2 id="runtime-highlights">Runtime Highlights</h2>
 <ul>
@@ -134,6 +145,11 @@ Bot docs bridge page (Markdown): <a href="../telegram-bot.html">../docs/telegram
 </ul>
 <h2 id="documentation">Documentation</h2>
 <ul>
+<li>Bot overview: <a href="../telegram-bot.html">../docs/telegram-bot.md</a></li>
+<li>Extension overview: <a href="../extension.html">../docs/extension.md</a></li>
+<li>Shared engine overview: <a href="../engine.html">../docs/engine.md</a></li>
+<li>Engine manual source: <a href="../engine/manual.md">../engine/manual.md</a></li>
+<li>Release notes: <a href="docs/release-notes.html">docs/release-notes.md</a></li>
 <li>Deployment hub: <a href="docs/deployment.html">docs/deployment.md</a></li>
 <li>Deployment runbook: <a href="docs/deployment-runbook.html">docs/deployment-runbook.md</a></li>
 <li>Testing: <a href="docs/testing.html">docs/testing.md</a></li>
@@ -165,8 +181,14 @@ npx vitest run -c telegram/vitest.config.js telegram/tests/webhook-url-real.e2e.
 </ul>
 <h2 id="deployment">Deployment</h2>
 <p>Recommended automatic path:</p>
-<pre><code class="language-bash">npm run bot:deploy:auto -- --target render --branch engine --env-only
+<pre><code class="language-bash">npm run bot:deploy:auto -- --target render --env staging --branch stage1 --env-only
 </code></pre>
+<p>Release package:</p>
+<ul>
+<li>Current bot release: <code>v1.0.4</code></li>
+<li>Deploy artifact: <code>Web2Comics-TelegramBot-v1.0.4-deploy.zip</code></li>
+<li>Companion extension package docs: <a href="../extension.html">../docs/extension.md</a></li>
+</ul>
 <p>Includes:</p>
 <ul>
 <li>secret validation</li>

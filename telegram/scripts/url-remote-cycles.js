@@ -5,6 +5,27 @@ const { S3Client, ListObjectsV2Command, GetObjectCommand } = require('@aws-sdk/c
 const { loadEnvFiles } = require('../src/env');
 const { parseArgs, readCloudflareYaml, readAwsYaml } = require('./lib');
 
+function resolveBotEnvironment(raw) {
+  const value = String(raw || '').trim().toLowerCase();
+  if (!value) return 'staging';
+  if (value === 'staging' || value === 'stage' || value === 'test') return 'staging';
+  if (value === 'production' || value === 'prod' || value === 'live') return 'production';
+  throw new Error(`Invalid --env value '${raw}'. Use staging or production.`);
+}
+
+function envStorageNamespace(envName) {
+  return envName === 'staging' ? 'envs/staging' : 'envs/production';
+}
+
+function buildEnvScopedStorageDefaults(envName) {
+  const ns = envStorageNamespace(envName);
+  return {
+    requestPrefix: `${ns}/logs/requests`,
+    requestStatusKey: `${ns}/logs/requests/status.json`,
+    imagePrefix: `${ns}/images`
+  };
+}
+
 function firstNonEmpty(...values) {
   for (const v of values) {
     const s = String(v == null ? '' : v).trim();
@@ -15,6 +36,25 @@ function firstNonEmpty(...values) {
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function safeIsoDate(input) {
+  const ts = Date.parse(String(input || ''));
+  return Number.isFinite(ts) ? ts : 0;
+}
+
+function normalizeUrlForMatch(raw) {
+  const value = String(raw || '').trim();
+  if (!value) return '';
+  const withProtocol = /^[a-z][a-z0-9+.-]*:\/\//i.test(value) ? value : `https://${value}`;
+  try {
+    const u = new URL(withProtocol);
+    const host = String(u.hostname || '').toLowerCase().replace(/^www\./, '');
+    const path = String(u.pathname || '/').replace(/\/+$/, '') || '/';
+    return `${host}${path}`;
+  } catch (_) {
+    return value.toLowerCase().replace(/^https?:\/\//, '').replace(/^www\./, '').replace(/\/+$/, '');
+  }
 }
 
 async function listKeys(s3, bucket, prefix) {
@@ -88,15 +128,26 @@ async function waitForHealthy(baseUrl, timeoutMs, pollMs) {
   return { ok: false, elapsedMs: Date.now() - startedAt, last };
 }
 
-async function findRequestByMarker(s3, bucket, marker) {
-  const status = await readJson(s3, bucket, process.env.R2_REQUEST_LOG_STATUS_KEY || 'logs/requests/status.json');
+async function findRequestByMarker(s3, bucket, marker, options = {}) {
+  const startedAtTs = safeIsoDate(options.startedAt || '');
+  const minTs = startedAtTs > 0 ? (startedAtTs - 120000) : 0;
+  const expectedUrl = normalizeUrlForMatch(options.expectedUrl || '');
+  const requestStatusKey = String(options.requestStatusKey || process.env.R2_REQUEST_LOG_STATUS_KEY || '').trim();
+  const status = await readJson(s3, bucket, requestStatusKey);
   const logs = Array.isArray(status && status.logs) ? status.logs : [];
   const latest = logs.slice(-150).reverse();
   for (const row of latest) {
+    const createdAt = String((row && row.createdAt) || '').trim();
+    const createdAtTs = safeIsoDate(createdAt);
+    if (minTs > 0 && createdAtTs > 0 && createdAtTs < minTs) continue;
     const key = String((row && row.key) || '').trim();
     if (!key) continue;
     const item = await readJson(s3, bucket, key);
-    if (String(item && item.requestText || '').includes(marker)) {
+    const requestText = String((item && item.requestText) || '');
+    const requestMatch = requestText.includes(marker);
+    const normalizedRequest = normalizeUrlForMatch(requestText);
+    const urlMatch = expectedUrl && normalizedRequest && normalizedRequest === expectedUrl;
+    if (requestMatch || urlMatch) {
       return { key, item };
     }
   }
@@ -106,10 +157,17 @@ async function findRequestByMarker(s3, bucket, marker) {
 async function main() {
   const repoRoot = path.resolve(__dirname, '../..');
   const args = parseArgs(process.argv.slice(2));
-  const metadataPath = path.resolve(args['metadata-in'] || path.join(repoRoot, 'telegram/out/deploy-render-metadata.json'));
+  const botEnv = resolveBotEnvironment(args.env || process.env.BOT_ENV);
+  const metadataPath = path.resolve(args['metadata-in'] || path.join(repoRoot, `telegram/out/deploy-render-metadata.${botEnv}.json`));
   const metadata = fs.existsSync(metadataPath) ? JSON.parse(fs.readFileSync(metadataPath, 'utf8')) : {};
+  const metadataEnv = String(metadata.environment || '').trim().toLowerCase();
+  if (metadataEnv && metadataEnv !== botEnv) {
+    throw new Error(`Metadata environment mismatch: expected ${botEnv}, got ${metadataEnv}`);
+  }
+  const storageDefaults = buildEnvScopedStorageDefaults(botEnv);
 
   loadEnvFiles([
+    path.join(repoRoot, '.env.all'),
     path.join(repoRoot, '.env.local'),
     path.join(repoRoot, '.env.e2e.local'),
     path.join(repoRoot, 'comicbot/.env'),
@@ -125,16 +183,20 @@ async function main() {
 
   const baseUrl = firstNonEmpty(args['service-url'], process.env.RENDER_PUBLIC_BASE_URL, metadata.publicUrl);
   const webhookSecret = firstNonEmpty(args['webhook-secret'], process.env.TELEGRAM_WEBHOOK_SECRET, metadata.webhookSecret);
-  const chatId = Number(firstNonEmpty(args['chat-id'], process.env.TELEGRAM_TEST_CHAT_ID, metadata.telegramTestChatId, '1796415913'));
+  const chatId = Number(firstNonEmpty(args['chat-id'], process.env.TELEGRAM_TEST_CHAT_ID, metadata.telegramTestChatId));
   const endpoint = firstNonEmpty(
     args['r2-endpoint'],
     process.env.R2_S3_ENDPOINT,
     cfR2.endpoints && cfR2.endpoints.global_s3,
     process.env.CLOUDFLARE_ACCOUNT_ID ? `https://${process.env.CLOUDFLARE_ACCOUNT_ID}.r2.cloudflarestorage.com` : ''
   );
-  const bucket = firstNonEmpty(args['r2-bucket'], process.env.R2_BUCKET, cfR2.bucket);
+  const inferredStageBucket = /stage/i.test(String(metadata.serviceName || '')) ? 'web2comics-bot-data-stage' : '';
+  const bucket = firstNonEmpty(args['r2-bucket'], process.env.R2_BUCKET, metadata.r2Bucket, inferredStageBucket, cfR2.bucket);
   const accessKeyId = firstNonEmpty(args['r2-access-key-id'], process.env.R2_ACCESS_KEY_ID, key2.access_key_id, key1.access_key_id, awsYaml.aws_access_key_id);
   const secretAccessKey = firstNonEmpty(args['r2-secret-access-key'], process.env.R2_SECRET_ACCESS_KEY, key2.secret_access_key, key1.secret_access_key, awsYaml.aws_secret_access_key);
+  const requestPrefix = firstNonEmpty(args['request-prefix'], process.env.R2_REQUEST_LOG_PREFIX, metadata.r2RequestLogPrefix, storageDefaults.requestPrefix);
+  const requestStatusKey = firstNonEmpty(args['request-status-key'], process.env.R2_REQUEST_LOG_STATUS_KEY, metadata.r2RequestLogStatusKey, `${requestPrefix.replace(/\/+$/, '')}/status.json`);
+  const imagePrefix = firstNonEmpty(args['image-prefix'], process.env.R2_IMAGE_PREFIX, metadata.r2ImagePrefix, storageDefaults.imagePrefix);
   const timeoutMs = Math.max(30000, Number(args['timeout-ms'] || 180000));
   const pollMs = Math.max(1000, Number(args['poll-ms'] || 5000));
   const warmupTimeoutMs = Math.max(10000, Number(args['warmup-timeout-ms'] || 90000));
@@ -143,7 +205,7 @@ async function main() {
     throw new Error('Missing required inputs for URL cycle test (service/webhook/chat/r2 credentials).');
   }
 
-  process.env.R2_REQUEST_LOG_STATUS_KEY = String(process.env.R2_REQUEST_LOG_STATUS_KEY || 'logs/requests/status.json').trim();
+  process.env.R2_REQUEST_LOG_STATUS_KEY = requestStatusKey;
 
   const s3 = new S3Client({
     region: 'auto',
@@ -168,7 +230,8 @@ async function main() {
   for (const site of effectiveSites) {
     const marker = `urlcycle_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
     const testUrl = `${site}${site.includes('?') ? '&' : '?'}src=${marker}`;
-    const beforeImages = await listKeys(s3, bucket, 'images/');
+    const cycleStartedAt = new Date().toISOString();
+    const beforeImages = await listKeys(s3, bucket, `${imagePrefix.replace(/\/+$/, '')}/`);
     const warm = await waitForHealthy(baseUrl, warmupTimeoutMs, pollMs);
     let h = warm.last;
     let posted = { status: 0, body: '' };
@@ -188,10 +251,14 @@ async function main() {
     const start = Date.now();
     while ((Date.now() - start) < timeoutMs) {
       try {
-        requestEntry = await findRequestByMarker(s3, bucket, marker);
+        requestEntry = await findRequestByMarker(s3, bucket, marker, {
+          startedAt: cycleStartedAt,
+          expectedUrl: site,
+          requestStatusKey
+        });
       } catch (_) {}
       try {
-        const afterImages = await listKeys(s3, bucket, 'images/');
+        const afterImages = await listKeys(s3, bucket, `${imagePrefix.replace(/\/+$/, '')}/`);
         newImageCount = afterImages.filter((k) => !beforeImages.includes(k)).length;
       } catch (_) {}
       if (requestEntry || newImageCount > 0) break;
@@ -218,6 +285,8 @@ async function main() {
     service: baseUrl,
     bucket,
     statusKey: process.env.R2_REQUEST_LOG_STATUS_KEY,
+    requestPrefix,
+    imagePrefix,
     summary
   }, null, 2));
 }

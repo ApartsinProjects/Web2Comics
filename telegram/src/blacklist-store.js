@@ -2,6 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const { S3Adapter } = require('./crash-log-store');
 const { createWriteLockClientFromEnv } = require('./r2-write-lock');
+const { storageDefaultsFromEnv } = require('./env-storage-defaults');
 
 function normalizeBanlist(input) {
   const src = input && typeof input === 'object' ? input : {};
@@ -39,8 +40,9 @@ class FileBlacklistStore {
 
 class R2BlacklistStore {
   constructor(options = {}) {
+    const storageDefaults = storageDefaultsFromEnv(process.env);
     this.bucket = String(options.bucket || '').trim();
-    this.key = String(options.key || 'state/blacklist.json').trim();
+    this.key = String(options.key || storageDefaults.blacklistKey).trim();
     this.lockClient = options.lockClient || null;
     if (!this.bucket) throw new Error('Missing R2 bucket for blacklist store.');
     this.adapter = options.adapter || new S3Adapter({
@@ -73,11 +75,12 @@ class R2BlacklistStore {
 }
 
 function createBlacklistStoreFromEnv() {
+  const storageDefaults = storageDefaultsFromEnv(process.env);
   const endpoint = String(process.env.R2_S3_ENDPOINT || '').trim();
   const bucket = String(process.env.R2_BUCKET || '').trim();
   const accessKeyId = String(process.env.R2_ACCESS_KEY_ID || '').trim();
   const secretAccessKey = String(process.env.R2_SECRET_ACCESS_KEY || '').trim();
-  const key = String(process.env.R2_BLACKLIST_KEY || 'state/blacklist.json').trim();
+  const key = String(process.env.R2_BLACKLIST_KEY || storageDefaults.blacklistKey).trim();
   const lockClient = createWriteLockClientFromEnv();
 
   if (endpoint && bucket && accessKeyId && secretAccessKey) {

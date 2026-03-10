@@ -23,7 +23,7 @@ describe('storyboard prompt parsing', () => {
       expect(prompt).toContain(`Objective: ${objective}`);
       expect(prompt).toContain('Visual style: ink-heavy noir with dynamic framing');
       expect(prompt).toContain('must avoid panel numbering');
-      expect(prompt).toContain('must not ask for any text elements');
+      expect(prompt).toContain('must never ask for any text elements');
     });
   });
 

@@ -5,7 +5,6 @@ const { RenderApiClient } = require('./render-api');
 const { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand } = require('@aws-sdk/client-s3');
 const {
   parseArgs,
-  readTelegramYaml,
   readCloudflareYaml,
   readAwsYaml,
   resolveLatestDeployId,
@@ -22,6 +21,8 @@ const HELP_TEXT = [
   '',
   'Common options:',
   '  --help                         Show this message and exit',
+  '  --env <staging|production>     Deployment target environment (default: staging)',
+  '  --dry-run                      Run checks only; do not mutate service env or trigger deploy',
   '  --env-only                     Use env vars only (skip local yaml files)',
   '  --test-deployment              Deploy to test service name',
   '  --allow-partial-keys           Require only one configured provider key',
@@ -31,10 +32,136 @@ const HELP_TEXT = [
   '  --cloudflare-account-api-token <token>  Cloudflare account token (R2/provisioning)',
   '  --render-api-key <key>         Render API key',
   '  --telegram-token <token>       Telegram bot token',
+  '  --version-major <n>            Bot major version baseline (minor auto-increments each deploy)',
   '  --allowed-chat-ids <csv>       Restrict bot access to listed chat IDs (default: allow all chats)',
   '  --service-name <name>          Render service name override',
+  '  --peer-service-name <name>     Peer env service name for separation checks',
   '  --metadata-out <path>          Output path for deploy metadata json'
 ].join('\n');
+
+function resolveBotEnvironment(raw) {
+  const value = String(raw || '').trim().toLowerCase();
+  if (!value) return 'staging';
+  if (value === 'staging' || value === 'stage' || value === 'test') return 'staging';
+  if (value === 'production' || value === 'prod' || value === 'live') return 'production';
+  throw new Error(`Invalid --env value '${raw}'. Use staging or production.`);
+}
+
+function assertServiceNameMatchesEnv(envName, serviceName) {
+  const name = String(serviceName || '').trim().toLowerCase();
+  const looksStage = /stage|staging|test/.test(name);
+  if (envName === 'staging' && !looksStage) {
+    throw new Error(`Refusing staging deploy to non-stage service '${serviceName}'. Use a stage/test service name.`);
+  }
+  if (envName === 'production' && looksStage) {
+    throw new Error(`Refusing production deploy to stage/test service '${serviceName}'.`);
+  }
+}
+
+function defaultPeerServiceName(envName) {
+  return envName === 'staging'
+    ? 'web2comics-telegram-render-bot'
+    : 'web2comics-telegram-render-bot-stage';
+}
+
+function defaultBranchForEnv(envName) {
+  return envName === 'staging' ? 'stage1' : 'main';
+}
+
+function assertBranchMatchesEnv(envName, branchName) {
+  const branch = String(branchName || '').trim();
+  const expected = defaultBranchForEnv(envName);
+  if (!branch) {
+    throw new Error(`Missing branch for ${envName} deploy. Expected '${expected}'.`);
+  }
+  if (branch !== expected) {
+    throw new Error(`Refusing ${envName} deploy from branch '${branch}'. Expected '${expected}'.`);
+  }
+}
+
+function envStorageNamespace(envName) {
+  return envName === 'staging' ? 'envs/staging' : 'envs/production';
+}
+
+function buildEnvScopedStorageDefaults(envName) {
+  const ns = envStorageNamespace(envName);
+  return {
+    imagePrefix: `${ns}/images`,
+    imageStatusKey: `${ns}/status/image-storage-status.json`,
+    crashLogPrefix: `${ns}/crash-logs`,
+    crashLogStatusKey: `${ns}/crash-logs/status.json`,
+    requestLogPrefix: `${ns}/logs/requests`,
+    requestLogStatusKey: `${ns}/logs/requests/status.json`,
+    runtimeLogPrefix: `${ns}/logs/runtime`,
+    stateKey: `${ns}/state/runtime-config.json`,
+    blacklistKey: `${ns}/state/blacklist.json`,
+    knownUsersKey: `${ns}/state/known-users.json`
+  };
+}
+
+function getEnvVarValue(rows, key) {
+  const list = Array.isArray(rows) ? rows : [];
+  const target = String(key || '').trim();
+  const row = list.find((item) => String(item?.key || '').trim() === target);
+  return String(row?.value || '').trim();
+}
+
+function assertCrossEnvironmentSeparation(current, peer, envName) {
+  const checks = [
+    ['TELEGRAM_BOT_TOKEN', current.telegramToken, peer.telegramToken],
+    ['TELEGRAM_NOTIFY_CHAT_ID', current.notifyChatId, peer.notifyChatId],
+    ['TELEGRAM_TEST_CHAT_ID', current.telegramTestChatId, peer.telegramTestChatId],
+    ['R2_BUCKET', current.r2Bucket, peer.r2Bucket],
+    ['R2_STATE_KEY', current.r2StateKey, peer.r2StateKey],
+    ['R2_BLACKLIST_KEY', current.r2BlacklistKey, peer.r2BlacklistKey],
+    ['R2_KNOWN_USERS_KEY', current.r2KnownUsersKey, peer.r2KnownUsersKey],
+    ['R2_IMAGE_PREFIX', current.r2ImagePrefix, peer.r2ImagePrefix],
+    ['R2_IMAGE_STATUS_KEY', current.r2ImageStatusKey, peer.r2ImageStatusKey],
+    ['R2_CRASH_LOG_PREFIX', current.r2CrashLogPrefix, peer.r2CrashLogPrefix],
+    ['R2_CRASH_LOG_STATUS_KEY', current.r2CrashLogStatusKey, peer.r2CrashLogStatusKey],
+    ['R2_REQUEST_LOG_PREFIX', current.r2RequestLogPrefix, peer.r2RequestLogPrefix],
+    ['R2_REQUEST_LOG_STATUS_KEY', current.r2RequestLogStatusKey, peer.r2RequestLogStatusKey],
+    ['R2_RUNTIME_LOG_PREFIX', current.r2RuntimeLogPrefix, peer.r2RuntimeLogPrefix]
+  ];
+  const collisions = checks.filter(([, mine, other]) => String(mine || '').trim() && String(other || '').trim() && String(mine) === String(other));
+  if (collisions.length) {
+    const labels = collisions.map(([name]) => name).join(', ');
+    throw new Error(
+      `Environment separation check failed for ${envName}: identical values detected with peer service for ${labels}. ` +
+      'Use fully separate bot tokens, chat IDs, buckets, and storage paths between staging and production.'
+    );
+  }
+  if (String(current.publicUrl || '').trim() && String(peer.publicUrl || '').trim() && String(current.publicUrl).trim() === String(peer.publicUrl).trim()) {
+    throw new Error(
+      `Environment separation check failed for ${envName}: RENDER_PUBLIC_BASE_URL/public service URL matches peer environment. ` +
+      'Use different Render services/webhook URLs for staging and production.'
+    );
+  }
+}
+
+function parseMajorMinorVersion(value, fallbackMajor = 1) {
+  const text = String(value || '').trim();
+  const m = text.match(/^(\d+)\.(\d+)$/);
+  if (m) {
+    return {
+      major: Math.max(0, Number(m[1])),
+      minor: Math.max(0, Number(m[2]))
+    };
+  }
+  return {
+    major: Math.max(0, Number.isFinite(Number(fallbackMajor)) ? Number(fallbackMajor) : 1),
+    minor: 0
+  };
+}
+
+function formatMajorMinorVersion(major, minor) {
+  return `${Math.max(0, Number(major) || 0)}.${Math.max(0, Number(minor) || 0)}`;
+}
+
+function resolveNextBotVersion(currentValue, majorHint) {
+  const parsed = parseMajorMinorVersion(currentValue, majorHint);
+  return formatMajorMinorVersion(parsed.major, parsed.minor + 1);
+}
 
 async function fetchTextWithTimeout(url, init, timeoutMs, label) {
   const ms = Math.max(1000, Number(timeoutMs || 45000));
@@ -103,6 +230,152 @@ async function verifyHuggingFaceKey(apiKey) {
   if (!res.ok) throw new Error(`Hugging Face token invalid (${res.status}): ${text.slice(0, 300)}`);
 }
 
+async function verifyCohereKey(apiKey) {
+  const { res, text } = await fetchTextWithTimeout('https://api.cohere.com/v1/models', {
+    method: 'GET',
+    headers: { Authorization: `Bearer ${apiKey}` }
+  }, 30000, 'Cohere auth');
+  if (!res.ok) throw new Error(`Cohere key invalid (${res.status}): ${text.slice(0, 300)}`);
+}
+
+async function verifyFirecrawlKey(apiKey) {
+  const { res, text } = await fetchTextWithTimeout('https://api.firecrawl.dev/v1/search', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      query: 'example.com',
+      limit: 1
+    })
+  }, 45000, 'Firecrawl auth');
+  if (!res.ok) throw new Error(`Firecrawl key invalid (${res.status}): ${text.slice(0, 300)}`);
+}
+
+async function verifyJinaKey(apiKey) {
+  const { res, text } = await fetchTextWithTimeout('https://r.jina.ai/http://example.com', {
+    method: 'GET',
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      Accept: 'text/plain'
+    }
+  }, 45000, 'Jina auth');
+  if (!res.ok) throw new Error(`Jina key invalid (${res.status}): ${text.slice(0, 300)}`);
+}
+
+async function verifyDriftbotKey(apiKey) {
+  const query = encodeURIComponent('type:Person');
+  const url = `https://kg.diffbot.com/kg/v3/dql?token=${encodeURIComponent(apiKey)}&query=${query}&size=1`;
+  const { res, text } = await fetchTextWithTimeout(url, {
+    method: 'GET',
+    headers: { Accept: 'application/json' }
+  }, 45000, 'Driftbot auth');
+  if (!res.ok) throw new Error(`Driftbot key invalid (${res.status}): ${text.slice(0, 300)}`);
+}
+
+async function verifyBraveSearchKey(apiKey) {
+  const { res, text } = await fetchTextWithTimeout('https://api.search.brave.com/res/v1/web/search?q=example.com&count=1', {
+    method: 'GET',
+    headers: {
+      'X-Subscription-Token': apiKey,
+      Accept: 'application/json'
+    }
+  }, 45000, 'Brave auth');
+  if (!res.ok) throw new Error(`Brave key invalid (${res.status}): ${text.slice(0, 300)}`);
+}
+
+async function verifyTavilyKey(apiKey) {
+  const { res, text } = await fetchTextWithTimeout('https://api.tavily.com/search', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ api_key: apiKey, query: 'example.com', max_results: 1 })
+  }, 45000, 'Tavily auth');
+  if (!res.ok) throw new Error(`Tavily key invalid (${res.status}): ${text.slice(0, 300)}`);
+}
+
+async function verifyExaKey(apiKey) {
+  const { res, text } = await fetchTextWithTimeout('https://api.exa.ai/search', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': apiKey
+    },
+    body: JSON.stringify({ query: 'example.com', numResults: 1 })
+  }, 45000, 'Exa auth');
+  if (!res.ok) throw new Error(`Exa key invalid (${res.status}): ${text.slice(0, 300)}`);
+}
+
+async function verifySerperKey(apiKey) {
+  const { res, text } = await fetchTextWithTimeout('https://google.serper.dev/search', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-API-KEY': apiKey
+    },
+    body: JSON.stringify({ q: 'example.com', num: 1 })
+  }, 45000, 'Serper auth');
+  if (!res.ok) throw new Error(`Serper key invalid (${res.status}): ${text.slice(0, 300)}`);
+}
+
+async function verifySerpApiKey(apiKey) {
+  const { res, text } = await fetchTextWithTimeout(`https://serpapi.com/search.json?q=example.com&num=1&api_key=${encodeURIComponent(apiKey)}`, {
+    method: 'GET'
+  }, 45000, 'SerpAPI auth');
+  if (!res.ok) throw new Error(`SerpAPI key invalid (${res.status}): ${text.slice(0, 300)}`);
+}
+
+async function verifyGoogleKgKey(apiKey) {
+  const { res, text } = await fetchTextWithTimeout(`https://kgsearch.googleapis.com/v1/entities:search?query=Tokyo&limit=1&key=${encodeURIComponent(apiKey)}`, {
+    method: 'GET'
+  }, 45000, 'Google KG auth');
+  if (!res.ok) throw new Error(`Google KG key invalid (${res.status}): ${text.slice(0, 300)}`);
+}
+
+async function verifyLlamaCloudKey(apiKey) {
+  if (!String(apiKey || '').trim().startsWith('llx-')) {
+    throw new Error('LlamaCloud key format invalid (expected llx-)');
+  }
+  const base = String(process.env.LLAMAPARSE_BASE_URL || process.env.LLAMA_CLOUD_BASE_URL || 'https://api.cloud.llamaindex.ai')
+    .trim()
+    .replace(/\/+$/, '');
+  const { res, text } = await fetchTextWithTimeout(`${base}/api/v1/parsing/upload`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${apiKey}` }
+  }, 30000, 'LlamaParse auth');
+  if (res.status === 401 || res.status === 403) {
+    throw new Error(`LlamaParse key invalid (${res.status}): ${text.slice(0, 300)}`);
+  }
+}
+
+async function verifyAssemblyAiKey(apiKey) {
+  const { res, text } = await fetchTextWithTimeout('https://api.assemblyai.com/v2/transcript', {
+    method: 'POST',
+    headers: {
+      Authorization: apiKey,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({})
+  }, 30000, 'AssemblyAI auth');
+  if (res.status === 401 || res.status === 403) {
+    throw new Error(`AssemblyAI key invalid (${res.status}): ${text.slice(0, 300)}`);
+  }
+}
+
+async function verifyUnstructuredKey(apiKey) {
+  const { res, text } = await fetchTextWithTimeout('https://api.unstructuredapp.io/general/v0/general', {
+    method: 'POST',
+    headers: {
+      Accept: 'application/json',
+      'unstructured-api-key': apiKey
+    },
+    body: new FormData()
+  }, 30000, 'Unstructured auth');
+  if (res.status === 401 || res.status === 403) {
+    throw new Error(`Unstructured key invalid (${res.status}): ${text.slice(0, 300)}`);
+  }
+}
+
 async function verifyAllProviderCredentials(providerEnv, options = {}) {
   const strictAll = Boolean(options.strictAll);
   const checks = [];
@@ -133,6 +406,72 @@ async function verifyAllProviderCredentials(providerEnv, options = {}) {
     enabled: Boolean(key('HUGGINGFACE_INFERENCE_API_TOKEN')),
     run: () => verifyHuggingFaceKey(key('HUGGINGFACE_INFERENCE_API_TOKEN'))
   });
+  checks.push({
+    name: 'cohere',
+    enabled: Boolean(key('COHERE_API_KEY')),
+    run: () => verifyCohereKey(key('COHERE_API_KEY'))
+  });
+  checks.push({
+    name: 'firecrawl',
+    enabled: Boolean(key('FIRECRAWL_API_KEY')),
+    run: () => verifyFirecrawlKey(key('FIRECRAWL_API_KEY'))
+  });
+  checks.push({
+    name: 'jina',
+    enabled: Boolean(key('JINA_API_KEY')),
+    run: () => verifyJinaKey(key('JINA_API_KEY'))
+  });
+  checks.push({
+    name: 'driftbot',
+    enabled: Boolean(key('DRIFTBOT_API_KEY')),
+    run: () => verifyDriftbotKey(key('DRIFTBOT_API_KEY'))
+  });
+  checks.push({
+    name: 'llamaparse',
+    enabled: Boolean(key('LLAMA_CLOUD_API_KEY')),
+    run: () => verifyLlamaCloudKey(key('LLAMA_CLOUD_API_KEY'))
+  });
+  checks.push({
+    name: 'unstructured',
+    enabled: Boolean(key('UNSTRUCTURED_API_KEY')),
+    run: () => verifyUnstructuredKey(key('UNSTRUCTURED_API_KEY'))
+  });
+  checks.push({
+    name: 'assemblyai',
+    enabled: Boolean(key('ASSEMBLYAI_API_KEY')),
+    run: () => verifyAssemblyAiKey(key('ASSEMBLYAI_API_KEY'))
+  });
+  checks.push({
+    name: 'brave',
+    enabled: Boolean(key('BRAVE_SEARCH_API_KEY')),
+    run: () => verifyBraveSearchKey(key('BRAVE_SEARCH_API_KEY'))
+  });
+  checks.push({
+    name: 'tavily',
+    enabled: Boolean(key('TAVILY_API_KEY')),
+    run: () => verifyTavilyKey(key('TAVILY_API_KEY'))
+  });
+  checks.push({
+    name: 'exa',
+    enabled: Boolean(key('EXA_API_KEY')),
+    optional: true,
+    run: () => verifyExaKey(key('EXA_API_KEY'))
+  });
+  checks.push({
+    name: 'serper',
+    enabled: Boolean(key('SERPER_API_KEY')),
+    run: () => verifySerperKey(key('SERPER_API_KEY'))
+  });
+  checks.push({
+    name: 'serpapi',
+    enabled: Boolean(key('SERPAPI_API_KEY')),
+    run: () => verifySerpApiKey(key('SERPAPI_API_KEY'))
+  });
+  checks.push({
+    name: 'googlekg',
+    enabled: Boolean(key('GOOGLE_KG_API_KEY')),
+    run: () => verifyGoogleKgKey(key('GOOGLE_KG_API_KEY'))
+  });
 
   const failures = [];
   for (const check of checks) {
@@ -144,7 +483,12 @@ async function verifyAllProviderCredentials(providerEnv, options = {}) {
       await check.run();
       console.log(`[deploy] provider credential check ok: ${check.name}`);
     } catch (error) {
-      failures.push(`${check.name}: ${String(error?.message || error)}`);
+      const message = `${check.name}: ${String(error?.message || error)}`;
+      if (check.optional && !strictAll) {
+        console.warn(`[deploy] provider credential check warning: ${message}`);
+        continue;
+      }
+      failures.push(message);
     }
   }
   if (failures.length) {
@@ -214,7 +558,7 @@ function pickCloudflareAccountTokenCandidates(cfYaml) {
   return out;
 }
 
-function resolveR2Config(args, cfYaml, awsYaml) {
+function resolveR2Config(args, cfYaml, awsYaml, serviceName = '') {
   const cfR2 = (cfYaml && cfYaml.r2) || {};
   const s3Clients = (cfR2 && cfR2.s3_clients) || {};
   const key2 = s3Clients.keypair_2 || {};
@@ -225,7 +569,11 @@ function resolveR2Config(args, cfYaml, awsYaml) {
     process.env.CLOUDFLARE_ACCOUNT_ID,
     cfYaml && cfYaml.account_id
   );
-  const bucket = firstNonEmpty(args['r2-bucket'], process.env.R2_BUCKET, cfR2.bucket, 'web2comics-bot-data');
+  const explicitBucket = firstNonEmpty(args['r2-bucket']);
+  const isStageService = /stage/i.test(String(serviceName || ''));
+  const stageBucketDefault = firstNonEmpty(args['r2-bucket-stage'], process.env.R2_BUCKET_STAGE, 'web2comics-bot-data-stage');
+  const nonStageBucketDefault = firstNonEmpty(process.env.R2_BUCKET, cfR2.bucket, 'web2comics-bot-data');
+  const bucket = explicitBucket || (isStageService ? stageBucketDefault : nonStageBucketDefault);
   const endpointRaw = firstNonEmpty(
     args['r2-endpoint'],
     process.env.R2_S3_ENDPOINT,
@@ -373,7 +721,7 @@ async function resolveDeployId(render, serviceId, deployResponse, triggerStarted
   return resolveLatestDeployId(rows, triggerStartedAtMs);
 }
 
-async function waitForDeploy(render, serviceId, deployId, timeoutMs = 360000) {
+async function waitForDeploy(render, serviceId, deployId, timeoutMs = 900000) {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
     const deploy = await render.getDeploy(serviceId, deployId);
@@ -447,25 +795,29 @@ async function main() {
   globalStage = 'load-env';
   const repoRoot = path.resolve(__dirname, '../..');
   const preArgs = parseArgs(process.argv.slice(2));
+  const botEnv = resolveBotEnvironment(preArgs.env || process.env.BOT_ENV);
   if (parseBool(preArgs.help) || parseBool(preArgs.h)) {
     console.log(HELP_TEXT);
     return;
   }
   const envOnly = parseBool(preArgs['env-only'] || process.env.BOT_SECRETS_ENV_ONLY);
+  const dryRun = parseBool(preArgs['dry-run'] || process.env.RENDER_DRY_RUN);
   loadEnvFiles([
+    path.join(repoRoot, '.env.all'),
     path.join(repoRoot, '.env.local'),
     path.join(repoRoot, '.env.e2e.local'),
+    path.join(repoRoot, '.crawler'),
     path.join(repoRoot, 'comicbot/.env'),
-    path.join(repoRoot, 'telegram/.env')
+    path.join(repoRoot, 'telegram/.env'),
+    path.join(repoRoot, 'telegram/.crawler')
   ]);
 
   const args = preArgs;
   const metadataOut = firstNonEmpty(
     args['metadata-out'],
     process.env.RENDER_DEPLOY_METADATA_OUT,
-    path.join(repoRoot, 'telegram/out/deploy-render-metadata.json')
+    path.join(repoRoot, `telegram/out/deploy-render-metadata.${botEnv}.json`)
   );
-  const tgYaml = envOnly ? {} : readTelegramYaml(repoRoot);
   const cfYaml = envOnly ? {} : readCloudflareYaml(repoRoot);
   const awsYaml = envOnly ? {} : readAwsYaml(repoRoot);
   const testDeployment = parseBool(args['test-deployment'] || process.env.RENDER_TEST_DEPLOYMENT);
@@ -477,14 +829,23 @@ async function main() {
   const renderApiKey = firstNonEmpty(args['render-api-key'], process.env.RENDER_API_KEY);
   globalRenderApiKey = renderApiKey;
   const repoUrl = firstNonEmpty(args['repo-url'], process.env.RENDER_REPO_URL, 'https://github.com/ApartsinProjects/Web2Comics');
-  const branch = firstNonEmpty(args.branch, process.env.RENDER_REPO_BRANCH, 'main');
-  const defaultServiceName = testDeployment ? 'web2comics-telegram-render-bot-test' : 'web2comics-telegram-render-bot';
+  const branch = firstNonEmpty(args.branch, process.env.RENDER_REPO_BRANCH, defaultBranchForEnv(botEnv));
+  assertBranchMatchesEnv(botEnv, branch);
+  const defaultServiceName = botEnv === 'staging'
+    ? (testDeployment ? 'web2comics-telegram-render-bot-stage-test' : 'web2comics-telegram-render-bot-stage')
+    : (testDeployment ? 'web2comics-telegram-render-bot-test' : 'web2comics-telegram-render-bot');
   const serviceName = firstNonEmpty(args['service-name'], process.env.RENDER_SERVICE_NAME, defaultServiceName);
+  assertServiceNameMatchesEnv(botEnv, serviceName);
+  const peerServiceName = firstNonEmpty(
+    args['peer-service-name'],
+    process.env.RENDER_PEER_SERVICE_NAME,
+    defaultPeerServiceName(botEnv)
+  );
   const ownerIdArg = firstNonEmpty(args['owner-id'], process.env.RENDER_OWNER_ID);
   const region = firstNonEmpty(args.region, process.env.RENDER_REGION, 'oregon');
   const plan = firstNonEmpty(args.plan, process.env.RENDER_PLAN, 'free');
 
-  const telegramToken = firstNonEmpty(args['telegram-token'], process.env.TELEGRAM_BOT_TOKEN, tgYaml.bot_token);
+  const telegramToken = firstNonEmpty(args['telegram-token'], process.env.TELEGRAM_BOT_TOKEN);
   const cloudflareAccountId = firstNonEmpty(args['cloudflare-account-id'], process.env.CLOUDFLARE_ACCOUNT_ID, cfYaml.account_id);
   if (String(args['cloudflare-api-token'] || '').trim()) {
     throw new Error('Deprecated --cloudflare-api-token is not supported. Use --cloudflare-ai-token and --cloudflare-account-api-token explicitly.');
@@ -508,20 +869,35 @@ async function main() {
     OPENROUTER_API_KEY: firstNonEmpty(args['openrouter-key'], process.env.OPENROUTER_API_KEY),
     CLOUDFLARE_ACCOUNT_ID: cloudflareAccountId,
     CLOUDFLARE_API_TOKEN: cloudflareAiToken,
-    HUGGINGFACE_INFERENCE_API_TOKEN: firstNonEmpty(args['huggingface-token'], process.env.HUGGINGFACE_INFERENCE_API_TOKEN)
+    HUGGINGFACE_INFERENCE_API_TOKEN: firstNonEmpty(args['huggingface-token'], process.env.HUGGINGFACE_INFERENCE_API_TOKEN),
+    COHERE_API_KEY: firstNonEmpty(args['cohere-key'], process.env.COHERE_API_KEY),
+    FIRECRAWL_API_KEY: firstNonEmpty(args['firecrawl-key'], process.env.FIRECRAWL_API_KEY),
+    JINA_API_KEY: firstNonEmpty(args['jina-key'], process.env.JINA_API_KEY),
+    DRIFTBOT_API_KEY: firstNonEmpty(args['driftbot-key'], process.env.DRIFTBOT_API_KEY, process.env.DIFFBOT_API_KEY),
+    DIFFBOT_API_KEY: firstNonEmpty(args['diffbot-key'], process.env.DIFFBOT_API_KEY),
+    BRAVE_SEARCH_API_KEY: firstNonEmpty(args['brave-key'], process.env.BRAVE_SEARCH_API_KEY),
+    TAVILY_API_KEY: firstNonEmpty(args['tavily-key'], process.env.TAVILY_API_KEY),
+    EXA_API_KEY: firstNonEmpty(args['exa-key'], process.env.EXA_API_KEY),
+    SERPER_API_KEY: firstNonEmpty(args['serper-key'], process.env.SERPER_API_KEY),
+    SERPAPI_API_KEY: firstNonEmpty(args['serpapi-key'], process.env.SERPAPI_API_KEY),
+    GOOGLE_KG_API_KEY: firstNonEmpty(args['googlekg-key'], process.env.GOOGLE_KG_API_KEY),
+    LLAMA_CLOUD_API_KEY: firstNonEmpty(args['llama-cloud-key'], process.env.LLAMA_CLOUD_API_KEY, process.env.LLAMAPARSE_API_KEY),
+    UNSTRUCTURED_API_KEY: firstNonEmpty(args['unstructured-key'], process.env.UNSTRUCTURED_API_KEY),
+    ASSEMBLYAI_API_KEY: firstNonEmpty(args['assemblyai-key'], process.env.ASSEMBLYAI_API_KEY)
   };
-  const resolvedR2 = resolveR2Config(args, cfYaml, awsYaml);
+  const resolvedR2 = resolveR2Config(args, cfYaml, awsYaml, serviceName);
+  const storageDefaults = buildEnvScopedStorageDefaults(botEnv);
   const r2Env = {
     R2_S3_ENDPOINT: resolvedR2.endpoint,
     R2_BUCKET: resolvedR2.bucket,
     R2_ACCESS_KEY_ID: resolvedR2.accessKeyId,
     R2_SECRET_ACCESS_KEY: resolvedR2.secretAccessKey,
-    R2_IMAGE_PREFIX: firstNonEmpty(args['r2-image-prefix'], process.env.R2_IMAGE_PREFIX, 'images'),
-    R2_IMAGE_STATUS_KEY: firstNonEmpty(args['r2-image-status-key'], process.env.R2_IMAGE_STATUS_KEY, 'status/image-storage-status.json'),
-    R2_CRASH_LOG_PREFIX: firstNonEmpty(args['r2-crash-log-prefix'], process.env.R2_CRASH_LOG_PREFIX, 'crash-logs'),
-    R2_CRASH_LOG_STATUS_KEY: firstNonEmpty(args['r2-crash-log-status-key'], process.env.R2_CRASH_LOG_STATUS_KEY, 'crash-logs/status.json'),
-    R2_REQUEST_LOG_PREFIX: firstNonEmpty(args['r2-request-log-prefix'], process.env.R2_REQUEST_LOG_PREFIX, 'logs/requests'),
-    R2_REQUEST_LOG_STATUS_KEY: firstNonEmpty(args['r2-request-log-status-key'], process.env.R2_REQUEST_LOG_STATUS_KEY, 'logs/requests/status.json'),
+    R2_IMAGE_PREFIX: firstNonEmpty(args['r2-image-prefix'], process.env.R2_IMAGE_PREFIX, storageDefaults.imagePrefix),
+    R2_IMAGE_STATUS_KEY: firstNonEmpty(args['r2-image-status-key'], process.env.R2_IMAGE_STATUS_KEY, storageDefaults.imageStatusKey),
+    R2_CRASH_LOG_PREFIX: firstNonEmpty(args['r2-crash-log-prefix'], process.env.R2_CRASH_LOG_PREFIX, storageDefaults.crashLogPrefix),
+    R2_CRASH_LOG_STATUS_KEY: firstNonEmpty(args['r2-crash-log-status-key'], process.env.R2_CRASH_LOG_STATUS_KEY, storageDefaults.crashLogStatusKey),
+    R2_REQUEST_LOG_PREFIX: firstNonEmpty(args['r2-request-log-prefix'], process.env.R2_REQUEST_LOG_PREFIX, storageDefaults.requestLogPrefix),
+    R2_REQUEST_LOG_STATUS_KEY: firstNonEmpty(args['r2-request-log-status-key'], process.env.R2_REQUEST_LOG_STATUS_KEY, storageDefaults.requestLogStatusKey),
     R2_CRASH_LOG_RETENTION_DAYS: firstNonEmpty(args['r2-crash-retention-days'], process.env.R2_CRASH_LOG_RETENTION_DAYS, '5'),
     R2_REQUEST_LOG_RETENTION_DAYS: firstNonEmpty(args['r2-request-retention-days'], process.env.R2_REQUEST_LOG_RETENTION_DAYS, '5')
   };
@@ -535,16 +911,15 @@ async function main() {
   };
 
   const notifyChatId = firstChatId(
-    firstNonEmpty(args['notify-chat-id'], process.env.TELEGRAM_NOTIFY_CHAT_ID, tgYaml.allowed_chat_ids),
-    '1796415913'
+    firstNonEmpty(args['notify-chat-id'], process.env.TELEGRAM_NOTIFY_CHAT_ID)
   );
   const telegramTestChatId = firstChatId(
-    firstNonEmpty(args['telegram-test-chat-id'], process.env.TELEGRAM_TEST_CHAT_ID, tgYaml.allowed_chat_ids),
+    firstNonEmpty(args['telegram-test-chat-id'], process.env.TELEGRAM_TEST_CHAT_ID),
     notifyChatId
   );
   const allowedChatIds = resolveAllowedChatIds(args);
   const adminChatIds = normalizeIdCsv(
-    firstNonEmpty(args['admin-chat-ids'], process.env.TELEGRAM_ADMIN_CHAT_IDS, '1796415913'),
+    firstNonEmpty(args['admin-chat-ids'], process.env.TELEGRAM_ADMIN_CHAT_IDS),
     notifyChatId
   );
   globalStage = 'validate-input';
@@ -555,11 +930,14 @@ async function main() {
     throw new Error('Missing Telegram bot token. Provide TELEGRAM_BOT_TOKEN (GitHub Secret) or --telegram-token');
   }
   const existingWebhookSecret = await getExistingWebhookSecret(telegramToken);
+  const defaultWebhookSecret = botEnv === 'staging'
+    ? 'web2comics-render-webhook-secret-stage-v1'
+    : 'web2comics-render-webhook-secret-v1';
   const webhookSecret = firstNonEmpty(
     args['webhook-secret'],
     process.env.TELEGRAM_WEBHOOK_SECRET,
     existingWebhookSecret,
-    'web2comics-render-webhook-secret-v1'
+    defaultWebhookSecret
   );
   const keyCheck = validateProviderEnv(providerEnv, requireAllKeys);
   if (!keyCheck.ok) {
@@ -608,20 +986,91 @@ async function main() {
 
   globalStage = 'resolve-owner';
   let ownerId = ownerIdArg;
+  const owners = await render.listOwners();
+  if (!owners.length) throw new Error('No Render owners/workspaces found for this API key.');
+  const ownerIds = owners
+    .map((row) => String((row?.owner && row.owner.id) || row?.id || '').trim())
+    .filter(Boolean);
   if (!ownerId) {
-    const owners = await render.listOwners();
-    if (!owners.length) throw new Error('No Render owners/workspaces found for this API key.');
-    ownerId = String((owners[0].owner && owners[0].owner.id) || owners[0].id || '');
+    ownerId = ownerIds[0] || '';
     if (!ownerId) throw new Error('Unable to resolve ownerId from Render API.');
+  } else if (!ownerIds.includes(String(ownerId).trim())) {
+    const fallbackOwnerId = ownerIds[0] || '';
+    if (!fallbackOwnerId) throw new Error(`Configured ownerId '${ownerId}' is invalid and no fallback owner is available.`);
+    console.log(`[deploy] warning: configured ownerId '${ownerId}' is invalid for this API key; using '${fallbackOwnerId}'`);
+    ownerId = fallbackOwnerId;
   }
 
   globalOwnerId = ownerId;
+
+  // Cross-environment separation guard: compare against peer environment service, when it exists.
+  let peerServiceRecord = null;
+  try {
+    if (peerServiceName && peerServiceName !== serviceName) {
+      const peerRows = await render.listServicesByName(peerServiceName, ownerId);
+      peerServiceRecord = peerRows.find((row) => String(row?.service?.name || '') === peerServiceName) || null;
+    }
+  } catch (error) {
+    console.log(`[deploy] warning: could not resolve peer service '${peerServiceName}' for separation check: ${String(error?.message || error)}`);
+  }
+  if (peerServiceRecord) {
+    try {
+      const peerServiceId = String((peerServiceRecord.service && peerServiceRecord.service.id) || peerServiceRecord.id || '').trim();
+      if (peerServiceId) {
+        const peerEnvRows = await render.listServiceEnvVars(peerServiceId);
+        assertCrossEnvironmentSeparation(
+          {
+            telegramToken,
+            notifyChatId,
+            telegramTestChatId,
+            publicUrl: '',
+            r2Bucket: resolvedR2.bucket,
+            r2StateKey: firstNonEmpty(args['r2-state-key'], process.env.R2_STATE_KEY, storageDefaults.stateKey),
+            r2BlacklistKey: firstNonEmpty(args['r2-blacklist-key'], process.env.R2_BLACKLIST_KEY, storageDefaults.blacklistKey),
+            r2KnownUsersKey: firstNonEmpty(args['r2-known-users-key'], process.env.R2_KNOWN_USERS_KEY, storageDefaults.knownUsersKey),
+            r2ImagePrefix: r2Env.R2_IMAGE_PREFIX,
+            r2ImageStatusKey: r2Env.R2_IMAGE_STATUS_KEY,
+            r2CrashLogPrefix: r2Env.R2_CRASH_LOG_PREFIX,
+            r2CrashLogStatusKey: r2Env.R2_CRASH_LOG_STATUS_KEY,
+            r2RequestLogPrefix: r2Env.R2_REQUEST_LOG_PREFIX,
+            r2RequestLogStatusKey: r2Env.R2_REQUEST_LOG_STATUS_KEY,
+            r2RuntimeLogPrefix: firstNonEmpty(args['r2-runtime-log-prefix'], process.env.R2_RUNTIME_LOG_PREFIX, storageDefaults.runtimeLogPrefix)
+          },
+          {
+            telegramToken: getEnvVarValue(peerEnvRows, 'TELEGRAM_BOT_TOKEN'),
+            notifyChatId: getEnvVarValue(peerEnvRows, 'TELEGRAM_NOTIFY_CHAT_ID'),
+            telegramTestChatId: getEnvVarValue(peerEnvRows, 'TELEGRAM_TEST_CHAT_ID'),
+            publicUrl: String(peerServiceRecord?.service?.serviceDetails?.url || peerServiceRecord?.serviceDetails?.url || '').trim(),
+            r2Bucket: getEnvVarValue(peerEnvRows, 'R2_BUCKET'),
+            r2StateKey: getEnvVarValue(peerEnvRows, 'R2_STATE_KEY'),
+            r2BlacklistKey: getEnvVarValue(peerEnvRows, 'R2_BLACKLIST_KEY'),
+            r2KnownUsersKey: getEnvVarValue(peerEnvRows, 'R2_KNOWN_USERS_KEY'),
+            r2ImagePrefix: getEnvVarValue(peerEnvRows, 'R2_IMAGE_PREFIX'),
+            r2ImageStatusKey: getEnvVarValue(peerEnvRows, 'R2_IMAGE_STATUS_KEY'),
+            r2CrashLogPrefix: getEnvVarValue(peerEnvRows, 'R2_CRASH_LOG_PREFIX'),
+            r2CrashLogStatusKey: getEnvVarValue(peerEnvRows, 'R2_CRASH_LOG_STATUS_KEY'),
+            r2RequestLogPrefix: getEnvVarValue(peerEnvRows, 'R2_REQUEST_LOG_PREFIX'),
+            r2RequestLogStatusKey: getEnvVarValue(peerEnvRows, 'R2_REQUEST_LOG_STATUS_KEY'),
+            r2RuntimeLogPrefix: getEnvVarValue(peerEnvRows, 'R2_RUNTIME_LOG_PREFIX')
+          },
+          botEnv
+        );
+      }
+    } catch (error) {
+      throw new Error(`Cross-environment separation precheck failed: ${String(error?.message || error)}`);
+    }
+  } else {
+    console.log(`[deploy] peer service not found (${peerServiceName}); skipping pre-deploy separation comparison`);
+  }
 
   globalStage = 'provision-service';
   const existing = await render.listServicesByName(serviceName, ownerId);
   let serviceRecord = existing.find((row) => String(row?.service?.name || '') === serviceName);
 
   if (!serviceRecord) {
+    if (dryRun) {
+      throw new Error(`Dry-run requires existing service '${serviceName}' to validate separation/deploy settings.`);
+    }
     const createPayload = {
       type: 'web_service',
       name: serviceName,
@@ -656,6 +1105,57 @@ async function main() {
   if (!serviceId) throw new Error('Could not determine service ID.');
   globalServiceId = serviceId;
 
+  // In dry-run mode, validate current service URL separation and exit before any mutation/deploy.
+  if (dryRun) {
+    const currentService = await render.getService(serviceId);
+    const currentPublicUrl = String(currentService?.serviceDetails?.url || '').trim();
+    if (peerServiceRecord) {
+      const peerPublicUrl = String(peerServiceRecord?.service?.serviceDetails?.url || peerServiceRecord?.serviceDetails?.url || '').trim();
+      assertCrossEnvironmentSeparation(
+        {
+          telegramToken,
+          notifyChatId,
+          telegramTestChatId,
+          publicUrl: currentPublicUrl,
+          r2Bucket: resolvedR2.bucket,
+          r2StateKey: firstNonEmpty(args['r2-state-key'], process.env.R2_STATE_KEY, storageDefaults.stateKey),
+          r2BlacklistKey: firstNonEmpty(args['r2-blacklist-key'], process.env.R2_BLACKLIST_KEY, storageDefaults.blacklistKey),
+          r2KnownUsersKey: firstNonEmpty(args['r2-known-users-key'], process.env.R2_KNOWN_USERS_KEY, storageDefaults.knownUsersKey),
+          r2ImagePrefix: r2Env.R2_IMAGE_PREFIX,
+          r2ImageStatusKey: r2Env.R2_IMAGE_STATUS_KEY,
+          r2CrashLogPrefix: r2Env.R2_CRASH_LOG_PREFIX,
+          r2CrashLogStatusKey: r2Env.R2_CRASH_LOG_STATUS_KEY,
+          r2RequestLogPrefix: r2Env.R2_REQUEST_LOG_PREFIX,
+          r2RequestLogStatusKey: r2Env.R2_REQUEST_LOG_STATUS_KEY,
+          r2RuntimeLogPrefix: firstNonEmpty(args['r2-runtime-log-prefix'], process.env.R2_RUNTIME_LOG_PREFIX, storageDefaults.runtimeLogPrefix)
+        },
+        {
+          telegramToken: '',
+          notifyChatId: '',
+          telegramTestChatId: '',
+          publicUrl: peerPublicUrl,
+          r2Bucket: '',
+          r2StateKey: '',
+          r2BlacklistKey: '',
+          r2KnownUsersKey: '',
+          r2ImagePrefix: '',
+          r2ImageStatusKey: '',
+          r2CrashLogPrefix: '',
+          r2CrashLogStatusKey: '',
+          r2RequestLogPrefix: '',
+          r2RequestLogStatusKey: '',
+          r2RuntimeLogPrefix: ''
+        },
+        botEnv
+      );
+    }
+    console.log('[deploy] dry-run OK: separation guards passed');
+    console.log(`[deploy] env=${botEnv} service=${serviceName} peer=${peerServiceName}`);
+    console.log(`[deploy] notify=${notifyChatId} testChat=${telegramTestChatId}`);
+    console.log(`[deploy] currentPublicUrl=${currentPublicUrl || '-'}`);
+    return;
+  }
+
   globalStage = 'update-service-config';
   await render.updateService(serviceId, {
     repo: repoUrl,
@@ -672,17 +1172,35 @@ async function main() {
   console.log(`[deploy] service build/start commands updated (repo=${repoUrl}, branch=${branch})`);
 
   globalStage = 'sync-env-vars';
+  let previousBotVersion = '';
+  try {
+    const currentEnvRows = await render.listServiceEnvVars(serviceId);
+    const currentVersionRow = currentEnvRows.find((row) => String(row?.key || '').trim() === 'RENDER_BOT_VERSION');
+    previousBotVersion = String(currentVersionRow?.value || '').trim();
+  } catch (error) {
+    console.log(`[deploy] warning: could not read existing service env vars for version bump: ${String(error?.message || error)}`);
+  }
+  const configuredMajor = String(args['version-major'] || process.env.RENDER_BOT_VERSION_MAJOR || '1').trim();
+  const nextBotVersion = resolveNextBotVersion(previousBotVersion, configuredMajor);
+  const versionBumpedAt = new Date().toISOString();
   const envVars = {
+    BOT_ENV: botEnv,
     TELEGRAM_BOT_TOKEN: telegramToken,
     TELEGRAM_WEBHOOK_SECRET: webhookSecret,
     RENDER_BOT_PERSISTENCE_MODE: 'r2',
     RENDER_BOT_BASE_CONFIG: 'telegram/config/default.render.yml',
     RENDER_BOT_STATE_FILE: 'telegram/data/runtime-state.json',
-    R2_STATE_KEY: firstNonEmpty(args['r2-state-key'], process.env.R2_STATE_KEY, 'state/runtime-config.json'),
+    R2_STATE_KEY: firstNonEmpty(args['r2-state-key'], process.env.R2_STATE_KEY, storageDefaults.stateKey),
+    R2_BLACKLIST_KEY: firstNonEmpty(args['r2-blacklist-key'], process.env.R2_BLACKLIST_KEY, storageDefaults.blacklistKey),
+    R2_KNOWN_USERS_KEY: firstNonEmpty(args['r2-known-users-key'], process.env.R2_KNOWN_USERS_KEY, storageDefaults.knownUsersKey),
+    R2_RUNTIME_LOG_PREFIX: firstNonEmpty(args['r2-runtime-log-prefix'], process.env.R2_RUNTIME_LOG_PREFIX, storageDefaults.runtimeLogPrefix),
     RENDER_BOT_OUT_DIR: 'telegram/out',
     RENDER_BOT_FETCH_TIMEOUT_MS: '45000',
     RENDER_BOT_DEBUG_ARTIFACTS: 'false',
     RENDER_BOT_DEFAULT_PROVIDER: firstNonEmpty(args['default-provider'], process.env.RENDER_BOT_DEFAULT_PROVIDER, 'gemini'),
+    RENDER_BOT_VERSION: nextBotVersion,
+    RENDER_BOT_VERSION_BUMPED_AT: versionBumpedAt,
+    RENDER_BOT_VERSION_MAJOR: String(parseMajorMinorVersion(nextBotVersion, configuredMajor).major),
     // Force stable deployment default unless explicitly overridden by --default-objective.
     RENDER_BOT_DEFAULT_OBJECTIVE: firstNonEmpty(args['default-objective'], 'explain-like-im-five'),
     TELEGRAM_NOTIFY_ON_START: 'true',
@@ -699,6 +1217,7 @@ async function main() {
 
   await render.setServiceEnvVars(serviceId, envVars);
   console.log('[deploy] env vars synced');
+  console.log(`[deploy] bot version advanced: ${previousBotVersion || 'none'} -> ${nextBotVersion}`);
 
   globalStage = 'trigger-deploy';
   const triggerStartedAtMs = Date.now();
@@ -707,7 +1226,8 @@ async function main() {
   const deployId = await resolveDeployId(render, serviceId, deployStart, triggerStartedAtMs);
   if (!deployId) throw new Error('Could not resolve deploy ID after trigger.');
   globalStage = 'wait-deploy';
-  const finalDeploy = await waitForDeploy(render, serviceId, deployId);
+  const waitTimeoutMs = Math.max(60000, Number(process.env.RENDER_DEPLOY_WAIT_TIMEOUT_MS || 900000));
+  const finalDeploy = await waitForDeploy(render, serviceId, deployId, waitTimeoutMs);
   const deployStatus = String(finalDeploy?.status || '').toLowerCase();
   if (deployStatus !== 'live') {
     console.log(`[deploy] deploy ended with status: ${deployStatus || 'unknown'}`);
@@ -742,6 +1262,26 @@ async function main() {
     return;
   }
 
+  // Final URL separation check (RENDER_PUBLIC_BASE_URL/public service URL must differ across environments).
+  if (peerServiceRecord) {
+    const peerPublicUrl = String(peerServiceRecord?.service?.serviceDetails?.url || peerServiceRecord?.serviceDetails?.url || '').trim();
+    assertCrossEnvironmentSeparation(
+      {
+        telegramToken,
+        notifyChatId,
+        telegramTestChatId,
+        publicUrl
+      },
+      {
+        telegramToken: '',
+        notifyChatId: '',
+        telegramTestChatId: '',
+        publicUrl: peerPublicUrl
+      },
+      botEnv
+    );
+  }
+
   globalStage = 'set-telegram-webhook';
   const webhookUrl = await setTelegramWebhook(telegramToken, webhookSecret, publicUrl);
 
@@ -751,6 +1291,10 @@ async function main() {
     fs.mkdirSync(path.dirname(metadataOut), { recursive: true });
     fs.writeFileSync(metadataOut, JSON.stringify({
       timestamp: new Date().toISOString(),
+      environment: botEnv,
+      botVersion: nextBotVersion,
+      botVersionPrevious: previousBotVersion,
+      botVersionBumpedAt: versionBumpedAt,
       ownerId,
       serviceId,
       serviceName,
@@ -758,6 +1302,17 @@ async function main() {
       publicUrl,
       webhookUrl,
       webhookSecret,
+      r2Bucket: r2Env.R2_BUCKET,
+      r2StateKey: envVars.R2_STATE_KEY,
+      r2BlacklistKey: envVars.R2_BLACKLIST_KEY,
+      r2KnownUsersKey: envVars.R2_KNOWN_USERS_KEY,
+      r2ImagePrefix: envVars.R2_IMAGE_PREFIX,
+      r2ImageStatusKey: envVars.R2_IMAGE_STATUS_KEY,
+      r2CrashLogPrefix: envVars.R2_CRASH_LOG_PREFIX,
+      r2CrashLogStatusKey: envVars.R2_CRASH_LOG_STATUS_KEY,
+      r2RequestLogPrefix: envVars.R2_REQUEST_LOG_PREFIX,
+      r2RequestLogStatusKey: envVars.R2_REQUEST_LOG_STATUS_KEY,
+      r2RuntimeLogPrefix: envVars.R2_RUNTIME_LOG_PREFIX,
       telegramTestChatId,
       notifyChatId
     }, null, 2), 'utf8');

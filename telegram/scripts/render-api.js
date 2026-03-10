@@ -81,6 +81,11 @@ class RenderApiClient {
     return this.request(`/services/${serviceId}/env-vars`, 'PUT', envVars);
   }
 
+  async listServiceEnvVars(serviceId) {
+    const rows = await this.request(`/services/${serviceId}/env-vars`, 'GET');
+    return Array.isArray(rows) ? rows : [];
+  }
+
   async triggerDeploy(serviceId) {
     return this.request(`/services/${serviceId}/deploys`, 'POST', { clearCache: 'do_not_clear' });
   }

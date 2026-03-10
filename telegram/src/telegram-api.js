@@ -1,10 +1,37 @@
 const fs = require('fs');
+const TELEGRAM_MAX_TEXT_CHARS = 4096;
+const TELEGRAM_SAFE_TEXT_CHARS = 3900;
+
+function splitMessageText(input, maxChars = TELEGRAM_SAFE_TEXT_CHARS) {
+  const raw = String(input || '');
+  if (!raw) return [''];
+  if (raw.length <= maxChars) return [raw];
+
+  const chunks = [];
+  let start = 0;
+  while (start < raw.length) {
+    let end = Math.min(raw.length, start + maxChars);
+    if (end < raw.length) {
+      const slice = raw.slice(start, end);
+      const lastBreak = Math.max(slice.lastIndexOf('\n'), slice.lastIndexOf(' '));
+      if (lastBreak >= 0 && lastBreak >= Math.floor(maxChars * 0.6)) {
+        end = start + lastBreak + 1;
+      }
+    }
+    chunks.push(raw.slice(start, end));
+    start = end;
+  }
+  return chunks.filter((c) => c.length > 0);
+}
 
 class TelegramApi {
   constructor(botToken, baseUrl) {
     if (!botToken) throw new Error('Missing Telegram bot token');
     this.botToken = String(botToken);
     this.baseUrl = String(baseUrl || `https://api.telegram.org/bot${this.botToken}`).replace(/\/+$/, '');
+    this.fileBaseUrl = this.baseUrl.includes(`/bot${this.botToken}`)
+      ? this.baseUrl.replace(`/bot${this.botToken}`, `/file/bot${this.botToken}`)
+      : `https://api.telegram.org/file/bot${this.botToken}`;
   }
 
   async call(method, payload, asFormData) {
@@ -34,13 +61,21 @@ class TelegramApi {
   }
 
   async sendMessage(chatId, text, extra) {
-    return this.call('sendMessage', {
-      chat_id: chatId,
-      text: String(text || ''),
-      disable_web_page_preview: true,
-      ...(extra || {}),
-      protect_content: false
-    });
+    const message = String(text || '');
+    const chunks = message.length > TELEGRAM_MAX_TEXT_CHARS
+      ? splitMessageText(message, TELEGRAM_SAFE_TEXT_CHARS)
+      : [message];
+    let lastResult = null;
+    for (const chunk of chunks) {
+      lastResult = await this.call('sendMessage', {
+        chat_id: chatId,
+        text: chunk,
+        disable_web_page_preview: true,
+        ...(extra || {}),
+        protect_content: false
+      });
+    }
+    return lastResult;
   }
 
   async sendChatAction(chatId, action) {
@@ -85,6 +120,24 @@ class TelegramApi {
     });
 
     return this.call('sendMediaGroup', form, true);
+  }
+
+  async getFile(fileId) {
+    return this.call('getFile', {
+      file_id: String(fileId || '').trim()
+    });
+  }
+
+  async downloadFile(filePath) {
+    const clean = String(filePath || '').replace(/^\/+/, '');
+    if (!clean) throw new Error('downloadFile requires file_path');
+    const url = `${this.fileBaseUrl}/${clean}`;
+    const res = await fetch(url, { method: 'GET' });
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`Telegram file download failed (${res.status}): ${text.slice(0, 200)}`);
+    }
+    return Buffer.from(await res.arrayBuffer());
   }
 }
 

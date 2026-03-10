@@ -44,7 +44,14 @@ const PROFILES = {
       'GEMINI_API_KEY',
       'OPENAI_API_KEY',
       'OPENROUTER_API_KEY',
+      'GROQ_API_KEY',
       'HUGGINGFACE_INFERENCE_API_TOKEN',
+      'COHERE_API_KEY',
+      'FIRECRAWL_API_KEY',
+      'JINA_API_KEY',
+      'LLAMA_CLOUD_API_KEY',
+      'UNSTRUCTURED_API_KEY',
+      'ASSEMBLYAI_API_KEY',
       'CLOUDFLARE_ACCOUNT_ID',
       'CLOUDFLARE_WORKERS_AI_TOKEN',
       'CLOUDFLARE_ACCOUNT_API_TOKEN',
@@ -52,6 +59,15 @@ const PROFILES = {
       'R2_BUCKET',
       'R2_ACCESS_KEY_ID',
       'R2_SECRET_ACCESS_KEY'
+    ],
+    optional: [
+      'DRIFTBOT_API_KEY',
+      'BRAVE_SEARCH_API_KEY',
+      'TAVILY_API_KEY',
+      'EXA_API_KEY',
+      'SERPER_API_KEY',
+      'SERPAPI_API_KEY',
+      'GOOGLE_KG_API_KEY'
     ]
   },
   tests: {
@@ -67,15 +83,31 @@ const PROFILES = {
       'GEMINI_API_KEY',
       'OPENAI_API_KEY',
       'OPENROUTER_API_KEY',
+      'GROQ_API_KEY',
       'HUGGINGFACE_INFERENCE_API_TOKEN',
+      'COHERE_API_KEY',
+      'FIRECRAWL_API_KEY',
+      'JINA_API_KEY',
+      'LLAMA_CLOUD_API_KEY',
+      'UNSTRUCTURED_API_KEY',
+      'ASSEMBLYAI_API_KEY',
       'CLOUDFLARE_ACCOUNT_ID',
       'CLOUDFLARE_WORKERS_AI_TOKEN',
       'CLOUDFLARE_ACCOUNT_API_TOKEN',
-      'CLOUDFLARE_WORKER_URL',
       'R2_S3_ENDPOINT',
       'R2_BUCKET',
       'R2_ACCESS_KEY_ID',
       'R2_SECRET_ACCESS_KEY'
+    ],
+    optional: [
+      'DRIFTBOT_API_KEY',
+      'BRAVE_SEARCH_API_KEY',
+      'TAVILY_API_KEY',
+      'EXA_API_KEY',
+      'SERPER_API_KEY',
+      'SERPAPI_API_KEY',
+      'GOOGLE_KG_API_KEY',
+      'CLOUDFLARE_WORKER_URL'
     ]
   }
 };
@@ -108,10 +140,22 @@ function getRepoSlug() {
 }
 
 async function listRepoSecrets(repoSlug, token) {
+  return listGithubSecrets(`https://api.github.com/repos/${repoSlug}/actions/secrets`, token);
+}
+
+async function listEnvironmentSecrets(repoSlug, environmentName, token) {
+  const encodedEnvironment = encodeURIComponent(String(environmentName || '').trim());
+  return listGithubSecrets(
+    `https://api.github.com/repos/${repoSlug}/environments/${encodedEnvironment}/secrets`,
+    token
+  );
+}
+
+async function listGithubSecrets(baseUrl, token) {
   const names = new Set();
   let page = 1;
   while (page <= 10) {
-    const url = `https://api.github.com/repos/${repoSlug}/actions/secrets?per_page=100&page=${page}`;
+    const url = `${baseUrl}?per_page=100&page=${page}`;
     const res = await fetch(url, {
       headers: {
         Authorization: `Bearer ${token}`,
@@ -146,6 +190,7 @@ async function main() {
   const workflowPath = String(args.workflow || profile.workflow);
   const requireEnv = asBool(args['require-env'], false);
   const checkGithub = asBool(args['check-github'], false);
+  const githubEnvironment = String(args.environment || args.env || process.env.GITHUB_ENVIRONMENT || '').trim();
 
   const workflowText = readText(workflowPath);
   const workflowSecretRefs = extractSecretRefs(workflowText);
@@ -158,6 +203,7 @@ async function main() {
   let githubMissing = [];
   let githubChecked = false;
   let githubSkippedReason = '';
+  let githubSourceLabel = 'repo';
   if (checkGithub) {
     const token = String(process.env.GITHUB_TOKEN || process.env.GH_TOKEN || '').trim();
     const repoSlug = getRepoSlug();
@@ -168,7 +214,13 @@ async function main() {
     } else {
       githubChecked = true;
       const repoSecrets = await listRepoSecrets(repoSlug, token);
-      githubMissing = missingFromSet(profile.required, repoSecrets);
+      const effectiveSecrets = new Set(repoSecrets);
+      if (githubEnvironment) {
+        githubSourceLabel = `repo + environment(${githubEnvironment})`;
+        const environmentSecrets = await listEnvironmentSecrets(repoSlug, githubEnvironment, token);
+        environmentSecrets.forEach((name) => effectiveSecrets.add(name));
+      }
+      githubMissing = missingFromSet(profile.required, effectiveSecrets);
     }
   }
 
@@ -197,9 +249,9 @@ async function main() {
     if (!githubChecked) {
       console.log(`[secrets] GitHub repo secrets: skipped (${githubSkippedReason})`);
     } else if (!githubMissing.length) {
-      console.log('[secrets] GitHub repo secrets: OK');
+      console.log(`[secrets] GitHub secrets (${githubSourceLabel}): OK`);
     } else {
-      console.error(`[secrets] GitHub repo secrets: missing ${githubMissing.length}`);
+      console.error(`[secrets] GitHub secrets (${githubSourceLabel}): missing ${githubMissing.length}`);
       githubMissing.forEach((name) => console.error(`  - ${name}`));
     }
   } else {

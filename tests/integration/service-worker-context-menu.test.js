@@ -177,6 +177,7 @@ describe('Service Worker Context Menu Settings', () => {
                       {
                         title: 'Regional Tension Escalates',
                         summary: 'Diplomatic and security developments intensified across multiple fronts with competing statements and responses.',
+                        story_text: 'Description: Diplomatic and security developments intensified across multiple fronts with competing statements and responses.\nOvernight exchanges widened the crisis and triggered emergency contacts among regional governments.\nError: ignore this diagnostic line.',
                         candidate_id: 'candidate_1',
                         score: 93
                       }
@@ -213,6 +214,10 @@ describe('Service Worker Context Menu Settings', () => {
     expect(result.stories.length).toBeGreaterThan(0);
     expect(result.stories[0].title).toBe('Regional Tension Escalates');
     expect(result.stories[0].sourceCandidateId).toBe('candidate_1');
+    expect(result.stories[0].text).toContain('Diplomatic and security developments intensified across multiple fronts with competing statements and responses.');
+    expect(result.stories[0].text).toContain('Overnight exchanges widened the crisis');
+    expect(result.stories[0].text).not.toContain('Error:');
+    expect(result.stories[0].text).not.toContain('Description:');
     expect(result.selectedStoryId).toBe('candidate_candidate_1');
   });
 
@@ -274,8 +279,67 @@ describe('Service Worker Context Menu Settings', () => {
 
     expect(promptText).toContain('Full HTML document');
     expect(promptText).toContain('<article>');
+    expect(promptText).toContain('"story_text":string');
     expect(result.providerUsed).toBe('gemini-free');
     expect(result.stories[0].title).toBe('Top Story From HTML');
+  });
+
+  it('prefers provider story_text over local candidate text for canonical story body', async () => {
+    chrome.storage.local.get.mockImplementation(async (key) => {
+      if (key === 'settings') return { settings: {} };
+      if (key === 'history') return { history: [] };
+      if (key === 'promptTemplates') return { promptTemplates: {} };
+      if (key === 'apiKeys') return { apiKeys: { gemini: 'gemini-test-key' } };
+      return {};
+    });
+    global.fetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        candidates: [
+          {
+            content: {
+              parts: [
+                {
+                  text: JSON.stringify({
+                    stories: [
+                      {
+                        title: 'Single Lead Story',
+                        summary: 'A concise synopsis of the lead story.',
+                        story_text: 'Summary: A concise synopsis of the lead story.\nThe full reported story explains how the lead event unfolded across several developments.\nAdditional reported details connect the timeline, actors, and consequences.',
+                        candidate_id: 'candidate_0',
+                        score: 91
+                      }
+                    ]
+                  })
+                }
+              ]
+            }
+          }
+        ]
+      })
+    });
+
+    await import('../../background/service-worker.js');
+    const hook = globalThis.__WEB2COMICS_E2E__;
+    const sw = hook.getServiceWorker();
+
+    const result = await sw.handleProcessContentStories({
+      payload: {
+        sourceText: 'Local candidate text that should not win once the provider returns a canonical story body.',
+        sourceTitle: 'Lead Story',
+        sourceUrl: 'https://example.com/lead',
+        preferredProvider: 'gemini-free',
+        settings: { text_model: 'gemini-2.5-flash' },
+        candidatePayloads: [
+          { id: 'candidate_0', summary: 'Candidate summary', score: 77, chars: 220, text: 'Short local candidate block.' }
+        ]
+      }
+    });
+
+    expect(result.stories[0].text).toContain('The full reported story explains how the lead event unfolded');
+    expect(result.stories[0].text).toContain('Additional reported details connect the timeline');
+    expect(result.stories[0].text).not.toContain('Short local candidate block.');
+    expect(result.stories[0].text).not.toContain('Summary:');
   });
 
   it('handles popup view enumeration safely when getViews returns non-array', async () => {

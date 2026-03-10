@@ -8,8 +8,8 @@ Scope note:
 
 ## Public Command Coverage Reference
 - Onboarding/info: `/start`, `/welcome`, `/help`, `/about`, `/version`, `/user`, `/config`, `/explain`, `/debug`
-- Generation/replay: text/URL input, `/invent`, `/random`, `/peek`
-- Providers/models: `/vendor`, `/text_vendor`, `/image_vendor`, `/models`, `/test`
+- Generation/replay: text, link, PDF, image, or voice/audio input, `/invent`, `/random`, `/peek`
+- Providers/models: `/vendors`, `/vendor`, `/text_vendor`, `/image_vendor`, `/models`, `/test`
 - Controls: `/panels`, `/objective`, `/objectives`, objective shortcuts, `/style`, style shortcuts, `/new_style`, `/language`, `/mode`, `/consistency`, `/detail`, `/crazyness`, `/concurrency`, `/retries`
 - Prompt/options: `/prompts`, `/set_prompt`, `/list_options`, `/options`
 - Credentials/state: `/keys`, `/setkey`, `/unsetkey`, `/reset_config`, `/restart`
@@ -46,6 +46,7 @@ These are data artifacts written during runtime/testing (storage backend depends
 - Crash logs: structured crash/error events (R2/file).
 - Generated images/status indexes: panel artifacts and storage accounting metadata (R2/file).
 - Known users + blacklist indexes: persisted operational lists.
+- Production/staging R2 layouts are expected to use env-scoped prefixes such as `envs/staging/...` and `envs/production/...`.
 
 Primary code paths for persisted data:
 

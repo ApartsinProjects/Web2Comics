@@ -3,6 +3,14 @@ name: Bot Deploy
 on:
   workflow_dispatch:
     inputs:
+      environment:
+        description: Deployment environment
+        required: true
+        default: staging
+        type: choice
+        options:
+          - staging
+          - production
       target:
         description: Deploy target
         required: true
@@ -15,12 +23,12 @@ on:
       branch:
         description: Git branch to deploy on Render
         required: true
-        default: engine
+        default: stage1
         type: string
       test_deployment:
         description: Deploy Render test service name
         required: true
-        default: true
+        default: false
         type: boolean
       with_render_smoke:
         description: Run Render full-stack smoke after deploy
@@ -32,10 +40,16 @@ on:
         required: true
         default: false
         type: boolean
+      dry_run:
+        description: Run deploy checks only (no service mutation/deploy trigger)
+        required: true
+        default: false
+        type: boolean
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.environment }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -53,6 +67,8 @@ jobs:
         shell: bash
         env:
           BOT_SECRETS_ENV_ONLY: "true"
+          BOT_ENV: ${{ github.event.inputs.environment }}
+          RENDER_DEPLOY_METADATA_OUT: telegram/out/deploy-render-metadata.${{ github.event.inputs.environment }}.json
           RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
           RENDER_OWNER_ID: ${{ secrets.RENDER_OWNER_ID }}
           RENDER_REGION: ${{ secrets.RENDER_REGION }}
@@ -66,7 +82,21 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
           HUGGINGFACE_INFERENCE_API_TOKEN: ${{ secrets.HUGGINGFACE_INFERENCE_API_TOKEN }}
+          COHERE_API_KEY: ${{ secrets.COHERE_API_KEY }}
+          FIRECRAWL_API_KEY: ${{ secrets.FIRECRAWL_API_KEY }}
+          JINA_API_KEY: ${{ secrets.JINA_API_KEY }}
+          DRIFTBOT_API_KEY: ${{ secrets.DRIFTBOT_API_KEY }}
+          BRAVE_SEARCH_API_KEY: ${{ secrets.BRAVE_SEARCH_API_KEY }}
+          TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
+          EXA_API_KEY: ${{ secrets.EXA_API_KEY }}
+          SERPER_API_KEY: ${{ secrets.SERPER_API_KEY }}
+          SERPAPI_API_KEY: ${{ secrets.SERPAPI_API_KEY }}
+          GOOGLE_KG_API_KEY: ${{ secrets.GOOGLE_KG_API_KEY }}
+          LLAMA_CLOUD_API_KEY: ${{ secrets.LLAMA_CLOUD_API_KEY }}
+          UNSTRUCTURED_API_KEY: ${{ secrets.UNSTRUCTURED_API_KEY }}
+          ASSEMBLYAI_API_KEY: ${{ secrets.ASSEMBLYAI_API_KEY }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_WORKERS_AI_TOKEN: ${{ secrets.CLOUDFLARE_WORKERS_AI_TOKEN }}
           CLOUDFLARE_ACCOUNT_API_TOKEN: ${{ secrets.CLOUDFLARE_ACCOUNT_API_TOKEN }}
@@ -80,9 +110,11 @@ jobs:
           set -euo pipefail
           npm run secrets:validate:deploy:ci
           EXTRA_ARGS=()
+          EXTRA_ARGS+=(--env "${{ github.event.inputs.environment }}")
           EXTRA_ARGS+=(--target "${{ github.event.inputs.target }}")
           EXTRA_ARGS+=(--branch "${{ github.event.inputs.branch }}")
           EXTRA_ARGS+=(--env-only)
+          EXTRA_ARGS+=(--skip-local-tests)
 
           if [[ "${{ github.event.inputs.test_deployment }}" == "true" ]]; then
             EXTRA_ARGS+=(--test-deployment)
@@ -92,6 +124,9 @@ jobs:
           fi
           if [[ "${{ github.event.inputs.with_cloudflare_smoke }}" == "true" ]]; then
             EXTRA_ARGS+=(--with-cloudflare-smoke)
+          fi
+          if [[ "${{ github.event.inputs.dry_run }}" == "true" ]]; then
+            EXTRA_ARGS+=(--dry-run)
           fi
 
           npm run bot:deploy:auto -- "${EXTRA_ARGS[@]}"

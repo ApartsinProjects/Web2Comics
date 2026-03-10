@@ -4,6 +4,20 @@ const yaml = require('js-yaml');
 const { loadConfig, deepMerge } = require('../../engine/src/config');
 const { SECRET_KEYS } = require('./options');
 
+const SECRET_KEY_ALIASES = {
+  CLOUDFLARE_WORKERS_AI_TOKEN: 'CLOUDFLARE_API_TOKEN',
+  LLAMAPARSE_API_KEY: 'LLAMA_CLOUD_API_KEY',
+  HUGGINGFACE_API_KEY: 'HUGGINGFACE_INFERENCE_API_TOKEN',
+  DIFFBOT_API_KEY: 'DRIFTBOT_API_KEY'
+};
+
+function normalizeSecretKey(rawKey) {
+  const key = String(rawKey || '').trim();
+  if (!key) return '';
+  if (SECRET_KEYS.includes(key)) return key;
+  return SECRET_KEY_ALIASES[key] || '';
+}
+
 function getByPath(obj, pathKey) {
   const keys = String(pathKey || '').split('.').filter(Boolean);
   let cur = obj;
@@ -217,9 +231,14 @@ class RuntimeConfigStore {
   ensureUser(chatId) {
     const key = this.normalizeUserKey(chatId);
     if (!this.state.users[key]) {
+      const seededSecrets = {};
+      SECRET_KEYS.forEach((secretKey) => {
+        const envVal = String((this.baseSecrets || {})[secretKey] || '').trim();
+        if (envVal) seededSecrets[secretKey] = envVal;
+      });
       this.state.users[key] = {
         overrides: {},
-        secrets: {},
+        secrets: seededSecrets,
         seen: false,
         profile: {},
         identity: { usernames: [], names: [], chatUsernames: [] },
@@ -488,15 +507,18 @@ class RuntimeConfigStore {
   }
 
   async setSecret(chatId, key, value) {
-    const k = String(key || '').trim();
-    if (!SECRET_KEYS.includes(k)) throw new Error(`Unsupported key: ${k}`);
+    const requested = String(key || '').trim();
+    const k = normalizeSecretKey(requested);
+    if (!k) throw new Error(`Unsupported key: ${requested}`);
     const user = this.ensureUser(chatId);
     user.secrets[k] = String(value || '').trim();
     await this.save();
   }
 
   async unsetSecret(chatId, key) {
-    const k = String(key || '').trim();
+    const requested = String(key || '').trim();
+    const k = normalizeSecretKey(requested);
+    if (!k) throw new Error(`Unsupported key: ${requested}`);
     const user = this.ensureUser(chatId);
     delete user.secrets[k];
     await this.save();
@@ -727,6 +749,7 @@ class RuntimeConfigStore {
 
 module.exports = {
   RuntimeConfigStore,
+  normalizeSecretKey,
   getByPath,
   setByPath,
   flattenObject,

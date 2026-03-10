@@ -12,12 +12,12 @@ Scope note:
 ## Public Command Surface (For Deployment Validation)
 - Verify onboarding/info commands: `/start`, `/welcome`, `/help`, `/about`, `/version`, `/user`, `/config`, `/explain`, `/debug`
 - Verify generation commands:
-  - text/URL input
+  - text, link, PDF, image, or voice/audio input
   - `/invent <story>`
   - `/random`
   - `/peek`, `/peek<n>`
 - Verify configuration commands:
-  - `/vendor`, `/text_vendor`, `/image_vendor`, `/models`, `/test`
+  - `/vendors`, `/vendor`, `/text_vendor`, `/image_vendor`, `/models`, `/test`
   - `/panels`, `/objective`, `/objectives` + objective shortcuts (`/summary`, `/fun`, `/learn`, `/news`, `/timeline`, `/facts`, `/compare`, `/5yold`, `/eli5`, `/study`, `/meeting`, `/howto`, `/debate`)
   - `/style` + style shortcuts (`/classic`, `/noir`, `/manga`, `/superhero`, `/watercolor`, `/newspaper`, `/cinematic`, `/anime`, `/cyberpunk`, `/pixel-art`, `/retro-pop`, `/minimalist`, `/storybook`, `/ink-wash`, `/line-art`, `/clay-3d`)
   - `/new_style`, `/language`, `/mode`, `/consistency`, `/detail`, `/crazyness`, `/concurrency`, `/retries`
@@ -71,6 +71,13 @@ npm run secrets:validate:deploy
 npm run secrets:validate:deploy:ci
 ```
 
+Audit GitHub repo plus environment secrets before dispatching the workflow:
+
+```bash
+npm run secrets:validate:deploy:github:staging
+npm run secrets:validate:deploy:github:production
+```
+
 Predeploy also enforces strict Cloudflare token roles:
 - `CLOUDFLARE_WORKERS_AI_TOKEN` = Workers AI provider token
 - `CLOUDFLARE_ACCOUNT_API_TOKEN` = Cloudflare account API token
@@ -84,22 +91,22 @@ CI workflows also enforce these checks:
 Primary path:
 
 ```bash
-npm run bot:deploy:auto -- --target render --branch engine --env-only
+npm run bot:deploy:auto -- --target render --env staging --branch stage1 --env-only
 ```
 
 Useful variants:
 
 ```bash
-npm run bot:deploy:auto -- --target render --branch engine --env-only --with-render-smoke
+npm run bot:deploy:auto -- --target render --env staging --branch stage1 --env-only --with-render-smoke
 npm run bot:deploy:auto -- --target cloudflare --env-only --with-cloudflare-smoke
-npm run bot:deploy:auto -- --target both --branch engine --env-only --with-render-smoke --with-cloudflare-smoke
+npm run bot:deploy:auto -- --target both --env staging --branch stage1 --env-only --with-render-smoke --with-cloudflare-smoke
 ```
 
 By default, `bot:deploy:auto` now runs a post-deploy sanity E2E check for Render (`telegram/scripts/postdeploy-sanity.js`).
 Skip it only when needed:
 
 ```bash
-npm run bot:deploy:auto -- --target render --branch engine --env-only --skip-sanity
+npm run bot:deploy:auto -- --target render --env staging --branch stage1 --env-only --skip-sanity
 ```
 
 ## 5) What Automation Performs
@@ -133,3 +140,4 @@ npm run bot:deploy:auto -- --target render --branch engine --env-only --skip-san
 - Re-run deploy with previous branch/commit
 - Keep webhook secret stable unless rotation is required
 - If rotated, redeploy and re-register webhook immediately
+- Production deploys must use `--env production --branch main`
